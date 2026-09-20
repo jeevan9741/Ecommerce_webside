@@ -1,0 +1,379 @@
+// E-Commerce Training Academy — database schema
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum CourseType {
+  EBOOK
+  VIDEO
+  ZOOM
+  CENTRE
+}
+
+enum OrderStatus {
+  CREATED
+  PAID
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+enum CommissionStatus {
+  PENDING
+  CREDITED
+  REVERSED
+}
+
+enum PayoutMethodType {
+  BANK
+  UPI
+}
+
+enum WithdrawalStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+}
+
+enum OtpPurpose {
+  HOME_ACCESS
+  REGISTER
+  LOGIN_RESET
+}
+
+enum WorkType {
+  WORK_FROM_HOME
+  OFFICE
+  HYBRID
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  TERMINATED
+}
+
+enum JobApplicationStatus {
+  NEW
+  REVIEWED
+  SHORTLISTED
+  REJECTED
+  HIRED
+}
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  emailVerified DateTime?
+  phone         String?
+  username      String   @unique
+  passwordHash  String
+  role          Role     @default(USER)
+  referralCode  String   @unique
+  preferredLanguageId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  preferredLanguage  Language?            @relation("PreferredLanguage", fields: [preferredLanguageId], references: [id])
+  orders             Order[]              @relation("CustomerOrders")
+  referredOrders     Order[]              @relation("ReferrerOrders")
+  courseAccess       CourseAccess[]
+  commissions        CommissionLedger[]
+  payoutMethods      PayoutMethod[]
+  withdrawalRequests WithdrawalRequest[]
+  auditLogs          AuditLog[]
+
+  @@index([referralCode])
+}
+
+model EmailOtp {
+  id          String     @id @default(cuid())
+  email       String
+  codeHash    String
+  purpose     OtpPurpose
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  attempts    Int        @default(0)
+  createdAt   DateTime   @default(now())
+
+  @@index([email, purpose])
+}
+
+model Course {
+  id               String     @id @default(cuid())
+  slug             String     @unique
+  type             CourseType
+  title            String
+  shortDescription String
+  description      String
+  priceInPaise     Int
+  commissionInPaise Int
+  isActive         Boolean    @default(true)
+  metadata         Json?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  languageVideos CourseLanguageVideo[]
+  modules        Module[]
+  orders         Order[]
+  access         CourseAccess[]
+
+  @@index([type])
+}
+
+/** Optional curriculum structure for VIDEO courses that want a full lesson breakdown
+ * instead of (or in addition to) the single per-language video on CourseLanguageVideo. */
+model Module {
+  id           String   @id @default(cuid())
+  courseId     String
+  title        String
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons Lesson[]
+
+  @@index([courseId])
+}
+
+model Lesson {
+  id           String   @id @default(cuid())
+  moduleId     String
+  title        String
+  videoUrl     String?
+  subtitleUrl  String?
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  module Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@index([moduleId])
+}
+
+model Language {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  nativeName   String
+  isActive     Boolean  @default(true)
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  demoVideo        DemoVideo?
+  courseVideos     CourseLanguageVideo[]
+  preferredByUsers User[]                @relation("PreferredLanguage")
+
+  @@index([isActive])
+}
+
+model CourseLanguageVideo {
+  id          String   @id @default(cuid())
+  courseId    String
+  languageId  String
+  videoUrl    String?
+  subtitleUrl String?
+  ebookUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  course   Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  language Language @relation(fields: [languageId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, languageId])
+  @@index([courseId])
+  @@index([languageId])
+}
+
+model DemoVideo {
+  id         String   @id @default(cuid())
+  languageId String   @unique
+  storageKey String
+  createdAt  DateTime @default(now())
+
+  language Language @relation(fields: [languageId], references: [id], onDelete: Cascade)
+}
+
+model Order {
+  id                 String      @id @default(cuid())
+  userId             String
+  courseId           String
+  amountInPaise      Int
+  status             OrderStatus @default(CREATED)
+  razorpayOrderId    String      @unique
+  razorpayPaymentId  String?     @unique
+  razorpaySignature  String?
+  selectedLanguage   String?
+  referralCodeUsed   String?
+  referrerUserId     String?
+  createdAt          DateTime    @default(now())
+  paidAt             DateTime?
+
+  user       User            @relation("CustomerOrders", fields: [userId], references: [id])
+  referrer   User?           @relation("ReferrerOrders", fields: [referrerUserId], references: [id])
+  course     Course          @relation(fields: [courseId], references: [id])
+  access     CourseAccess?
+  commission CommissionLedger?
+
+  @@index([userId])
+  @@index([referrerUserId])
+  @@index([status])
+}
+
+model CourseAccess {
+  id               String   @id @default(cuid())
+  userId           String
+  courseId         String
+  orderId          String   @unique
+  languageGranted  String?
+  unlockedAt       DateTime @default(now())
+  revokedAt        DateTime?
+
+  user   User   @relation(fields: [userId], references: [id])
+  course Course @relation(fields: [courseId], references: [id])
+  order  Order  @relation(fields: [orderId], references: [id])
+
+  @@unique([userId, courseId])
+}
+
+model CommissionLedger {
+  id         String            @id @default(cuid())
+  partnerId  String
+  orderId    String            @unique
+  amountInPaise Int
+  status     CommissionStatus  @default(PENDING)
+  reason     String?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  partner User  @relation(fields: [partnerId], references: [id])
+  order   Order @relation(fields: [orderId], references: [id])
+
+  @@index([partnerId, status])
+}
+
+model PayoutMethod {
+  id                  String           @id @default(cuid())
+  userId              String
+  type                PayoutMethodType
+  encryptedDetails     String
+  label               String
+  isDefault           Boolean          @default(false)
+  createdAt           DateTime         @default(now())
+
+  user               User                 @relation(fields: [userId], references: [id])
+  withdrawalRequests WithdrawalRequest[]
+
+  @@index([userId])
+}
+
+model WithdrawalRequest {
+  id             String            @id @default(cuid())
+  partnerId      String
+  payoutMethodId String
+  amountInPaise  Int
+  status         WithdrawalStatus  @default(PENDING)
+  providerRefId  String?
+  failureReason  String?
+  requestedAt    DateTime          @default(now())
+  processedAt    DateTime?
+
+  partner      User         @relation(fields: [partnerId], references: [id])
+  payoutMethod PayoutMethod @relation(fields: [payoutMethodId], references: [id])
+
+  @@index([partnerId, status])
+}
+
+model Review {
+  id           String   @id @default(cuid())
+  customerName String
+  rating       Int
+  text         String
+  isApproved   Boolean  @default(true)
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+}
+
+model Certificate {
+  id           String   @id @default(cuid())
+  title        String
+  description  String?
+  storageKey   String
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+}
+
+model JobPosting {
+  id           String   @id @default(cuid())
+  title        String
+  description  String
+  eligibility  String
+  salary       String
+  workType     WorkType
+  workingHours String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  applications JobApplication[]
+}
+
+model JobApplication {
+  id             String                @id @default(cuid())
+  jobId          String
+  applicantName  String
+  email          String
+  phone          String
+  resumeStorageKey String?
+  coverNote      String?
+  status         JobApplicationStatus  @default(NEW)
+  createdAt      DateTime              @default(now())
+
+  job JobPosting @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+}
+
+model Employee {
+  id           String         @id @default(cuid())
+  employeeCode String         @unique
+  name         String
+  position     String
+  joiningDate  DateTime
+  salaryInPaise Int
+  workType     WorkType
+  status       EmployeeStatus @default(ACTIVE)
+  notes        String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+}
+
+model SiteSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  action    String
+  target    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id])
+
+  @@index([actorId])
+  @@index([action])
+}
