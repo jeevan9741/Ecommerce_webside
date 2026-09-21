@@ -13,22 +13,13 @@ export default async function CoursesPage() {
   const ownedCourseIds = new Set(data.ownedCourseIds);
 
   return (
-    <div className="container-academy py-16 sm:py-24">
+    <div className="container-academy pb-16 pt-10 sm:pb-24 sm:pt-12 xl:max-w-[1480px]">
       <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
+      <h1 className="sr-only">Courses</h1>
 
-      <div className="mx-auto max-w-2xl text-center">
-        <p className="eyebrow">Our Courses</p>
-        <h1 className="mt-3 font-display text-4xl font-bold text-parchment sm:text-5xl">
-          Pick the format that fits how you learn
-        </h1>
-        <p className="mt-5 text-base text-parchment-muted">
-          Every course unlocks automatically the moment your payment is confirmed — no waiting
-          on manual approval.
-        </p>
-      </div>
-
-      {/* pt-5 leaves room for the featured card's badge, which overhangs the card's top edge */}
-      <div className="mt-14 grid gap-6 pt-5 sm:grid-cols-2 sm:gap-7 xl:grid-cols-4">
+      {/* Mobile-first: 1 column, 2 from 768px, 4 in a single row from 1366px. pt-4 leaves room
+          for the featured card's badge, which overhangs the card's top edge. */}
+      <div className="grid grid-cols-1 gap-8 pt-4 md:grid-cols-2 md:gap-7 desk:grid-cols-4 desk:gap-6 2xl:gap-7">
         {courses.map((course) => {
           const alreadyPurchased = ownedCourseIds.has(course.id);
           return (

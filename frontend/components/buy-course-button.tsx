@@ -7,6 +7,9 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import { CheckCircle2, Loader2, Lock } from "lucide-react";
 import type { CoursePublic } from "@/components/course-card";
+import { PaymentModal } from "@/components/payment/PaymentModal";
+import { PAYMENT_METHODS, buildCheckoutConfig, type PaymentMethodId } from "@/components/payment/payment-methods";
+import { userService } from "@/services/userService";
 
 declare global {
   interface Window {
@@ -36,6 +39,10 @@ export function BuyCourseButton({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [method, setMethod] = useState<PaymentMethodId>("upi");
+  // Razorpay only honours prefill.method when a phone number is also prefilled.
+  const [contact, setContact] = useState<string | null>(null);
   // A ref guard is synchronous, unlike React state — it closes the window between
   // a click and the next render where a second click could otherwise slip through.
   const inFlightRef = useRef(false);
@@ -44,7 +51,7 @@ export function BuyCourseButton({
     return (
       <button
         onClick={() => router.push("/dashboard")}
-        className="flex w-full items-center justify-center gap-2 rounded-full border border-emerald bg-emerald/10 px-6 py-3 text-sm font-semibold text-emerald transition hover:bg-emerald/15"
+        className="flex w-full items-center justify-center gap-2 rounded-full border border-emerald bg-emerald/10 px-6 py-4 text-base font-semibold text-emerald transition hover:bg-emerald/15"
       >
         <CheckCircle2 className="h-4 w-4" /> Go to Course
       </button>
@@ -55,7 +62,7 @@ export function BuyCourseButton({
     return (
       <button
         onClick={() => router.push(`/login?callbackUrl=/courses`)}
-        className="btn-outline w-full"
+        className="btn-outline w-full py-4 text-base"
       >
         <Lock className="h-4 w-4" /> Login to Purchase
       </button>
@@ -156,6 +163,7 @@ export function BuyCourseButton({
       return;
     }
 
+    const selectedMethod = PAYMENT_METHODS.find((m) => m.id === method) ?? PAYMENT_METHODS[0];
     try {
       const rzp = new window.Razorpay({
         key: data.keyId,
@@ -164,7 +172,14 @@ export function BuyCourseButton({
         order_id: data.razorpayOrderId,
         name: "E-Commerce Training Academy",
         description: data.courseName,
-        prefill: { name: user?.name ?? "", email: user?.email ?? "" },
+        prefill: {
+          name: user?.name ?? "",
+          email: user?.email ?? "",
+          // Razorpay only applies prefill.method when contact and email are both set.
+          ...(contact ? { contact, method: selectedMethod.prefillMethod } : {}),
+        },
+        // Restrict Checkout to the method the customer picked in our own UI.
+        config: buildCheckoutConfig(selectedMethod),
         theme: { color: "#2563eb" },
         handler: () => {
           console.log(`${LOG_PREFIX} payment handler fired`, { orderId: data.orderId });
@@ -175,9 +190,12 @@ export function BuyCourseButton({
             console.log(`${LOG_PREFIX} checkout modal dismissed by user`);
             setBusy(false);
             inFlightRef.current = false;
+            // Back to our picker so they can try a different method.
+            setModalOpen(true);
           },
         },
       });
+      setModalOpen(false);
       rzp.open();
       console.log(`${LOG_PREFIX} Razorpay checkout opened`, { razorpayOrderId: data.razorpayOrderId });
       // Deliberately leave `busy`/inFlightRef set while the modal is open — it only
@@ -191,12 +209,47 @@ export function BuyCourseButton({
     }
   }
 
+  function openPicker() {
+    setError(null);
+    setModalOpen(true);
+    if (contact === null) {
+      // Best effort: without a phone number Checkout still opens on the chosen method
+      // (via config.display); it just can't also pre-select it.
+      userService
+        .getMe()
+        .then(({ user: me }) => {
+          const phone = typeof me.phone === "string" ? me.phone : "";
+          setContact(phone);
+        })
+        .catch(() => setContact(""));
+    }
+  }
+
   return (
     <div className="flex flex-col gap-2">
-      <button onClick={handleBuy} disabled={busy || processing} className="btn-gold w-full">
-        {busy || processing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enroll Now"}
+      <button onClick={openPicker} disabled={busy || processing} className="btn-gold w-full bg-gradient-to-r from-gold-500 to-gold-600 py-4 text-base shadow-[0_12px_28px_-10px_rgba(37,99,235,0.65)] hover:-translate-y-0.5 hover:from-gold-hover hover:to-gold-500">
+        {processing ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" /> Confirming payment…
+          </>
+        ) : busy ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          "Enroll Now"
+        )}
       </button>
-      {error && <p className="text-xs text-danger">{error}</p>}
+      {error && !modalOpen && <p className="text-xs text-danger">{error}</p>}
+
+      <PaymentModal
+        open={modalOpen}
+        course={course}
+        method={method}
+        onMethodChange={setMethod}
+        onClose={() => setModalOpen(false)}
+        onProceed={handleBuy}
+        loading={busy}
+        error={error}
+      />
     </div>
   );
 }

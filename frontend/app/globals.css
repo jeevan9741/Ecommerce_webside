@@ -19,6 +19,8 @@
 }
 
 @theme inline {
+  /* 1366px — laptop/desktop width where the Courses grid switches to 4 cards in a row. */
+  --breakpoint-desk: 85.375rem;
   --color-ink: var(--ink);
   --color-ink-elevated: var(--ink-elevated);
   --color-surface: var(--surface);

@@ -68,23 +68,29 @@ export function BrandLogo({ className = "h-9 w-9" }: { className?: string }) {
 export function LogoMark({
   className = "",
   variant = "dark",
+  size = "md",
 }: {
   className?: string;
   /** "dark" for use on light backgrounds (default), "white" for blue banners (navbar, footer, sidebar). */
   variant?: "dark" | "white";
+  /** "lg" is the larger, responsive lockup used in the main navbar. */
+  size?: "md" | "lg";
 }) {
   const isWhite = variant === "white";
+  const lg = size === "lg";
   return (
-    <div className={`flex items-center gap-2.5 ${className}`}>
-      <BrandLogo />
+    <div className={`flex items-center ${lg ? "gap-2.5 sm:gap-3" : "gap-2.5"} ${className}`}>
+      <BrandLogo className={lg ? "h-9 w-9 shrink-0 sm:h-11 sm:w-11 lg:h-12 lg:w-12" : undefined} />
       <span
-        className={`font-display text-[1.05rem] leading-tight tracking-wide ${isWhite ? "text-white" : "text-parchment"}`}
+        className={`font-display tracking-wide ${
+          lg ? "text-[1.15rem] leading-none sm:text-[1.35rem] lg:text-[1.5rem]" : "text-[1.05rem] leading-tight"
+        } ${isWhite ? "text-white" : "text-parchment"}`}
       >
         E-Commerce
         <span
-          className={`block -mt-1 text-xs font-body font-semibold uppercase tracking-[0.25em] ${
-            isWhite ? "text-blue-100" : "text-gold-500"
-          }`}
+          className={`block font-body font-semibold uppercase ${
+            lg ? "mt-1 text-[9px] tracking-[0.24em] sm:text-[11px] lg:text-[12.5px] lg:tracking-[0.28em]" : "-mt-1 text-xs tracking-[0.25em]"
+          } ${isWhite ? (lg ? "text-white/95" : "text-blue-100") : "text-gold-500"}`}
         >
           Training Academy
         </span>
