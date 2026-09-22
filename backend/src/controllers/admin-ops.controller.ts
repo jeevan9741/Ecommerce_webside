@@ -229,6 +229,67 @@ export async function processWithdrawal(req: Request, res: Response) {
   res.json({ withdrawal: updated });
 }
 
+// ---------- Referral claims ----------
+
+export async function listReferralClaims(_req: Request, res: Response) {
+  const claims = await prisma.referralClaim.findMany({
+    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+    include: {
+      partner: { select: { name: true, email: true, referralCode: true } },
+      course: { select: { title: true, type: true, priceInPaise: true } },
+    },
+  });
+  res.json({ claims });
+}
+
+const reviewReferralClaimSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("APPROVE"),
+    commissionInPaise: z.number().int().positive(),
+    adminNote: z.string().max(500).optional(),
+  }),
+  z.object({
+    action: z.literal("REJECT"),
+    adminNote: z.string().max(500).optional(),
+  }),
+]);
+
+export async function reviewReferralClaim(req: Request, res: Response) {
+  const admin = currentUser(req);
+  const id = param(req, "id");
+  const parsed = reviewReferralClaimSchema.safeParse(req.body);
+  if (!parsed.success) throw new HttpError(400, "Invalid request");
+
+  const claim = await prisma.referralClaim.findUnique({ where: { id }, select: { id: true } });
+  if (!claim) throw new HttpError(404, "Not found");
+
+  // Approval credits the partner's balance, so a claim is reviewed exactly once. Conditioning the
+  // write on PENDING makes that hold even when two admins review the same claim concurrently.
+  const data = parsed.data;
+  const { count } = await prisma.referralClaim.updateMany({
+    where: { id, status: "PENDING" },
+    data: {
+      status: data.action === "APPROVE" ? "APPROVED" : "REJECTED",
+      commissionInPaise: data.action === "APPROVE" ? data.commissionInPaise : null,
+      adminNote: data.adminNote || null,
+      reviewedAt: new Date(),
+    },
+  });
+  if (count === 0) throw new HttpError(409, "This claim has already been reviewed");
+  const updated = await prisma.referralClaim.findUniqueOrThrow({ where: { id } });
+
+  await prisma.auditLog.create({
+    data: {
+      actorId: admin.id,
+      action: `REFERRAL_CLAIM_${updated.status}`,
+      target: id,
+      metadata: data.action === "APPROVE" ? { commissionInPaise: data.commissionInPaise } : undefined,
+    },
+  });
+
+  res.json({ claim: updated });
+}
+
 // ---------- Site settings ----------
 
 const settingSchema = z.object({

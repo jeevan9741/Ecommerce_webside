@@ -52,6 +52,21 @@ export const withdrawalRequestSchema = z.object({
   amountInPaise: z.number().int().positive(),
 });
 
+export const referralClaimSchema = z.object({
+  studentName: z.string().trim().min(2).max(100),
+  studentPhone: z
+    .string()
+    .trim()
+    .regex(/^\+?[0-9]{10,15}$/, "Enter a valid 10–15 digit phone number"),
+  courseId: z.string().min(1),
+  // UPI UTRs are 12 digits; allow bank/UPI reference variants but keep it to plain alphanumerics.
+  utr: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z0-9]{10,30}$/, "Enter a valid UTR / payment reference (10–30 letters or digits)"),
+});
+
 export const jobApplicationSchema = z.object({
   jobId: z.string().min(1),
   applicantName: z.string().min(2).max(100),

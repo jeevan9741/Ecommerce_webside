@@ -26,6 +26,8 @@ router.post("/admin/orders/:id/sync", asyncHandler(ops.syncOrder));
 // Withdrawals
 router.get("/admin/withdrawals", asyncHandler(ops.listWithdrawals));
 router.post("/admin/withdrawals/:id/process", asyncHandler(ops.processWithdrawal));
+router.get("/admin/referral-claims", asyncHandler(ops.listReferralClaims));
+router.post("/admin/referral-claims/:id/review", asyncHandler(ops.reviewReferralClaim));
 
 // Settings
 router.get("/admin/settings", asyncHandler(ops.listSettings));

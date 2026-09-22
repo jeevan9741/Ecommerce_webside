@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { prisma } from "../config/prisma.js";
-import { payoutMethodSchema, withdrawalRequestSchema } from "../utils/validation.js";
+import { payoutMethodSchema, referralClaimSchema, withdrawalRequestSchema } from "../utils/validation.js";
 import { encryptJson } from "../utils/crypto.js";
 import { getPartnerBalance, getPartnerEarningsBreakdown } from "../services/commission.service.js";
 import { rateLimit } from "../utils/rate-limit.js";
@@ -10,7 +10,7 @@ import { HttpError } from "../utils/http.js";
 export async function partnerStats(req: Request, res: Response) {
   const user = currentUser(req);
 
-  const [balance, earnings, referralCount, sales, pending] = await Promise.all([
+  const [balance, earnings, referralCount, sales, pending, ledgerCounts, claimCounts] = await Promise.all([
     getPartnerBalance(user.id),
     getPartnerEarningsBreakdown(user.id),
     prisma.order.count({ where: { referrerUserId: user.id, status: "PAID" } }),
@@ -24,7 +24,12 @@ export async function partnerStats(req: Request, res: Response) {
       where: { partnerId: user.id, status: "PENDING" },
       _sum: { amountInPaise: true },
     }),
+    prisma.commissionLedger.groupBy({ by: ["status"], where: { partnerId: user.id }, _count: true }),
+    prisma.referralClaim.groupBy({ by: ["status"], where: { partnerId: user.id }, _count: true }),
   ]);
+
+  const countOf = (rows: { status: string; _count: number }[], status: string) =>
+    rows.find((r) => r.status === status)?._count ?? 0;
 
   res.json({
     referralCode: user.referralCode,
@@ -32,6 +37,9 @@ export async function partnerStats(req: Request, res: Response) {
     earnings,
     pendingInPaise: pending._sum.amountInPaise ?? 0,
     referralCount,
+    // Sales = referral-link commissions plus UTR claims, so the portal card shows one combined figure.
+    approvedSales: countOf(ledgerCounts, "CREDITED") + countOf(claimCounts, "APPROVED"),
+    pendingApprovals: countOf(ledgerCounts, "PENDING") + countOf(claimCounts, "PENDING"),
     sales: sales.map((s) => ({
       id: s.id,
       amountInPaise: s.amountInPaise,
@@ -104,4 +112,60 @@ export async function createWithdrawal(req: Request, res: Response) {
   });
 
   res.json({ withdrawal });
+}
+
+export async function createReferralClaim(req: Request, res: Response) {
+  const user = currentUser(req);
+
+  if (!rateLimit(`referral-claim:${user.id}`, 10, 60 * 60 * 1000)) {
+    throw new HttpError(429, "Too many claims submitted. Try again later.");
+  }
+
+  const parsed = referralClaimSchema.safeParse(req.body);
+  if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? "Invalid request");
+  const { studentName, studentPhone, courseId, utr } = parsed.data;
+
+  const course = await prisma.course.findUnique({ where: { id: courseId }, select: { isActive: true } });
+  if (!course?.isActive) throw new HttpError(400, "Please choose a valid package");
+
+  // UTRs are globally unique, so one payment can only ever be claimed once — by anyone.
+  const existing = await prisma.referralClaim.findUnique({ where: { utr }, select: { id: true } });
+  if (existing) throw new HttpError(409, "This UTR has already been claimed");
+
+  const claim = await prisma.referralClaim
+    .create({
+      data: { partnerId: user.id, studentName, studentPhone, courseId, utr },
+      include: { course: { select: { title: true, type: true } } },
+    })
+    .catch((err: { code?: string }) => {
+      // Lost a race with a concurrent claim for the same UTR — the unique index caught it.
+      if (err.code === "P2002") throw new HttpError(409, "This UTR has already been claimed");
+      throw err;
+    });
+
+  await prisma.auditLog.create({
+    data: { actorId: user.id, action: "REFERRAL_CLAIM_SUBMITTED", target: claim.id, metadata: { utr } },
+  });
+
+  res.status(201).json({ claim });
+}
+
+export async function listMyReferralClaims(req: Request, res: Response) {
+  const user = currentUser(req);
+  const claims = await prisma.referralClaim.findMany({
+    where: { partnerId: user.id },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+    select: {
+      id: true,
+      studentName: true,
+      utr: true,
+      status: true,
+      commissionInPaise: true,
+      adminNote: true,
+      createdAt: true,
+      course: { select: { title: true, type: true } },
+    },
+  });
+  res.json({ claims });
 }

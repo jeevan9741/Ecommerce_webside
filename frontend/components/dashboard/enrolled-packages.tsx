@@ -84,7 +84,7 @@ export function PackageCard({ access }: { access: EnrolledAccess }) {
         </div>
         <div className="min-w-0">
           <p className="text-xl font-bold leading-tight text-gold-600">{formatInr(course.priceInPaise)}</p>
-          <h3 className="truncate font-display text-base font-semibold text-parchment">{pkg.name}</h3>
+          <h3 className="font-display text-base font-semibold leading-snug text-parchment">{pkg.name}</h3>
         </div>
       </div>
 

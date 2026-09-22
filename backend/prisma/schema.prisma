@@ -33,6 +33,12 @@ enum CommissionStatus {
   REVERSED
 }
 
+enum ReferralClaimStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum PayoutMethodType {
   BANK
   UPI
@@ -72,68 +78,72 @@ enum JobApplicationStatus {
 }
 
 model User {
-  id            String   @id @default(cuid())
-  name          String
-  email         String   @unique
-  emailVerified DateTime?
-  phone         String?
-  username      String   @unique
-  passwordHash  String
-  role          Role     @default(USER)
-  referralCode  String   @unique
+  id                  String    @id @default(cuid())
+  name                String
+  email               String    @unique
+  emailVerified       DateTime?
+  phone               String?
+  username            String    @unique
+  passwordHash        String
+  role                Role      @default(USER)
+  referralCode        String    @unique
   preferredLanguageId String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  preferredLanguage  Language?            @relation("PreferredLanguage", fields: [preferredLanguageId], references: [id])
-  orders             Order[]              @relation("CustomerOrders")
-  referredOrders     Order[]              @relation("ReferrerOrders")
+  preferredLanguage  Language?           @relation("PreferredLanguage", fields: [preferredLanguageId], references: [id])
+  orders             Order[]             @relation("CustomerOrders")
+  referredOrders     Order[]             @relation("ReferrerOrders")
   courseAccess       CourseAccess[]
   commissions        CommissionLedger[]
   payoutMethods      PayoutMethod[]
   withdrawalRequests WithdrawalRequest[]
+  referralClaims     ReferralClaim[]
   auditLogs          AuditLog[]
 
   @@index([referralCode])
 }
 
 model EmailOtp {
-  id          String     @id @default(cuid())
-  email       String
-  codeHash    String
-  purpose     OtpPurpose
-  expiresAt   DateTime
-  consumedAt  DateTime?
-  attempts    Int        @default(0)
-  createdAt   DateTime   @default(now())
+  id         String     @id @default(cuid())
+  email      String
+  codeHash   String
+  purpose    OtpPurpose
+  expiresAt  DateTime
+  consumedAt DateTime?
+  attempts   Int        @default(0)
+  createdAt  DateTime   @default(now())
 
   @@index([email, purpose])
 }
 
 model Course {
-  id               String     @id @default(cuid())
-  slug             String     @unique
-  type             CourseType
-  title            String
-  shortDescription String
-  description      String
-  priceInPaise     Int
+  id                String     @id @default(cuid())
+  slug              String     @unique
+  type              CourseType
+  title             String
+  shortDescription  String
+  description       String
+  priceInPaise      Int
   commissionInPaise Int
-  isActive         Boolean    @default(true)
-  metadata         Json?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  isActive          Boolean    @default(true)
+  metadata          Json?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   languageVideos CourseLanguageVideo[]
   modules        Module[]
   orders         Order[]
   access         CourseAccess[]
+  referralClaims ReferralClaim[]
 
   @@index([type])
 }
 
-/** Optional curriculum structure for VIDEO courses that want a full lesson breakdown
- * instead of (or in addition to) the single per-language video on CourseLanguageVideo. */
+/**
+ * Optional curriculum structure for VIDEO courses that want a full lesson breakdown
+ * instead of (or in addition to) the single per-language video on CourseLanguageVideo.
+ */
 model Module {
   id           String   @id @default(cuid())
   courseId     String
@@ -206,23 +216,23 @@ model DemoVideo {
 }
 
 model Order {
-  id                 String      @id @default(cuid())
-  userId             String
-  courseId           String
-  amountInPaise      Int
-  status             OrderStatus @default(CREATED)
-  razorpayOrderId    String      @unique
-  razorpayPaymentId  String?     @unique
-  razorpaySignature  String?
-  selectedLanguage   String?
-  referralCodeUsed   String?
-  referrerUserId     String?
-  createdAt          DateTime    @default(now())
-  paidAt             DateTime?
+  id                String      @id @default(cuid())
+  userId            String
+  courseId          String
+  amountInPaise     Int
+  status            OrderStatus @default(CREATED)
+  razorpayOrderId   String      @unique
+  razorpayPaymentId String?     @unique
+  razorpaySignature String?
+  selectedLanguage  String?
+  referralCodeUsed  String?
+  referrerUserId    String?
+  createdAt         DateTime    @default(now())
+  paidAt            DateTime?
 
-  user       User            @relation("CustomerOrders", fields: [userId], references: [id])
-  referrer   User?           @relation("ReferrerOrders", fields: [referrerUserId], references: [id])
-  course     Course          @relation(fields: [courseId], references: [id])
+  user       User              @relation("CustomerOrders", fields: [userId], references: [id])
+  referrer   User?             @relation("ReferrerOrders", fields: [referrerUserId], references: [id])
+  course     Course            @relation(fields: [courseId], references: [id])
   access     CourseAccess?
   commission CommissionLedger?
 
@@ -232,13 +242,13 @@ model Order {
 }
 
 model CourseAccess {
-  id               String   @id @default(cuid())
-  userId           String
-  courseId         String
-  orderId          String   @unique
-  languageGranted  String?
-  unlockedAt       DateTime @default(now())
-  revokedAt        DateTime?
+  id              String    @id @default(cuid())
+  userId          String
+  courseId        String
+  orderId         String    @unique
+  languageGranted String?
+  unlockedAt      DateTime  @default(now())
+  revokedAt       DateTime?
 
   user   User   @relation(fields: [userId], references: [id])
   course Course @relation(fields: [courseId], references: [id])
@@ -248,14 +258,14 @@ model CourseAccess {
 }
 
 model CommissionLedger {
-  id         String            @id @default(cuid())
-  partnerId  String
-  orderId    String            @unique
+  id            String           @id @default(cuid())
+  partnerId     String
+  orderId       String           @unique
   amountInPaise Int
-  status     CommissionStatus  @default(PENDING)
-  reason     String?
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
+  status        CommissionStatus @default(PENDING)
+  reason        String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 
   partner User  @relation(fields: [partnerId], references: [id])
   order   Order @relation(fields: [orderId], references: [id])
@@ -263,30 +273,54 @@ model CommissionLedger {
   @@index([partnerId, status])
 }
 
-model PayoutMethod {
-  id                  String           @id @default(cuid())
-  userId              String
-  type                PayoutMethodType
-  encryptedDetails     String
-  label               String
-  isDefault           Boolean          @default(false)
-  createdAt           DateTime         @default(now())
+/// A partner's claim for a referred student who paid without their referral link.
+/// An admin verifies the UTR and, on approval, sets the commission — which then counts
+/// toward the partner's credited balance exactly like a CREDITED ledger entry.
+model ReferralClaim {
+  id                String              @id @default(cuid())
+  partnerId         String
+  studentName       String
+  studentPhone      String
+  courseId          String
+  utr               String              @unique
+  status            ReferralClaimStatus @default(PENDING)
+  commissionInPaise Int?
+  adminNote         String?
+  reviewedAt        DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
 
-  user               User                 @relation(fields: [userId], references: [id])
+  partner User   @relation(fields: [partnerId], references: [id])
+  course  Course @relation(fields: [courseId], references: [id])
+
+  @@index([partnerId, status])
+  @@index([status])
+}
+
+model PayoutMethod {
+  id               String           @id @default(cuid())
+  userId           String
+  type             PayoutMethodType
+  encryptedDetails String
+  label            String
+  isDefault        Boolean          @default(false)
+  createdAt        DateTime         @default(now())
+
+  user               User                @relation(fields: [userId], references: [id])
   withdrawalRequests WithdrawalRequest[]
 
   @@index([userId])
 }
 
 model WithdrawalRequest {
-  id             String            @id @default(cuid())
+  id             String           @id @default(cuid())
   partnerId      String
   payoutMethodId String
   amountInPaise  Int
-  status         WithdrawalStatus  @default(PENDING)
+  status         WithdrawalStatus @default(PENDING)
   providerRefId  String?
   failureReason  String?
-  requestedAt    DateTime          @default(now())
+  requestedAt    DateTime         @default(now())
   processedAt    DateTime?
 
   partner      User         @relation(fields: [partnerId], references: [id])
@@ -329,15 +363,15 @@ model JobPosting {
 }
 
 model JobApplication {
-  id             String                @id @default(cuid())
-  jobId          String
-  applicantName  String
-  email          String
-  phone          String
+  id               String               @id @default(cuid())
+  jobId            String
+  applicantName    String
+  email            String
+  phone            String
   resumeStorageKey String?
-  coverNote      String?
-  status         JobApplicationStatus  @default(NEW)
-  createdAt      DateTime              @default(now())
+  coverNote        String?
+  status           JobApplicationStatus @default(NEW)
+  createdAt        DateTime             @default(now())
 
   job JobPosting @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
@@ -345,17 +379,17 @@ model JobApplication {
 }
 
 model Employee {
-  id           String         @id @default(cuid())
-  employeeCode String         @unique
-  name         String
-  position     String
-  joiningDate  DateTime
+  id            String         @id @default(cuid())
+  employeeCode  String         @unique
+  name          String
+  position      String
+  joiningDate   DateTime
   salaryInPaise Int
-  workType     WorkType
-  status       EmployeeStatus @default(ACTIVE)
-  notes        String?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  workType      WorkType
+  status        EmployeeStatus @default(ACTIVE)
+  notes         String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 }
 
 model SiteSetting {
