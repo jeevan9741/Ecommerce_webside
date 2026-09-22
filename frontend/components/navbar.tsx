@@ -7,16 +7,22 @@ import { useAuth } from "@/contexts/auth-context";
 import { Menu, X, LogOut, UserRound } from "lucide-react";
 import { LogoMark } from "@/components/logo";
 
-const NAV_LINKS = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/courses", label: "Courses" },
-];
+const COURSES_LINK = { href: "/courses", label: "Courses" };
+const PORTAL_LINK = { href: "/dashboard", label: "My Portal" };
+const ADMIN_LINK = { href: "/admin", label: "Admin" };
 
 export function Navbar() {
   const [open, setOpen] = useState(false);
-  const { status, logout } = useAuth();
+  const { status, user, logout } = useAuth();
   const pathname = usePathname();
   const isAuthenticated = status === "authenticated";
+
+  // Customers see Courses + My Portal; the Admin link is only rendered for admin accounts.
+  const navLinks = !isAuthenticated
+    ? [COURSES_LINK]
+    : user?.role === "ADMIN"
+      ? [COURSES_LINK, PORTAL_LINK, ADMIN_LINK]
+      : [COURSES_LINK, PORTAL_LINK];
 
   // Lock background scroll while the drawer is open (links close it via their own onClick).
   useEffect(() => {
@@ -37,7 +43,7 @@ export function Navbar() {
         </Link>
 
         <div className="hidden items-center gap-10 md:flex">
-          {NAV_LINKS.map((link) => (
+          {navLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
@@ -96,7 +102,7 @@ export function Navbar() {
         }`}
       >
         <div className="flex flex-col gap-1 px-5 pb-6 pt-3">
-          {NAV_LINKS.map((link) => (
+          {navLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}

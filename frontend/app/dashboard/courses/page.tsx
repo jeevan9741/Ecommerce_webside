@@ -1,16 +1,10 @@
 import Link from "next/link";
 import { BookOpen, ArrowRight } from "lucide-react";
 import { serverApi } from "@/lib/session";
-import { COURSE_TYPE_LABEL } from "@/lib/format";
-
-interface AccessRow {
-  id: string;
-  languageGranted: string | null;
-  course: { id: string; title: string; type: keyof typeof COURSE_TYPE_LABEL };
-}
+import { PackageCard, sortByPackage, type EnrolledAccess } from "@/components/dashboard/enrolled-packages";
 
 export default async function MyCoursesPage() {
-  const { access } = await serverApi<{ access: AccessRow[] }>("/me/courses");
+  const { access } = await serverApi<{ access: EnrolledAccess[] }>("/me/courses");
 
   return (
     <div>
@@ -26,18 +20,9 @@ export default async function MyCoursesPage() {
           </Link>
         </div>
       ) : (
-        <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {access.map((a) => (
-            <Link key={a.id} href={`/dashboard/courses/${a.course.id}`} className="card card-hover p-6">
-              <span className="eyebrow">{COURSE_TYPE_LABEL[a.course.type]}</span>
-              <h3 className="mt-3 font-display text-lg font-semibold text-parchment">{a.course.title}</h3>
-              {a.languageGranted && (
-                <p className="mt-2 text-xs text-parchment-muted">Language: {a.languageGranted}</p>
-              )}
-              <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-gold-500">
-                Open Course <ArrowRight className="h-3.5 w-3.5" />
-              </span>
-            </Link>
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {sortByPackage(access).map((a) => (
+            <PackageCard key={a.id} access={a} />
           ))}
         </div>
       )}

@@ -2,11 +2,12 @@
 
 import { backendFetch } from "@/lib/api";
 
-import { useState, FormEvent } from "react";
+import { useRef, useState, FormEvent, ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Lock, Mail, Pencil, Phone, Save, User, X, Globe2 } from "lucide-react";
+import { Camera, Loader2, Lock, Mail, Pencil, Phone, Save, Trash2, User, X, Globe2 } from "lucide-react";
 import { LanguageSelector, type LanguageOption } from "@/components/language-selector";
 import { useToasts, ToastStack } from "@/components/toast";
+import { fileToPhotoDataUrl, photoFileError, useStoredPhoto } from "@/components/dashboard/profile-photo";
 
 interface ProfileValues {
   name: string;
@@ -15,6 +16,7 @@ interface ProfileValues {
 }
 
 export function ProfileForm({
+  userId,
   initialName,
   initialPhone,
   initialLanguageCode,
@@ -23,6 +25,7 @@ export function ProfileForm({
   username,
   memberSince,
 }: {
+  userId: string;
   initialName: string;
   initialPhone: string;
   initialLanguageCode: string;
@@ -42,6 +45,9 @@ export function ProfileForm({
   const [draft, setDraft] = useState<ProfileValues>(saved);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [photo, setPhoto] = useStoredPhoto("profile", userId);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const selectedLanguage = languages.find((l) => l.code === saved.languageCode);
 
@@ -53,6 +59,32 @@ export function ProfileForm({
   function cancelEditing() {
     setDraft(saved);
     setEditing(false);
+  }
+
+  async function onPhotoSelected(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const fileError = photoFileError(file);
+    if (fileError) {
+      push("error", fileError);
+      return;
+    }
+
+    setPhotoBusy(true);
+    try {
+      const dataUrl = await fileToPhotoDataUrl(file);
+      if (setPhoto(dataUrl)) push("success", "Profile photo updated.");
+      else push("error", "Your browser blocked saving the photo. Please check your site settings.");
+    } catch {
+      push("error", "We couldn't read that image. Please try another photo.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
+  function removePhoto() {
+    if (setPhoto(null)) push("success", "Profile photo removed.");
   }
 
   async function onSubmit(e: FormEvent) {
@@ -95,12 +127,46 @@ export function ProfileForm({
       {/* Header */}
       <div className="flex flex-col gap-4 border-b border-border-soft p-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-4">
-          <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-gold-400 to-gold-600 text-xl font-bold text-white shadow-md">
-            {saved.name.charAt(0).toUpperCase()}
-          </span>
+          <button
+            type="button"
+            onClick={() => photoInputRef.current?.click()}
+            disabled={photoBusy}
+            aria-label={photo ? "Change profile photo" : "Upload profile photo"}
+            className="group relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl bg-gradient-to-br from-gold-400 to-gold-600 text-2xl font-bold text-white shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-500/50 focus-visible:ring-offset-2"
+          >
+            {photo ? (
+              // eslint-disable-next-line @next/next/no-img-element -- local data URL, nothing for next/image to optimise
+              <img src={photo} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <span className="flex h-full w-full items-center justify-center">{saved.name.charAt(0).toUpperCase()}</span>
+            )}
+            <span className="absolute inset-x-0 bottom-0 flex items-center justify-center bg-black/45 py-1 text-white opacity-90 transition group-hover:bg-black/60">
+              {photoBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+            </span>
+          </button>
+          <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={onPhotoSelected} />
           <div className="min-w-0">
             <p className="truncate font-display text-lg font-semibold text-parchment">{saved.name}</p>
             <p className="truncate text-sm text-parchment-muted">Member since {memberSince}</p>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium">
+              <button
+                type="button"
+                onClick={() => photoInputRef.current?.click()}
+                disabled={photoBusy}
+                className="text-gold-500 hover:text-gold-600 disabled:opacity-50"
+              >
+                {photo ? "Change photo" : "Upload photo"}
+              </button>
+              {photo && (
+                <button
+                  type="button"
+                  onClick={removePhoto}
+                  className="inline-flex items-center gap-1 text-parchment-muted hover:text-danger"
+                >
+                  <Trash2 className="h-3 w-3" /> Remove
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

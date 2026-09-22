@@ -9,11 +9,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
   return (
     <DashboardShell
       userLabel={session.user.name ?? "Student"}
-      roleLabel={`Referral ID: ${session.user.referralCode}`}
+      roleLabel="Student"
       navItems={[
         { href: "/dashboard", label: "Overview", icon: "layoutDashboard" },
         { href: "/dashboard/courses", label: "My Courses", icon: "bookOpen" },
-        { href: "/dashboard/referrals", label: "Referral & Earnings", icon: "users" },
         { href: "/dashboard/activity", label: "Activity", icon: "receipt" },
       ]}
     >

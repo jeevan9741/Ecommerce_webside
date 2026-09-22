@@ -1,28 +1,13 @@
 import Link from "next/link";
 import { MessageCircle, Send, MapPin, Mail, Phone } from "lucide-react";
 import { LogoMark } from "@/components/logo";
-import { api } from "@/lib/api";
+import { getContact } from "@/lib/contact";
 import { getSession } from "@/lib/session";
-
-const DEFAULT_CONTACT = {
-  address: "Rayadurgam, Andhra Pradesh, India",
-  email: "support@ecommerceacademy.in",
-  phone: "+91 00000 00000",
-  whatsapp: "https://wa.me/910000000000",
-  telegram: "https://t.me/ecommercetrainingacademy",
-};
 
 export async function Footer() {
   // The footer renders on every marketing page, so a backend hiccup falls back to
   // defaults instead of taking the whole page down with it.
-  const [settings, session] = await Promise.all([
-    api
-      .get<{ settings: Record<string, unknown> }>("/settings/public", { token: null })
-      .then((r) => r.settings)
-      .catch(() => ({}) as Record<string, unknown>),
-    getSession().catch(() => null),
-  ]);
-  const contact = { ...DEFAULT_CONTACT, ...((settings.contact as object) ?? {}) };
+  const [contact, session] = await Promise.all([getContact(), getSession().catch(() => null)]);
   const isAuthenticated = Boolean(session?.user);
 
   return (
