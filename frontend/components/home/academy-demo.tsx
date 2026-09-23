@@ -94,6 +94,7 @@ export function DemoLanguageProvider({ children }: { children: React.ReactNode }
       })
       .then((data) => {
         if (cancelled) return;
+        if (!data.video) throw new Error("not found");
         setVideoResult({
           forCode: selectedCode,
           status: "ready",

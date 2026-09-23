@@ -273,7 +273,7 @@ function DemoVideosSection({
     const res = await backendFetch(`/api/demo-videos?lang=${v.language.code}`);
     const data = await res.json();
     setPreviewLoading(false);
-    if (res.ok) {
+    if (res.ok && data.video) {
       setPreviewId(v.id);
       setPreviewUrl(data.video.url);
     }

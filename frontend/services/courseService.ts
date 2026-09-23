@@ -5,7 +5,7 @@ export const courseService = {
   content: (courseId: string) => api.get<Record<string, unknown>>(`/courses/${courseId}/content`),
   languages: () => api.get<{ languages: { id: string; code: string; name: string; nativeName: string }[] }>("/languages"),
   demoVideo: (lang: string) =>
-    api.get<{ video: { languageCode: string; languageName: string; url: string } }>(
+    api.get<{ video: { languageCode: string; languageName: string; url: string } | null }>(
       `/demo-videos?lang=${encodeURIComponent(lang)}`
     ),
   reviews: () => api.get<{ reviews: unknown[] }>("/reviews"),

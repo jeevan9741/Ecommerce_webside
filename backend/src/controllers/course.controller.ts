@@ -111,7 +111,8 @@ export async function demoVideos(req: Request, res: Response) {
       where: { language: { code: lang, isActive: true } },
       include: { language: true },
     });
-    if (!video) throw new HttpError(404, "No demo video for this language");
+    // A language without a demo yet is a normal state, not an error — the page shows a placeholder.
+    if (!video) return res.json({ video: null });
     return res.json({
       video: {
         languageCode: video.language.code,

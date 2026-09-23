@@ -67,6 +67,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${display.variable} ${body.variable} ${hand.variable} h-full antialiased`}>
+      <head>
+        {/* use-credentials sends the Vercel protection cookie with the manifest request. */}
+        <link rel="manifest" href="/manifest.webmanifest" crossOrigin="use-credentials" />
+      </head>
       <body className="min-h-full flex flex-col bg-ink text-parchment">
         <AuthProvider>{children}</AuthProvider>
         <ServiceWorkerRegister />
