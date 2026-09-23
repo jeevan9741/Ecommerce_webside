@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import { Menu, X, LogOut, UserRound } from "lucide-react";
 import { LogoMark } from "@/components/logo";
+import { homeFor } from "@/lib/routes";
 
 const COURSES_LINK = { href: "/courses", label: "Courses" };
 const PORTAL_LINK = { href: "/dashboard", label: "My Portal" };
@@ -38,7 +39,7 @@ export function Navbar() {
     <header className="sticky top-0 z-50 bg-gradient-to-r from-gold-600 via-gold-500 to-[#2f6ff0] shadow-[0_6px_24px_-12px_rgba(29,78,216,0.6)]">
       {/* Three-column grid on desktop keeps the links centred on the page, whatever the logo and button widths. */}
       <nav className="container-academy flex h-16 items-center justify-between gap-4 sm:h-20 lg:h-[88px] xl:max-w-[1480px] md:grid md:grid-cols-[1fr_auto_1fr]">
-        <Link href={isAuthenticated ? "/dashboard" : "/"} className="min-w-0 shrink justify-self-start">
+        <Link href={isAuthenticated ? homeFor(user?.role) : "/"} className="min-w-0 shrink justify-self-start">
           <LogoMark variant="white" size="lg" />
         </Link>
 

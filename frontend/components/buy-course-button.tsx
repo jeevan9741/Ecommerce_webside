@@ -72,6 +72,22 @@ export function BuyCourseButton({
   async function pollOrderStatus(orderId: string) {
     console.log(`${LOG_PREFIX} polling order status`, { orderId });
     setProcessing(true);
+
+    // Checkout only fires the handler after a successful payment, so ask Razorpay
+    // straight away rather than waiting on the webhook (which can lag or be misconfigured).
+    try {
+      const syncRes = await backendFetch(`/api/orders/${orderId}/sync`, { method: "POST" });
+      const syncData = await syncRes.json().catch(() => ({}));
+      console.log(`${LOG_PREFIX} immediate sync result`, syncData);
+      if (syncData.synced || syncData.alreadyPaid) {
+        inFlightRef.current = false;
+        router.push("/dashboard");
+        return;
+      }
+    } catch (e) {
+      console.error(`${LOG_PREFIX} immediate sync failed`, e);
+    }
+
     for (let i = 0; i < 15; i++) {
       await new Promise((r) => setTimeout(r, 1500));
       const res = await backendFetch(`/api/orders/${orderId}/status`);

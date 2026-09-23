@@ -2,6 +2,7 @@ import Link from "next/link";
 import { MessageCircle, Send, MapPin, Mail, Phone } from "lucide-react";
 import { LogoMark } from "@/components/logo";
 import { getContact } from "@/lib/contact";
+import { homeFor } from "@/lib/routes";
 import { getSession } from "@/lib/session";
 
 export async function Footer() {
@@ -46,7 +47,7 @@ export async function Footer() {
           <ul className="space-y-2.5 text-sm text-blue-100">
             {isAuthenticated ? (
               <>
-                <li><Link href="/dashboard" className="hover:text-white">Dashboard</Link></li>
+                <li><Link href={homeFor(session?.user.role)} className="hover:text-white">{session?.user.role === "ADMIN" ? "Admin Panel" : "Dashboard"}</Link></li>
                 <li><Link href="/courses" className="hover:text-white">Courses</Link></li>
               </>
             ) : (

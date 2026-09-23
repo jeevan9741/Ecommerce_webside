@@ -27,10 +27,12 @@ export async function sendEmail({ to, subject, html }: SendEmailInput): Promise<
       throw new EmailConfigError("SMTP_HOST, SMTP_USER, SMTP_PASSWORD and EMAIL_FROM must all be configured.");
     }
     const nodemailer = await import("nodemailer");
+    const port = Number(process.env.SMTP_PORT ?? 587);
     const transport = nodemailer.createTransport({
       host: SMTP_HOST,
-      port: Number(process.env.SMTP_PORT ?? 587),
-      secure: false,
+      port,
+      // 465 is implicit TLS; 587/25 upgrade via STARTTLS.
+      secure: port === 465,
       auth: { user: SMTP_USER, pass: SMTP_PASSWORD },
     });
     await transport.sendMail({ from: EMAIL_FROM, to, subject, html });

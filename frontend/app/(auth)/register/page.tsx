@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import { Loader2, Mail, UserPlus, CheckCircle2 } from "lucide-react";
 import { ApiError } from "@/lib/api";
 import { authService } from "@/services/authService";
+import { courseService } from "@/services/courseService";
 import { useAuth } from "@/contexts/auth-context";
+import { postSignupPath } from "@/lib/routes";
 
 function getCookie(name: string): string | null {
   if (typeof document === "undefined") return null;
@@ -35,6 +37,23 @@ function storeVerificationToken(token: string | null) {
   }
 }
 
+/** How long the "verified" screen stays up before the redirect takes over. */
+const SUCCESS_SCREEN_MS = 2000;
+
+/**
+ * Whether the freshly signed-in account already holds a package. /courses reports this for the
+ * bearer token we just stored; if the call fails we assume it doesn't, which sends them to the
+ * packages — the right place for anyone who still has something to buy.
+ */
+async function ownsAnyCourse(): Promise<boolean> {
+  try {
+    const { ownedCourseIds } = await courseService.list();
+    return ownedCourseIds.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export default function RegisterPage() {
   const router = useRouter();
   const { setSession } = useAuth();
@@ -50,6 +69,7 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
   const [justVerified, setJustVerified] = useState(false);
+  const [signedUp, setSignedUp] = useState(false);
 
   const [form, setForm] = useState(() => ({
     name: "",
@@ -139,13 +159,42 @@ export default function RegisterPage() {
       });
       storeVerificationToken(null);
       setSession(token, user);
-      router.push("/dashboard");
-      router.refresh();
+      // The redirect is handled by the success screen below, which needs a moment on screen.
+      setSignedUp(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
-    } finally {
       setBusy(false);
     }
+  }
+
+  // Hold the success screen for SUCCESS_SCREEN_MS, resolving the destination meanwhile so the
+  // ownership lookup never makes the wait any longer than the two seconds the screen promises.
+  useEffect(() => {
+    if (!signedUp) return;
+    let cancelled = false;
+    const wait = new Promise((resolve) => setTimeout(resolve, SUCCESS_SCREEN_MS));
+    Promise.all([ownsAnyCourse(), wait]).then(([owns]) => {
+      if (cancelled) return;
+      router.replace(postSignupPath(owns));
+      router.refresh();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [signedUp, router]);
+
+  // Signup is done and the session is live — the effect above navigates once this has been seen.
+  if (signedUp) {
+    return (
+      <div className="card p-8 text-center" role="status" aria-live="polite">
+        <CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-emerald" />
+        <h1 className="font-display text-2xl font-semibold text-parchment">Email Verified Successfully ✅</h1>
+        <p className="mt-1 text-sm text-parchment-muted">
+          Welcome aboard, <span className="text-parchment">{form.name || email}</span>. Taking you to your next step…
+        </p>
+        <Loader2 className="mx-auto mt-6 h-5 w-5 animate-spin text-gold-500" />
+      </div>
+    );
   }
 
   if (checkingVerified) {

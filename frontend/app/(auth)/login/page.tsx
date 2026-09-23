@@ -5,12 +5,13 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, LogIn } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
+import { postLoginPath } from "@/lib/routes";
 
 function LoginForm() {
   const router = useRouter();
   const { login } = useAuth();
   const params = useSearchParams();
-  const callbackUrl = params.get("callbackUrl") ?? "/dashboard";
+  const callbackUrl = params.get("callbackUrl");
 
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -27,7 +28,7 @@ function LoginForm() {
       setError(res.error);
       return;
     }
-    router.push(callbackUrl);
+    router.push(postLoginPath(res.user.role, callbackUrl));
     router.refresh();
   }
 

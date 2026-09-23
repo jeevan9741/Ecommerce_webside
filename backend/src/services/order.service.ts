@@ -96,7 +96,9 @@ export async function markOrderPaid(params: {
  * order's payment actually captured, and if so, runs it through markOrderPaid — the
  * exact same unlock path the webhook uses. Never invents a second way to grant access.
  */
-export async function reconcileOrderWithRazorpay(order: Pick<Order, "id" | "razorpayOrderId" | "status">) {
+export async function reconcileOrderWithRazorpay(
+  order: Pick<Order, "id" | "razorpayOrderId" | "status" | "amountInPaise">
+) {
   if (order.status === "PAID") {
     return { synced: false as const, alreadyPaid: true as const };
   }
@@ -109,7 +111,22 @@ export async function reconcileOrderWithRazorpay(order: Pick<Order, "id" | "razo
     statuses: payments.items.map((p) => ({ id: p.id, status: p.status })),
   });
 
-  const captured = payments.items.find((p) => p.status === "captured");
+  let captured = payments.items.find((p) => p.status === "captured");
+  if (!captured) {
+    // With auto-capture off, a successful payment sits at "authorized" and never fires
+    // payment.captured — Razorpay auto-refunds it days later. Capture it here, but only
+    // for the exact amount this order was created for.
+    const authorized = payments.items.find(
+      (p) => p.status === "authorized" && Number(p.amount) === order.amountInPaise
+    );
+    if (authorized) {
+      console.log("[PAYMENT] Reconciliation — capturing authorized payment", {
+        orderId: order.id,
+        razorpayPaymentId: authorized.id,
+      });
+      captured = await razorpay.payments.capture(authorized.id, order.amountInPaise, "INR");
+    }
+  }
   if (!captured) {
     return {
       synced: false as const,

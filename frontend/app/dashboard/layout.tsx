@@ -1,10 +1,12 @@
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/session";
+import { getSession, hasCourseAccess } from "@/lib/session";
 import { DashboardShell } from "@/components/dashboard/shell";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   if (!session?.user) redirect("/login");
+  // Nothing to show anyone who hasn't bought a package yet — the packages are the next step.
+  if (!(await hasCourseAccess(session.user))) redirect("/courses");
 
   return (
     <DashboardShell

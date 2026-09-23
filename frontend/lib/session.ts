@@ -37,3 +37,14 @@ export async function serverApi<T>(path: string): Promise<T> {
   const token = await getToken();
   return api.get<T>(path, { token });
 }
+
+/**
+ * Whether this account may see the student dashboard: admins always, everyone else only once
+ * they hold a live course. The backend enforces the same rule on /me/dashboard and friends —
+ * this call just lets the UI redirect instead of rendering a shell that would 403.
+ */
+export async function hasCourseAccess(user: SessionUser): Promise<boolean> {
+  if (user.role === "ADMIN") return true;
+  const { ownedCourseIds } = await serverApi<{ ownedCourseIds: string[] }>("/courses");
+  return ownedCourseIds.length > 0;
+}
