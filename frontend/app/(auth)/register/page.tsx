@@ -16,21 +16,34 @@ function getCookie(name: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-// Proof of a verified email, issued by the backend after a correct OTP. Kept for the tab's
-// lifetime so a reload resumes at the details step; it expires server-side after 30 minutes.
+// Proof of a verified email, issued by the backend after a correct OTP, stored together with
+// the email it was issued for. Kept for the tab's lifetime so a reload resumes at the details
+// step; it expires server-side after 30 minutes.
 const VERIFICATION_KEY = "eca_email_verification";
 
-function readVerificationToken(): string | null {
+interface StoredVerification {
+  email: string;
+  token: string;
+}
+
+function readVerification(): StoredVerification | null {
   try {
-    return sessionStorage.getItem(VERIFICATION_KEY);
+    const raw = sessionStorage.getItem(VERIFICATION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StoredVerification>;
+    if (typeof parsed.email !== "string" || !parsed.email || typeof parsed.token !== "string" || !parsed.token) {
+      return null;
+    }
+    return { email: parsed.email, token: parsed.token };
   } catch {
+    // Missing storage, or a value in the old bare-token format — treat as unverified.
     return null;
   }
 }
 
-function storeVerificationToken(token: string | null) {
+function storeVerification(value: StoredVerification | null) {
   try {
-    if (token) sessionStorage.setItem(VERIFICATION_KEY, token);
+    if (value) sessionStorage.setItem(VERIFICATION_KEY, JSON.stringify(value));
     else sessionStorage.removeItem(VERIFICATION_KEY);
   } catch {
     // sessionStorage unavailable (e.g. privacy mode) — verification simply won't survive a reload.
@@ -81,20 +94,33 @@ export default function RegisterPage() {
   const preferredLanguageCode = getCookie("eca_lang");
 
   useEffect(() => {
-    const stored = readVerificationToken();
-    Promise.resolve(stored ? authService.verifiedStatus(stored) : { email: null })
+    const stored = readVerification();
+    Promise.resolve(stored ? authService.verifiedStatus(stored.token) : { email: null })
       .then(({ email: verified }) => {
-        if (verified && stored) {
-          setEmail(verified);
-          setVerificationToken(stored);
+        // Resume only when the server vouches for the token AND it belongs to the email we saved.
+        if (stored && verified && verified.toLowerCase() === stored.email.toLowerCase()) {
+          setEmail(stored.email);
+          setVerificationToken(stored.token);
           setEmailVerified(true);
         } else {
-          storeVerificationToken(null);
+          storeVerification(null);
         }
       })
-      .catch(() => storeVerificationToken(null))
+      .catch(() => storeVerification(null))
       .finally(() => setCheckingVerified(false));
   }, []);
+
+  /** Drops any verification and returns to the email step. */
+  function startOver() {
+    storeVerification(null);
+    setVerificationToken(null);
+    setEmailVerified(false);
+    setJustVerified(false);
+    setOtpSent(false);
+    setCode("");
+    setEmail("");
+    setError(null);
+  }
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -133,7 +159,7 @@ export default function RegisterPage() {
     setBusy(true);
     try {
       const { verificationToken: token } = await authService.verifyOtp(email, code, "REGISTER");
-      storeVerificationToken(token);
+      storeVerification({ email, token });
       setVerificationToken(token);
       setJustVerified(true);
     } catch (err) {
@@ -157,7 +183,7 @@ export default function RegisterPage() {
         preferredLanguageCode: preferredLanguageCode || undefined,
         verificationToken,
       });
-      storeVerificationToken(null);
+      storeVerification(null);
       setSession(token, user);
       // The redirect is handled by the success screen below, which needs a moment on screen.
       setSignedUp(true);
@@ -226,7 +252,8 @@ export default function RegisterPage() {
     );
   }
 
-  if (!emailVerified) {
+  // The details form requires a verified token for a concrete email — never just a flag.
+  if (!emailVerified || !verificationToken || !email) {
     return (
       <div className="card p-8">
         <div className="mb-6 text-center">
@@ -256,7 +283,10 @@ export default function RegisterPage() {
         ) : (
           <form onSubmit={verifyOtp} className="space-y-4">
             <p className="text-sm text-parchment-muted">
-              Code sent to <span className="text-parchment">{email}</span>
+              Code sent to <span className="text-parchment">{email}</span>{" "}
+              <button type="button" onClick={startOver} className="text-xs font-medium text-gold-500 hover:text-gold-400">
+                Change
+              </button>
             </p>
             <input
               type="text"
@@ -304,7 +334,12 @@ export default function RegisterPage() {
       <div className="mb-6 text-center">
         <UserPlus className="mx-auto mb-3 h-8 w-8 text-gold-500" />
         <h1 className="font-display text-2xl font-semibold text-parchment">Create your account</h1>
-        <p className="mt-1 text-sm text-parchment-muted">Email verified — just a few more details.</p>
+        <p className="mt-1 text-sm text-parchment-muted">
+          <span className="text-parchment">{email}</span> is verified — just a few more details.
+        </p>
+        <button type="button" onClick={startOver} className="mt-1 text-xs font-medium text-gold-500 hover:text-gold-400">
+          Use a different email
+        </button>
       </div>
       <form onSubmit={completeRegistration} className="space-y-4">
         <div>
