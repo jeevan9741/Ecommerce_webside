@@ -8,7 +8,9 @@ import { Menu, X, LogOut, UserRound } from "lucide-react";
 import { LogoMark } from "@/components/logo";
 import { homeFor } from "@/lib/routes";
 
-const COURSES_LINK = { href: "/courses", label: "Courses" };
+const HOME_LINK = { href: "/", label: "Home" };
+// Scrolls to the About section on the homepage (the Link handles the hash, even from another page).
+const ABOUT_LINK = { href: "/#about", label: "About" };
 const PORTAL_LINK = { href: "/dashboard", label: "My Portal" };
 const ADMIN_LINK = { href: "/admin", label: "Admin" };
 
@@ -18,12 +20,13 @@ export function Navbar() {
   const pathname = usePathname();
   const isAuthenticated = status === "authenticated";
 
-  // Customers see Courses + My Portal; the Admin link is only rendered for admin accounts.
+  // Visitors see Home + About. Signed-in users are redirected away from the landing page by the
+  // proxy, so they get their portal instead; the Admin link is only rendered for admin accounts.
   const navLinks = !isAuthenticated
-    ? [COURSES_LINK]
+    ? [HOME_LINK, ABOUT_LINK]
     : user?.role === "ADMIN"
-      ? [COURSES_LINK, PORTAL_LINK, ADMIN_LINK]
-      : [COURSES_LINK, PORTAL_LINK];
+      ? [PORTAL_LINK, ADMIN_LINK]
+      : [PORTAL_LINK];
 
   // Lock background scroll while the drawer is open (links close it via their own onClick).
   useEffect(() => {

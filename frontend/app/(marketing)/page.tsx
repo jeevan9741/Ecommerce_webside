@@ -183,8 +183,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Features */}
-      <section className="pb-16">
+      {/* Features — doubles as the "About" target of the navbar link */}
+      <section id="about" className="scroll-mt-24 pb-16">
         <div className="container-academy">
           <div className="mx-auto grid max-w-6xl grid-cols-1 gap-y-8 sm:grid-cols-2 lg:grid-cols-4 lg:divide-x lg:divide-border-soft">
             {FEATURES.map((feature) => (
