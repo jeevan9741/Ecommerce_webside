@@ -98,13 +98,18 @@ export async function createWithdrawal(req: Request, res: Response) {
   const method = await prisma.payoutMethod.findUnique({ where: { id: payoutMethodId } });
   if (!method || method.userId !== user.id) throw new HttpError(404, "Payout method not found");
 
-  // Server-side balance check — the client-submitted amount is never trusted on its own.
-  const { availableInPaise } = await getPartnerBalance(user.id);
-  if (amountInPaise > availableInPaise) throw new HttpError(400, "Amount exceeds available balance");
   if (amountInPaise < 10000) throw new HttpError(400, "Minimum withdrawal amount is ₹100");
 
-  const withdrawal = await prisma.withdrawalRequest.create({
-    data: { partnerId: user.id, payoutMethodId, amountInPaise, status: "PENDING" },
+  // Server-side balance check — the client-submitted amount is never trusted on its own. The
+  // per-partner advisory lock makes check-then-insert atomic, so two simultaneous requests can't
+  // both pass against the same balance.
+  const withdrawal = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`withdraw:${user.id}`}))`;
+    const { availableInPaise } = await getPartnerBalance(user.id, tx);
+    if (amountInPaise > availableInPaise) throw new HttpError(400, "Amount exceeds available balance");
+    return tx.withdrawalRequest.create({
+      data: { partnerId: user.id, payoutMethodId, amountInPaise, status: "PENDING" },
+    });
   });
 
   await prisma.auditLog.create({

@@ -14,8 +14,6 @@ export interface PartnerStats {
 export function PartnerProgram({ stats }: { stats: PartnerStats | null }) {
   return (
     <section>
-      <h2 className="font-display text-lg font-semibold text-parchment">Partner &amp; Mentorship Program</h2>
-      <p className="mt-1 text-sm text-parchment-muted">Earn commission for every student you bring to the academy.</p>
 
       {!stats ? (
         <p className="card mt-4 p-6 text-sm text-parchment-muted">
@@ -51,10 +49,10 @@ export function PartnerProgram({ stats }: { stats: PartnerStats | null }) {
           </div>
 
           <div className="grid grid-cols-1 gap-2 border-t border-border-soft p-5 sm:flex sm:justify-end">
-            <Link href="/dashboard/referrals" className="btn-outline !px-5 !py-2.5 text-sm">
+            <Link href="#referral-details" className="btn-outline !px-5 !py-2.5 text-sm">
               View Referral Details <ArrowRight className="h-4 w-4" />
             </Link>
-            <Link href="/dashboard/referrals/withdraw" className="btn-gold !px-5 !py-2.5 text-sm">
+            <Link href="/dashboard/referral/withdraw" className="btn-gold !px-5 !py-2.5 text-sm">
               <Wallet className="h-4 w-4" /> Request Payout
             </Link>
           </div>

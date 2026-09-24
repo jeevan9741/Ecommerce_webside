@@ -75,12 +75,6 @@ export function ReferralClaimForm({
 
   return (
     <section>
-      <h2 className="font-display text-lg font-semibold text-parchment">
-        Submit Referred Student&apos;s Order ID / UTR
-      </h2>
-      <p className="mt-1 text-sm text-parchment-muted">
-        Referred a student who paid without your link? Send us their payment reference to claim your commission.
-      </p>
 
       <form onSubmit={onSubmit} className="card mt-4 p-5 sm:p-6">
         <div className="grid gap-4 sm:grid-cols-2">

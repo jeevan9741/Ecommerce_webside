@@ -29,13 +29,18 @@ export async function markOrderPaid(params: {
       console.log("[PAYMENT] markOrderPaid: already processed (idempotent no-op)", { orderId: order.id });
       return { ok: true as const, alreadyProcessed: true };
     }
-    if (order.status !== "CREATED") {
+    // FAILED is recoverable: Razorpay lets the customer retry inside the same checkout, so an earlier
+    // payment.failed can be followed by a captured payment on the very same order. A captured
+    // payment is the authoritative signal and must still unlock the course.
+    if (order.status !== "CREATED" && order.status !== "FAILED") {
       console.error("[PAYMENT] markOrderPaid: order in unexpected status", { orderId: order.id, status: order.status });
       return { ok: false as const, reason: `order_in_status_${order.status}` };
     }
 
-    await tx.order.update({
-      where: { id: order.id },
+    // Conditional on the unpaid status: when the webhook and the checkout sync race, exactly one of
+    // them flips it; the other sees count 0 and backs off instead of double-granting.
+    const claimed = await tx.order.updateMany({
+      where: { id: order.id, status: { in: ["CREATED", "FAILED"] } },
       data: {
         status: "PAID",
         razorpayPaymentId,
@@ -43,11 +48,16 @@ export async function markOrderPaid(params: {
         paidAt: new Date(),
       },
     });
+    if (claimed.count === 0) {
+      console.log("[PAYMENT] markOrderPaid: processed concurrently by another request (no-op)", { orderId: order.id });
+      return { ok: true as const, alreadyProcessed: true };
+    }
     console.log("[PAYMENT] Order marked PAID", { orderId: order.id });
 
     await tx.courseAccess.upsert({
       where: { userId_courseId: { userId: order.userId, courseId: order.courseId } },
-      update: { revokedAt: null, languageGranted: order.selectedLanguage ?? undefined },
+      // Re-point a previously revoked access row at this order, so refunding THIS order revokes it.
+      update: { revokedAt: null, orderId: order.id, languageGranted: order.selectedLanguage ?? undefined },
       create: {
         userId: order.userId,
         courseId: order.courseId,
@@ -124,7 +134,14 @@ export async function reconcileOrderWithRazorpay(
         orderId: order.id,
         razorpayPaymentId: authorized.id,
       });
-      captured = await razorpay.payments.capture(authorized.id, order.amountInPaise, "INR");
+      try {
+        captured = await razorpay.payments.capture(authorized.id, order.amountInPaise, "INR");
+      } catch (err) {
+        // Razorpay's own auto-capture can win the race — re-read before treating it as a failure.
+        const latest = await razorpay.payments.fetch(authorized.id);
+        if (latest.status !== "captured") throw err;
+        captured = latest;
+      }
     }
   }
   if (!captured) {
@@ -148,7 +165,8 @@ export async function reconcileOrderWithRazorpay(
     },
   });
 
-  return { synced: true as const, result };
+  // `synced` means access was actually granted — a refunded/cancelled order stays locked.
+  return { synced: result.ok, result };
 }
 
 export async function markOrderFailed(razorpayOrderId: string) {

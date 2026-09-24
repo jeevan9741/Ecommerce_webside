@@ -23,13 +23,20 @@ export function createApp() {
   // before express.json(): HMAC verification needs the exact raw bytes that were signed.
   app.post("/api/webhooks/razorpay", express.raw({ type: "*/*", limit: "1mb" }), asyncHandler(razorpayWebhook));
 
+  const reportedOrigins = new Set<string>();
   app.use(
     cors({
       origin(origin, callback) {
         // Allow server-to-server requests (no Origin header) and listed frontends. For anything
         // else, omit the CORS headers so the browser blocks it — throwing here would surface as
         // a 500 and log an error for every request from an unlisted origin.
-        callback(null, !origin || env.corsOrigins.includes(origin));
+        const allowed = !origin || env.corsOrigins.includes(origin);
+        // Once per origin: a blocked frontend otherwise only shows up as a vague CORS error in the browser.
+        if (!allowed && origin && !reportedOrigins.has(origin)) {
+          reportedOrigins.add(origin);
+          console.warn(`[CORS] Blocked origin ${origin} — add it to CORS_ORIGINS if it's a real frontend.`);
+        }
+        callback(null, allowed);
       },
       credentials: true,
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -41,7 +48,8 @@ export function createApp() {
   app.use(express.urlencoded({ extended: true }));
 
   app.get("/api/health", (_req, res) => {
-    res.json({ ok: true, service: "ecommerce-academy-backend" });
+    // Render sets RENDER_GIT_COMMIT on every deploy — lets anyone confirm which build is live.
+    res.json({ ok: true, service: "ecommerce-academy-backend", commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? null });
   });
 
   for (const router of [authRoutes, emailRoutes, userRoutes, courseRoutes, paymentRoutes, referralRoutes, adminRoutes]) {

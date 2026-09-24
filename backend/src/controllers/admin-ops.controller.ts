@@ -210,10 +210,18 @@ export async function processWithdrawal(req: Request, res: Response) {
   const withdrawal = await prisma.withdrawalRequest.findUnique({ where: { id } });
   if (!withdrawal) throw new HttpError(404, "Not found");
 
+  // SUCCESS and FAILED are final. FAILED releases the funds back to the partner's balance, so
+  // re-opening either one could pay the same money out twice.
+  const openStatuses = parsed.data.action === "PROCESSING" ? (["PENDING"] as const) : (["PENDING", "PROCESSING"] as const);
+  if (!(openStatuses as readonly string[]).includes(withdrawal.status)) {
+    throw new HttpError(409, `This withdrawal is already ${withdrawal.status.toLowerCase()}.`);
+  }
+
   if (parsed.data.action === "PROCESSING") await attemptAutomatedPayout(id);
 
-  const updated = await prisma.withdrawalRequest.update({
-    where: { id },
+  // Conditional on the status we just checked, so two admins acting at once can't both apply.
+  const { count } = await prisma.withdrawalRequest.updateMany({
+    where: { id, status: { in: [...openStatuses] } },
     data: {
       status: parsed.data.action,
       providerRefId: parsed.data.providerRefId,
@@ -221,6 +229,8 @@ export async function processWithdrawal(req: Request, res: Response) {
       processedAt: parsed.data.action === "SUCCESS" || parsed.data.action === "FAILED" ? new Date() : undefined,
     },
   });
+  if (count === 0) throw new HttpError(409, "This withdrawal was updated by someone else — please refresh.");
+  const updated = await prisma.withdrawalRequest.findUniqueOrThrow({ where: { id } });
 
   await prisma.auditLog.create({
     data: { actorId: admin.id, action: `WITHDRAWAL_${parsed.data.action}`, target: id },

@@ -16,12 +16,11 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
-      // Partner Dashboard was merged into the main Dashboard's "Referral & Earnings" section.
-      { source: "/dashboard/partner", destination: "/dashboard", permanent: true },
-      { source: "/dashboard/partner/:path*", destination: "/dashboard", permanent: true },
-      // Orders/Purchases was renamed to "Activity"; Profile Settings was folded into Overview.
+      // Partner Dashboard became the "Referral & Earnings" page.
+      { source: "/dashboard/partner", destination: "/dashboard/referral", permanent: true },
+      { source: "/dashboard/partner/:path*", destination: "/dashboard/referral", permanent: true },
+      // Orders/Purchases was renamed to "Activity". (/dashboard/profile is a real page again.)
       { source: "/dashboard/orders", destination: "/dashboard/activity", permanent: true },
-      { source: "/dashboard/profile", destination: "/dashboard", permanent: true },
     ];
   },
 };

@@ -68,7 +68,7 @@ export function Navbar() {
               <LogOut className="h-4 w-4" />
               Logout
             </button>
-          ) : (
+          ) : status === "loading" ? null : (
             <Link
               href="/login"
               className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-7 py-2.5 text-base font-semibold text-gold-500 shadow transition hover:bg-blue-50 active:scale-[0.98]"
@@ -125,7 +125,7 @@ export function Navbar() {
                 <LogOut className="h-4 w-4" />
                 Logout
               </button>
-            ) : (
+            ) : status === "loading" ? null : (
               <Link
                 href="/login"
                 onClick={() => setOpen(false)}

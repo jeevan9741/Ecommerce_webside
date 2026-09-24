@@ -82,10 +82,6 @@ export function IdCard(details: IdCardDetails) {
 
   return (
     <section>
-      <h2 className="font-display text-lg font-semibold text-parchment">Student ID Card</h2>
-      <p className="mt-1 text-sm text-parchment-muted">
-        Upload a passport-size photo, then save it to generate your ID card.
-      </p>
 
       <div className="card mt-4 flex flex-col gap-4 p-5 sm:flex-row sm:items-center">
         <div className="flex h-[90px] w-[70px] shrink-0 items-center justify-center overflow-hidden rounded-lg border-2 border-dashed border-gold-500/40 bg-gold-500/5">

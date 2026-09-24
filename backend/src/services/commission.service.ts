@@ -1,8 +1,11 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
 
+type Db = Prisma.TransactionClient | typeof prisma;
+
 /** Commission from admin-approved referral claims, optionally only those approved since a date. */
-async function approvedClaimsTotal(partnerId: string, since?: Date) {
-  const r = await prisma.referralClaim.aggregate({
+async function approvedClaimsTotal(partnerId: string, since?: Date, db: Db = prisma) {
+  const r = await db.referralClaim.aggregate({
     where: { partnerId, status: "APPROVED", ...(since ? { reviewedAt: { gte: since } } : {}) },
     _sum: { commissionInPaise: true },
   });
@@ -11,14 +14,14 @@ async function approvedClaimsTotal(partnerId: string, since?: Date) {
 
 /** Available balance = CREDITED commissions (plus approved referral claims) minus everything already
  * withdrawn (PENDING/PROCESSING/SUCCESS withdrawals all lock funds; only FAILED releases them back). */
-export async function getPartnerBalance(partnerId: string) {
+export async function getPartnerBalance(partnerId: string, db: Db = prisma) {
   const [credited, claimed, locked] = await Promise.all([
-    prisma.commissionLedger.aggregate({
+    db.commissionLedger.aggregate({
       where: { partnerId, status: "CREDITED" },
       _sum: { amountInPaise: true },
     }),
-    approvedClaimsTotal(partnerId),
-    prisma.withdrawalRequest.aggregate({
+    approvedClaimsTotal(partnerId, undefined, db),
+    db.withdrawalRequest.aggregate({
       where: { partnerId, status: { in: ["PENDING", "PROCESSING", "SUCCESS"] } },
       _sum: { amountInPaise: true },
     }),

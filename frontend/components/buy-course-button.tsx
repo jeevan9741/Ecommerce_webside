@@ -50,10 +50,19 @@ export function BuyCourseButton({
   if (alreadyPurchased) {
     return (
       <button
-        onClick={() => router.push("/dashboard")}
+        onClick={() => router.push("/dashboard/courses")}
         className="flex w-full items-center justify-center gap-2 rounded-full border border-emerald bg-emerald/10 px-6 py-4 text-base font-semibold text-emerald transition hover:bg-emerald/15"
       >
         <CheckCircle2 className="h-4 w-4" /> Go to Course
+      </button>
+    );
+  }
+
+  // Still confirming the stored session — don't offer "Login" to someone who is already signed in.
+  if (status === "loading") {
+    return (
+      <button disabled aria-busy="true" className="btn-gold w-full py-4 text-base opacity-70">
+        <Loader2 className="h-4 w-4 animate-spin" />
       </button>
     );
   }
@@ -81,7 +90,7 @@ export function BuyCourseButton({
       console.log(`${LOG_PREFIX} immediate sync result`, syncData);
       if (syncData.synced || syncData.alreadyPaid) {
         inFlightRef.current = false;
-        router.push("/dashboard");
+        router.push("/dashboard/courses");
         return;
       }
     } catch (e) {
@@ -96,15 +105,11 @@ export function BuyCourseButton({
         console.log(`${LOG_PREFIX} order status`, data.status);
         if (data.status === "PAID") {
           inFlightRef.current = false;
-          router.push("/dashboard");
+          router.push("/dashboard/courses");
           return;
         }
-        if (data.status === "FAILED") {
-          inFlightRef.current = false;
-          setProcessing(false);
-          setError("Payment failed. Please try again.");
-          return;
-        }
+        // No FAILED exit here: this poll only starts after Checkout reported success, so FAILED
+        // just means an earlier attempt on this order was declined before the retry went through.
       }
     }
 
@@ -117,7 +122,7 @@ export function BuyCourseButton({
       console.log(`${LOG_PREFIX} self-heal result`, syncData);
       if (syncData.synced || syncData.alreadyPaid) {
         inFlightRef.current = false;
-        router.push("/dashboard");
+        router.push("/dashboard/courses");
         return;
       }
     } catch (e) {
@@ -126,10 +131,11 @@ export function BuyCourseButton({
 
     inFlightRef.current = false;
     setProcessing(false);
+    // Stay here with the message: a first-time buyer has no dashboard access until the payment is
+    // confirmed, so navigating into the portal would just bounce them back to this page.
     setError(
-      "Your payment is being confirmed — this can take a minute. Check your Activity page shortly; contact support if it doesn't appear."
+      "Your payment is being confirmed — this can take a minute. Refresh this page shortly; the package unlocks automatically once confirmed. Contact support if it doesn't."
     );
-    router.push("/dashboard/activity");
   }
 
   async function handleBuy() {

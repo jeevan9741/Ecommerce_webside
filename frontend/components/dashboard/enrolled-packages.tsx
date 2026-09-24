@@ -46,13 +46,11 @@ export function sortByPackage(access: EnrolledAccess[]) {
 export function EnrolledPackages({ access, contact }: { access: EnrolledAccess[]; contact: Contact }) {
   return (
     <section>
-      <h2 className="font-display text-lg font-semibold text-parchment">Your Enrolled Package Content &amp; Support</h2>
-      <p className="mt-1 text-sm text-parchment-muted">Everything you&apos;ve unlocked, one tap away.</p>
 
       {access.length === 0 ? (
         <div className="card mt-4 flex flex-col items-center gap-4 p-10 text-center">
           <BookOpen className="h-10 w-10 text-gold-500" />
-          <p className="text-sm text-parchment-muted">You haven&apos;t unlocked any packages yet.</p>
+          <p className="text-sm text-parchment-muted">You haven&apos;t purchased any course yet.</p>
           <Link href="/courses" className="btn-gold">
             Browse Courses <ArrowRight className="h-4 w-4" />
           </Link>

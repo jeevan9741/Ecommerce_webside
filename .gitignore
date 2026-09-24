@@ -45,3 +45,7 @@ next-env.d.ts
 
 # backend compiled output
 dist/
+
+# Placeholder templates (no real values) are safe to commit.
+!/backend/.env.example
+!/frontend/.env.example

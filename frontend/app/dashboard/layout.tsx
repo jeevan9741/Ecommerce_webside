@@ -14,8 +14,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
       roleLabel={`Referral ID: ${session.user.referralCode}`}
       navItems={[
         { href: "/dashboard", label: "Overview", icon: "layoutDashboard" },
+        { href: "/dashboard/profile", label: "My Profile", icon: "user" },
+        { href: "/dashboard/id-card", label: "My ID Card", icon: "idCard" },
         { href: "/dashboard/courses", label: "My Courses", icon: "bookOpen" },
-        { href: "/dashboard/referrals", label: "Referral & Earnings", icon: "users" },
+        { href: "/dashboard/referral", label: "Referral & Earnings", icon: "users" },
+        { href: "/dashboard/referral/claim", label: "Claim Partner Commission", icon: "handCoins" },
         { href: "/dashboard/activity", label: "Activity", icon: "receipt" },
       ]}
     >

@@ -4,7 +4,9 @@
  * (pass the token explicitly — see lib/session.ts).
  */
 
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000").replace(/\/$/, "");
+import { API_URL } from "./site";
+
+export { API_URL };
 
 /** First-party cookie holding the backend JWT. Readable by JS so requests can send it as a Bearer token. */
 export const TOKEN_COOKIE = "eca_token";

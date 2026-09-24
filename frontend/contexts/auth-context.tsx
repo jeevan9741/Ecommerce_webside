@@ -66,6 +66,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback((redirectTo = "/") => {
     writeTokenCookie(null);
+    try {
+      // Drop any half-finished signup's email verification so it can't carry over to the next visitor.
+      sessionStorage.removeItem("eca_email_verification");
+    } catch {
+      // storage unavailable — nothing to clear
+    }
     setUser(null);
     setStatus("unauthenticated");
     // Full navigation so Server Components re-render without the session.

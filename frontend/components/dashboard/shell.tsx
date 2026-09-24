@@ -20,6 +20,8 @@ import {
   Receipt,
   User,
   Languages,
+  IdCard,
+  HandCoins,
 } from "lucide-react";
 import { LogoMark } from "@/components/logo";
 
@@ -36,6 +38,8 @@ const ICONS = {
   receipt: Receipt,
   user: User,
   languages: Languages,
+  idCard: IdCard,
+  handCoins: HandCoins,
 } as const;
 
 export type DashboardIconName = keyof typeof ICONS;
@@ -73,6 +77,16 @@ export function DashboardShell({
     };
   }, [open]);
 
+  // Highlight the most specific item containing the current page, so /dashboard/courses/[id]
+  // lights up My Courses while /dashboard/referral/claim lights up only its own item.
+  // Top-level items (/dashboard, /admin) only match exactly — they'd otherwise contain everything.
+  const activeHref = navItems
+    .filter(
+      ({ href }) =>
+        pathname === href || (href.split("/").length > 2 && pathname.startsWith(`${href}/`))
+    )
+    .reduce<string | null>((best, { href }) => (!best || href.length > best.length ? href : best), null);
+
   const SidebarContent = (
     <div className="flex h-full flex-col bg-gradient-to-b from-gold-600 to-gold-500">
       <Link href={homeHref} className="px-6 py-6">
@@ -80,7 +94,7 @@ export function DashboardShell({
       </Link>
       <nav className="flex-1 space-y-1 px-3">
         {navItems.map((item) => {
-          const active = pathname === item.href;
+          const active = item.href === activeHref;
           const Icon = ICONS[item.icon];
           return (
             <Link

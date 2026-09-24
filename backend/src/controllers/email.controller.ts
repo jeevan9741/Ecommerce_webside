@@ -50,14 +50,18 @@ export async function sendOtp(req: Request, res: Response) {
   const codeHash = hashOtp(code, email);
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
+  // A resend must invalidate any still-outstanding code so only the newest one can verify.
+  await prisma.emailOtp.updateMany({ where: { email, purpose, consumedAt: null }, data: { consumedAt: new Date() } });
+  const otp = await prisma.emailOtp.create({ data: { email, purpose, codeHash, expiresAt } });
+
   try {
-    // A resend must invalidate any still-outstanding code so only the newest one can verify.
-    await prisma.emailOtp.updateMany({ where: { email, purpose, consumedAt: null }, data: { consumedAt: new Date() } });
-    await prisma.emailOtp.create({ data: { email, purpose, codeHash, expiresAt } });
     await sendEmail({ to: email, subject: "Verify Your Email - E-Commerce Training Academy", html: otpEmailTemplate(code) });
   } catch (err) {
+    // Safe to log: provider/config messages only — never the code, API key or recipient's code.
     console.error("Failed to send verification email:", err instanceof Error ? err.message : err);
-    throw new HttpError(500, "Failed to send verification email. Please try again shortly.");
+    // The email never went out, so this attempt must not count toward the resend cooldown/quota.
+    await prisma.emailOtp.delete({ where: { id: otp.id } }).catch(() => undefined);
+    throw new HttpError(502, "We couldn't send the verification email right now. Please try again in a moment.");
   }
 
   res.json({ ok: true, retryAfterSeconds: RESEND_COOLDOWN_MS / 1000 });

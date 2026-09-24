@@ -6,9 +6,16 @@ function required(name: string): string {
   return value;
 }
 
+const isProduction = process.env.NODE_ENV === "production";
+
+/** Used only when CORS_ORIGINS is unset — production must never fall back to localhost. */
+const DEFAULT_CORS_ORIGIN = isProduction
+  ? "https://ecommerce-training-academy-jeevan-f45f.vercel.app"
+  : "http://localhost:3000";
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
-  isProduction: process.env.NODE_ENV === "production",
+  isProduction,
   port: Number(process.env.PORT ?? 5000),
 
   databaseUrl: required("DATABASE_URL"),
@@ -23,7 +30,7 @@ export const env = {
   /** Encrypts payout details at rest (AES-256-GCM, 64 hex chars). */
   appEncryptionKey: process.env.APP_ENCRYPTION_KEY ?? "",
 
-  corsOrigins: (process.env.CORS_ORIGINS ?? "http://localhost:3000")
+  corsOrigins: (process.env.CORS_ORIGINS || DEFAULT_CORS_ORIGIN)
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean),
@@ -46,3 +53,35 @@ export const env = {
 
   blobToken: process.env.BLOB_READ_WRITE_TOKEN ?? "",
 } as const;
+
+/**
+ * Names (never values) of production settings that are missing or unusable. The server still
+ * starts — each feature fails with a clear error on use — but this makes the gap visible in the
+ * Render logs at boot instead of on a customer's first checkout.
+ */
+export function productionConfigProblems(): string[] {
+  if (!isProduction) return [];
+  const problems: string[] = [];
+  const need = (name: string) => {
+    if (!process.env[name]) problems.push(`${name} is not set`);
+  };
+  need("CORS_ORIGINS");
+  need("EMAIL_VERIFICATION_SECRET");
+  need("RAZORPAY_KEY_ID");
+  need("RAZORPAY_KEY_SECRET");
+  need("RAZORPAY_WEBHOOK_SECRET");
+  if ((process.env.APP_ENCRYPTION_KEY ?? "").length !== 64) {
+    problems.push("APP_ENCRYPTION_KEY must be a 64-character hex string (payout details can't be saved)");
+  }
+  const provider = process.env.EMAIL_PROVIDER ?? "console";
+  if (provider === "resend") {
+    need("RESEND_API_KEY");
+    need("EMAIL_FROM");
+  } else if (provider !== "smtp") {
+    problems.push(`EMAIL_PROVIDER is "${provider}" — set it to "resend" or verification emails will fail`);
+  }
+  if (env.corsOrigins.some((o) => o.includes("localhost"))) {
+    problems.push("CORS_ORIGINS includes a localhost origin");
+  }
+  return problems;
+}

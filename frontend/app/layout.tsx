@@ -3,6 +3,7 @@ import { Playfair_Display, Manrope, Caveat } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/auth-context";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
+import { SITE_URL } from "@/lib/site";
 
 const display = Playfair_Display({
   variable: "--font-display",
@@ -23,7 +24,6 @@ const hand = Caveat({
   weight: ["500", "600", "700"],
 });
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 const SITE_DESCRIPTION =
   "Learn to build and scale a profitable e-commerce business — e-books, recorded courses, live Zoom classes, and in-person academy training.";
 

@@ -14,6 +14,10 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     console.error("[PAYMENT] Razorpay configuration error:", err.message);
     return res.status(500).json({ error: "Payment gateway is not configured correctly. Please contact support." });
   }
+  // Prisma unique-constraint violation (e.g. two identical requests racing) — a conflict, not a crash.
+  if (typeof err === "object" && err !== null && (err as { code?: string }).code === "P2002") {
+    return res.status(409).json({ error: "This record already exists." });
+  }
   // Prisma "record not found" on update/delete.
   if (typeof err === "object" && err !== null && (err as { code?: string }).code === "P2025") {
     return res.status(404).json({ error: "Not found" });

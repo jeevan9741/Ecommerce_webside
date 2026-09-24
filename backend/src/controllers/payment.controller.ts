@@ -231,12 +231,22 @@ export async function razorpayWebhook(req: Request, res: Response) {
         break;
       }
       case "payment.authorized": {
-        // Auto-capture is enabled, so this is informational only.
+        // With auto-capture on, payment.captured follows and does the unlock. With it off, the
+        // payment would sit here until Razorpay auto-refunds it — so reconcile, which captures an
+        // authorized payment (only for the order's exact amount) and unlocks through markOrderPaid.
         const payment = event.payload.payment.entity;
-        log("payment.authorized (informational only)", {
-          razorpayOrderId: payment.order_id,
-          razorpayPaymentId: payment.id,
+        log("payment.authorized", { razorpayOrderId: payment.order_id, razorpayPaymentId: payment.id });
+        const order = await prisma.order.findUnique({
+          where: { razorpayOrderId: payment.order_id },
+          select: { id: true, razorpayOrderId: true, status: true, amountInPaise: true },
         });
+        if (!order) {
+          log("payment.authorized: no matching order — ignoring");
+          break;
+        }
+        const result = await reconcileOrderWithRazorpay(order);
+        log("payment.authorized reconcile result", result);
+        logAudit("WEBHOOK_PAYMENT_AUTHORIZED", { reqId, razorpayOrderId: payment.order_id, result });
         break;
       }
       case "payment.failed": {
