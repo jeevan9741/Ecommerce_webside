@@ -1,0 +1,4 @@
+# Keep local env files out of CLI uploads — production values come from Vercel's Environment Variables.
+.env
+.env.*
+!.env.example
