@@ -206,6 +206,8 @@ export const partnerCardAdminUpdateSchema = z
     photo: cardPhoto,
     signature: cardSignature.nullable(),
     adminNote: z.string().trim().max(500).nullable(),
+    /** Per-partner reissue fee override (paise); null falls back to Partner Card Settings. */
+    reissueFeeInPaise: z.number().int().min(0).max(10_000_000).nullable(),
   })
   .partial();
 
@@ -224,4 +226,20 @@ export const partnerCardReviewSchema = z.object({
 export const partnerCardStatusSchema = z.object({
   status: z.enum(["ACTIVE", "INACTIVE"]),
   adminNote: z.string().trim().max(500).optional(),
+});
+
+export const partnerCardReissueSchema = z.object({
+  fullName: cardName,
+  location: cardLocation,
+  phone: cardPhone,
+  /** New photo; omit to keep the current one. */
+  photo: cardPhoto.optional(),
+  reason: z.string().trim().min(3, "Tell us why you need a new card").max(200),
+});
+
+export const partnerCardSettingsSchema = z.object({
+  // The first card is always the free request, so at least one is free.
+  freeCardsAllowed: z.number().int().min(1, "At least the first card is free").max(10),
+  reissueFeeInPaise: z.number().int().min(0).max(10_000_000),
+  reissuePaymentEnabled: z.boolean(),
 });

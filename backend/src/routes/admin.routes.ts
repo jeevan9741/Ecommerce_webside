@@ -38,6 +38,9 @@ router.patch("/admin/partner-cards/:id", asyncHandler(partnerCard.adminUpdatePar
 router.post("/admin/partner-cards/:id/review", asyncHandler(partnerCard.adminReviewPartnerCard));
 router.post("/admin/partner-cards/:id/status", asyncHandler(partnerCard.adminSetPartnerCardStatus));
 router.post("/admin/partner-cards/:id/reissue", asyncHandler(partnerCard.adminReissuePartnerCard));
+router.post("/admin/partner-cards/:id/waive-fee", asyncHandler(partnerCard.adminWaivePartnerCardFee));
+router.get("/admin/partner-card-settings", asyncHandler(partnerCard.adminGetPartnerCardSettings));
+router.put("/admin/partner-card-settings", asyncHandler(partnerCard.adminSavePartnerCardSettings));
 
 // Settings
 router.get("/admin/settings", asyncHandler(ops.listSettings));

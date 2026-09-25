@@ -46,6 +46,28 @@ enum PartnerCardStatus {
   INACTIVE
 }
 
+enum PartnerCardRequestKind {
+  FREE
+  REISSUE
+}
+
+/// PENDING = awaiting admin review. Approval generates the card in the same step, so an
+/// approved request is recorded directly as ISSUED.
+enum PartnerCardRequestStatus {
+  AWAITING_PAYMENT
+  PENDING
+  REJECTED
+  ISSUED
+  CANCELLED
+}
+
+enum PartnerCardPaymentStatus {
+  NOT_REQUIRED
+  PENDING
+  PAID
+  WAIVED
+}
+
 enum PayoutMethodType {
   BANK
   UPI
@@ -309,32 +331,74 @@ model ReferralClaim {
 /// (ACTIVE), and publicly verifiable at /verify/{partnerId}. `qrToken` is embedded in the QR
 /// URL; regenerating or reissuing rotates it so previously printed cards read as superseded.
 model PartnerCard {
-  id          String            @id @default(cuid())
-  userId      String            @unique
+  id                String            @id @default(cuid())
+  userId            String            @unique
   /// Sequence behind the human-readable partnerId (ECTA-BP001, ECTA-BP002, ...).
-  number      Int               @unique @default(autoincrement())
-  partnerId   String            @unique
-  fullName    String
+  number            Int               @unique @default(autoincrement())
+  partnerId         String            @unique
+  fullName          String
   /// Passport-style photo as a JPEG/PNG data URL (kept small client-side before upload).
-  photo       String?
-  role        String            @default("Authorized Business Partner")
-  location    String
-  email       String
-  phone       String
-  validFrom   DateTime?
-  qrToken     String
-  qrCodeUrl   String
+  photo             String?
+  role              String            @default("Authorized Business Partner")
+  location          String
+  email             String
+  phone             String
+  validFrom         DateTime?
+  qrToken           String
+  qrCodeUrl         String
   /// Authorized-signature image (white ink on transparent PNG data URL); null uses the default mark.
-  signature   String?
-  status      PartnerCardStatus @default(PENDING)
-  adminNote   String?
-  issueCount  Int               @default(1)
-  issuedAt    DateTime?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  signature         String?
+  status            PartnerCardStatus @default(PENDING)
+  adminNote         String?
+  /// True once the partner's free card has been issued; further cards go through a paid reissue.
+  issued            Boolean           @default(false)
+  firstIssuedAt     DateTime?
+  /// Number of cards issued so far (first card = 1, each reissue adds one).
+  issueCount        Int               @default(0)
+  /// Latest issue date.
+  issuedAt          DateTime?
+  /// Per-partner reissue fee override in paise; null uses the Partner Card Settings fee.
+  reissueFeeInPaise Int?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requests PartnerCardRequest[]
 
+  @@index([status])
+}
+
+/// One partner request for a card — the free first card or a (usually paid) reissue. Holds the
+/// details requested, the fee and its Razorpay payment, and the review outcome: the reissue history.
+model PartnerCardRequest {
+  id                String                   @id @default(cuid())
+  cardId            String
+  userId            String
+  kind              PartnerCardRequestKind
+  status            PartnerCardRequestStatus
+  paymentStatus     PartnerCardPaymentStatus @default(NOT_REQUIRED)
+  feeInPaise        Int                      @default(0)
+  fullName          String
+  location          String
+  phone             String
+  /// New photo for a reissue; null keeps the card's current photo.
+  photo             String?
+  reason            String?
+  razorpayOrderId   String?                  @unique
+  razorpayPaymentId String?                  @unique
+  paidAt            DateTime?
+  adminNote         String?
+  reviewedAt        DateTime?
+  reviewedById      String?
+  /// The card's issue number this request produced, once ISSUED.
+  issueNumber       Int?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  card PartnerCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  // The migration also adds a partial unique index: one AWAITING_PAYMENT/PENDING request per card.
+  @@index([cardId, status])
   @@index([status])
 }
 

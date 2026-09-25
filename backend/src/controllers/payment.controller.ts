@@ -5,6 +5,7 @@ import { env } from "../config/env.js";
 import { createOrderSchema } from "../utils/validation.js";
 import { getRazorpayClient, verifyWebhookSignature, RazorpayConfigError } from "../services/razorpay.service.js";
 import { markOrderPaid, markOrderFailed, reverseOrder, reconcileOrderWithRazorpay } from "../services/order.service.js";
+import { markRequestPaid, reconcileRequestPayment } from "../services/partner-card.service.js";
 import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError, param } from "../utils/http.js";
 
@@ -219,6 +220,21 @@ export async function razorpayWebhook(req: Request, res: Response) {
       case "payment.captured": {
         const payment = event.payload.payment.entity;
         log("payment.captured", { razorpayOrderId: payment.order_id, razorpayPaymentId: payment.id });
+        // Partner ID card reissue fees share this webhook; they have no Order row.
+        const cardRequest = await prisma.partnerCardRequest.findUnique({
+          where: { razorpayOrderId: payment.order_id },
+          select: { id: true },
+        });
+        if (cardRequest) {
+          const cardResult = await markRequestPaid({
+            razorpayOrderId: payment.order_id,
+            razorpayPaymentId: payment.id,
+            amountInPaise: Number(payment.amount),
+          });
+          log("partner card reissue payment", { requestId: cardRequest.id, ok: cardResult.ok });
+          logAudit("WEBHOOK_PARTNER_CARD_PAYMENT_CAPTURED", { reqId, razorpayOrderId: payment.order_id, ok: cardResult.ok });
+          break;
+        }
         const result = await markOrderPaid({ razorpayOrderId: payment.order_id, razorpayPaymentId: payment.id });
         log("markOrderPaid result", result);
         logAudit("WEBHOOK_PAYMENT_CAPTURED", {
@@ -236,6 +252,12 @@ export async function razorpayWebhook(req: Request, res: Response) {
         // authorized payment (only for the order's exact amount) and unlocks through markOrderPaid.
         const payment = event.payload.payment.entity;
         log("payment.authorized", { razorpayOrderId: payment.order_id, razorpayPaymentId: payment.id });
+        const cardRequest = await prisma.partnerCardRequest.findUnique({ where: { razorpayOrderId: payment.order_id } });
+        if (cardRequest) {
+          const cardResult = await reconcileRequestPayment(cardRequest);
+          log("partner card reissue reconcile", cardResult);
+          break;
+        }
         const order = await prisma.order.findUnique({
           where: { razorpayOrderId: payment.order_id },
           select: { id: true, razorpayOrderId: true, status: true, amountInPaise: true },
