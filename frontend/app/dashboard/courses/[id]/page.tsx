@@ -3,6 +3,7 @@ import { Calendar, MapPin, Utensils, Users } from "lucide-react";
 import { ApiError } from "@/lib/api";
 import { serverApi } from "@/lib/session";
 import { CoursePlayer } from "@/components/dashboard/course-player";
+import { CourseVideoList } from "@/components/videos/course-video-list";
 
 interface CourseAccess {
   languageGranted: string | null;
@@ -53,6 +54,9 @@ export default async function CourseContentPage({ params }: { params: Promise<{ 
       {course.type === "CENTRE" && (
         <CentreDetails meta={(course.metadata as CentreMeta) ?? {}} />
       )}
+
+      {/* Original course videos uploaded by the academy (any course type can have them). */}
+      <CourseVideoList courseId={course.id} />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import * as course from "../controllers/admin-course.controller.js";
 import * as ops from "../controllers/admin-ops.controller.js";
 import * as content from "../controllers/admin-content.controller.js";
 import * as partnerCard from "../controllers/partner-card.controller.js";
+import * as video from "../controllers/video.controller.js";
 
 const router = Router();
 
@@ -75,6 +76,15 @@ router.patch("/admin/languages/:id", asyncHandler(course.updateLanguage));
 router.get("/admin/demo-videos", asyncHandler(course.listDemoVideos));
 router.post("/admin/demo-videos", asyncHandler(course.upsertDemoVideo));
 router.delete("/admin/demo-videos/:id", asyncHandler(course.deleteDemoVideo));
+
+// Course video library (files go browser → private Blob store via scoped client tokens)
+router.post("/admin/videos/upload-token", asyncHandler(video.createVideoUploadToken));
+router.post("/admin/videos/discard-upload", asyncHandler(video.adminDiscardUpload));
+router.get("/admin/videos", asyncHandler(video.adminListVideos));
+router.post("/admin/videos", asyncHandler(video.adminCreateVideo));
+router.patch("/admin/videos/:id", asyncHandler(video.adminUpdateVideo));
+router.delete("/admin/videos/:id", asyncHandler(video.adminDeleteVideo));
+router.get("/admin/videos/:id/preview", asyncHandler(video.adminPreviewVideo));
 
 // Uploads (admin-only signed PUT URLs)
 router.post("/upload/presign", asyncHandler(course.presignUpload));

@@ -1,4 +1,5 @@
-import { put, del, issueSignedToken, presignUrl } from "@vercel/blob";
+import { BlobNotFoundError, put, del, head, issueSignedToken, presignUrl } from "@vercel/blob";
+import { generateClientTokenFromReadWriteToken } from "@vercel/blob/client";
 
 /** Admin content-upload flow: client PUTs directly to Blob storage using this URL. */
 export async function getUploadUrl(key: string, contentType: string, expiresInSeconds = 300) {
@@ -51,4 +52,34 @@ export async function deleteObject(key: string) {
 export function buildStorageKey(prefix: string, filename: string) {
   const safe = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
   return `${prefix}/${Date.now()}-${safe}`;
+}
+
+/**
+ * Client token for a browser upload straight to the private store, pinned to one pathname,
+ * content type and size cap. Large files go up in parts (multipart), so they never pass
+ * through this server — which couldn't accept a 2 GB request body anyway.
+ */
+export async function getClientUploadToken(
+  pathname: string,
+  opts: { allowedContentTypes: string[]; maximumSizeInBytes: number; validForSeconds: number }
+) {
+  return generateClientTokenFromReadWriteToken({
+    pathname,
+    allowedContentTypes: opts.allowedContentTypes,
+    maximumSizeInBytes: opts.maximumSizeInBytes,
+    validUntil: Date.now() + opts.validForSeconds * 1000,
+    addRandomSuffix: false,
+    allowOverwrite: false,
+  });
+}
+
+/** Metadata of a stored object, or null when it doesn't exist. */
+export async function statObject(key: string) {
+  try {
+    const blob = await head(key);
+    return { size: blob.size, contentType: blob.contentType, pathname: blob.pathname };
+  } catch (err) {
+    if (err instanceof BlobNotFoundError) return null;
+    throw err;
+  }
 }
