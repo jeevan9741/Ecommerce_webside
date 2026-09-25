@@ -4,6 +4,7 @@ import { requireAdmin } from "../middleware/auth.middleware.js";
 import * as course from "../controllers/admin-course.controller.js";
 import * as ops from "../controllers/admin-ops.controller.js";
 import * as content from "../controllers/admin-content.controller.js";
+import * as partnerCard from "../controllers/partner-card.controller.js";
 
 const router = Router();
 
@@ -28,6 +29,15 @@ router.get("/admin/withdrawals", asyncHandler(ops.listWithdrawals));
 router.post("/admin/withdrawals/:id/process", asyncHandler(ops.processWithdrawal));
 router.get("/admin/referral-claims", asyncHandler(ops.listReferralClaims));
 router.post("/admin/referral-claims/:id/review", asyncHandler(ops.reviewReferralClaim));
+
+// Partner ID cards
+router.get("/admin/partner-cards", asyncHandler(partnerCard.adminListPartnerCards));
+router.post("/admin/partner-cards", asyncHandler(partnerCard.adminIssuePartnerCard));
+router.get("/admin/partner-cards/:id", asyncHandler(partnerCard.adminGetPartnerCard));
+router.patch("/admin/partner-cards/:id", asyncHandler(partnerCard.adminUpdatePartnerCard));
+router.post("/admin/partner-cards/:id/review", asyncHandler(partnerCard.adminReviewPartnerCard));
+router.post("/admin/partner-cards/:id/status", asyncHandler(partnerCard.adminSetPartnerCardStatus));
+router.post("/admin/partner-cards/:id/reissue", asyncHandler(partnerCard.adminReissuePartnerCard));
 
 // Settings
 router.get("/admin/settings", asyncHandler(ops.listSettings));

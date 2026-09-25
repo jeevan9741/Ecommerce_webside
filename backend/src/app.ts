@@ -11,6 +11,7 @@ import courseRoutes from "./routes/course.routes.js";
 import paymentRoutes from "./routes/payment.routes.js";
 import referralRoutes from "./routes/referral.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
+import partnerCardRoutes from "./routes/partner-card.routes.js";
 
 export function createApp() {
   const app = express();
@@ -44,7 +45,7 @@ export function createApp() {
     })
   );
 
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ extended: true }));
 
   app.get("/api/health", (_req, res) => {
@@ -52,7 +53,7 @@ export function createApp() {
     res.json({ ok: true, service: "ecommerce-academy-backend", commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? null });
   });
 
-  for (const router of [authRoutes, emailRoutes, userRoutes, courseRoutes, paymentRoutes, referralRoutes, adminRoutes]) {
+  for (const router of [authRoutes, emailRoutes, userRoutes, courseRoutes, paymentRoutes, referralRoutes, partnerCardRoutes, adminRoutes]) {
     app.use("/api", router);
   }
 

@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // resvg ships a native binary per platform; keep it out of the bundle and load it from node_modules.
+  serverExternalPackages: ["@resvg/resvg-js"],
+  // The card export route reads its fonts and logo from disk at runtime.
+  outputFileTracingIncludes: {
+    "/id-cards/**": ["./public/fonts/card/*.ttf", "./public/brand/card-logo.jpg"],
+  },
   async headers() {
     return [
       {

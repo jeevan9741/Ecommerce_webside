@@ -20,6 +20,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         { href: "/admin/languages", label: "Languages", icon: "languages" },
         { href: "/admin/withdrawals", label: "Withdrawals", icon: "wallet" },
         { href: "/admin/referral-claims", label: "Referral Claims", icon: "fileText" },
+        { href: "/admin/partner-cards", label: "Partner ID Cards", icon: "badgeCheck" },
         { href: "/admin/employees", label: "Employees", icon: "briefcase" },
         { href: "/admin/jobs", label: "Job Postings", icon: "briefcase" },
         { href: "/admin/reviews", label: "Reviews", icon: "star" },

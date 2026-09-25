@@ -16,6 +16,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         { href: "/dashboard", label: "Overview", icon: "layoutDashboard" },
         { href: "/dashboard/profile", label: "My Profile", icon: "user" },
         { href: "/dashboard/id-card", label: "My ID Card", icon: "idCard" },
+        { href: "/dashboard/partner-card", label: "Partner ID Card", icon: "badgeCheck" },
         { href: "/dashboard/courses", label: "My Courses", icon: "bookOpen" },
         { href: "/dashboard/referral", label: "Referral & Earnings", icon: "users" },
         { href: "/dashboard/referral/claim", label: "Claim Partner Commission", icon: "handCoins" },

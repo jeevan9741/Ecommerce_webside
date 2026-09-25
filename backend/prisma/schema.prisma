@@ -39,6 +39,13 @@ enum ReferralClaimStatus {
   REJECTED
 }
 
+enum PartnerCardStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+  INACTIVE
+}
+
 enum PayoutMethodType {
   BANK
   UPI
@@ -99,6 +106,7 @@ model User {
   payoutMethods      PayoutMethod[]
   withdrawalRequests WithdrawalRequest[]
   referralClaims     ReferralClaim[]
+  partnerCard        PartnerCard?
   auditLogs          AuditLog[]
 
   @@index([referralCode])
@@ -294,6 +302,39 @@ model ReferralClaim {
   course  Course @relation(fields: [courseId], references: [id])
 
   @@index([partnerId, status])
+  @@index([status])
+}
+
+/// A partner's printable ID card. Requested by the partner (PENDING), approved by an admin
+/// (ACTIVE), and publicly verifiable at /verify/{partnerId}. `qrToken` is embedded in the QR
+/// URL; regenerating or reissuing rotates it so previously printed cards read as superseded.
+model PartnerCard {
+  id          String            @id @default(cuid())
+  userId      String            @unique
+  /// Sequence behind the human-readable partnerId (ECTA-BP001, ECTA-BP002, ...).
+  number      Int               @unique @default(autoincrement())
+  partnerId   String            @unique
+  fullName    String
+  /// Passport-style photo as a JPEG/PNG data URL (kept small client-side before upload).
+  photo       String?
+  role        String            @default("Authorized Business Partner")
+  location    String
+  email       String
+  phone       String
+  validFrom   DateTime?
+  qrToken     String
+  qrCodeUrl   String
+  /// Authorized-signature image (white ink on transparent PNG data URL); null uses the default mark.
+  signature   String?
+  status      PartnerCardStatus @default(PENDING)
+  adminNote   String?
+  issueCount  Int               @default(1)
+  issuedAt    DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([status])
 }
 

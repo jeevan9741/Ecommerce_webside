@@ -146,3 +146,82 @@ export const jobPostingSchema = z.object({
   workingHours: z.string().min(1).max(100),
   isActive: z.boolean().default(true),
 });
+
+// ---------- Partner ID cards ----------
+
+// Photos are cropped and re-encoded in the browser (~50–150 KB); the cap keeps a crafted upload
+// from bloating every card read. Base64 inflates by 4/3, so 700k chars ≈ 512 KB of image.
+const cardPhoto = z
+  .string()
+  .max(700_000, "Photo is too large — please use an image under 500 KB")
+  .regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/, "Photo must be a JPG, PNG or WebP image");
+
+const cardSignature = z
+  .string()
+  .max(300_000, "Signature image is too large")
+  .regex(/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/, "Signature must be a PNG image");
+
+const cardPhone = z
+  .string()
+  .trim()
+  .regex(/^\+?[0-9 ]{10,17}$/, "Enter a valid 10–15 digit mobile number");
+
+// The card's fonts only carry Latin glyphs, so anything else would print as blank boxes.
+const cardName = z
+  .string()
+  .trim()
+  .min(2, "Enter the full name")
+  .max(40, "Name must be 40 characters or fewer")
+  .regex(/^[A-Za-z][A-Za-z .'-]*$/, "Use English letters for the name as it should print on the card");
+
+const cardLocation = z
+  .string()
+  .trim()
+  .min(2, "Enter the location")
+  .max(48, "Location must be 48 characters or fewer")
+  .regex(/^[A-Za-z0-9 .,'()/-]+$/, "Use English letters for the location");
+
+const cardDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use a valid date")
+  .refine((d) => !Number.isNaN(Date.parse(`${d}T00:00:00Z`)), "Use a valid date");
+
+export const partnerCardRequestSchema = z.object({
+  fullName: cardName,
+  location: cardLocation,
+  phone: cardPhone,
+  photo: cardPhoto,
+});
+
+export const partnerCardPhotoSchema = z.object({ photo: cardPhoto });
+
+export const partnerCardAdminUpdateSchema = z
+  .object({
+    fullName: cardName,
+    role: z.string().trim().min(2).max(40).regex(/^[A-Za-z0-9 &.,'()/-]+$/, "Use English letters for the role"),
+    location: cardLocation,
+    email: z.string().trim().email().max(60),
+    phone: cardPhone,
+    validFrom: cardDate.nullable(),
+    photo: cardPhoto,
+    signature: cardSignature.nullable(),
+    adminNote: z.string().trim().max(500).nullable(),
+  })
+  .partial();
+
+export const partnerCardAdminIssueSchema = z.object({
+  email: z.string().trim().email().toLowerCase(),
+  location: cardLocation,
+  validFrom: cardDate.optional(),
+});
+
+export const partnerCardReviewSchema = z.object({
+  action: z.enum(["APPROVE", "REJECT"]),
+  adminNote: z.string().trim().max(500).optional(),
+  validFrom: cardDate.optional(),
+});
+
+export const partnerCardStatusSchema = z.object({
+  status: z.enum(["ACTIVE", "INACTIVE"]),
+  adminNote: z.string().trim().max(500).optional(),
+});

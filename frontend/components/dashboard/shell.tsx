@@ -22,6 +22,7 @@ import {
   Languages,
   IdCard,
   HandCoins,
+  BadgeCheck,
 } from "lucide-react";
 import { LogoMark } from "@/components/logo";
 
@@ -40,6 +41,7 @@ const ICONS = {
   languages: Languages,
   idCard: IdCard,
   handCoins: HandCoins,
+  badgeCheck: BadgeCheck,
 } as const;
 
 export type DashboardIconName = keyof typeof ICONS;
