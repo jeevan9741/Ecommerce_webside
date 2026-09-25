@@ -20,7 +20,6 @@ import {
   Receipt,
   User,
   Languages,
-  IdCard,
   HandCoins,
   BadgeCheck,
 } from "lucide-react";
@@ -39,7 +38,6 @@ const ICONS = {
   receipt: Receipt,
   user: User,
   languages: Languages,
-  idCard: IdCard,
   handCoins: HandCoins,
   badgeCheck: BadgeCheck,
 } as const;

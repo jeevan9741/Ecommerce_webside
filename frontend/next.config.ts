@@ -27,6 +27,8 @@ const nextConfig: NextConfig = {
       { source: "/dashboard/partner/:path*", destination: "/dashboard/referral", permanent: true },
       // Orders/Purchases was renamed to "Activity". (/dashboard/profile is a real page again.)
       { source: "/dashboard/orders", destination: "/dashboard/activity", permanent: true },
+      // The student "My ID Card" page was removed; old bookmarks land on the portal overview.
+      { source: "/dashboard/id-card", destination: "/dashboard", permanent: true },
     ];
   },
 };

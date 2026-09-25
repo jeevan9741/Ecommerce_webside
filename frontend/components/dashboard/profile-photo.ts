@@ -5,12 +5,11 @@ import { useCallback, useSyncExternalStore } from "react";
 // The backend has no photo fields, so photos live in this browser only, keyed per user.
 const CHANGE_EVENT = "eca-profile-photo-change";
 
-/** "profile" is the avatar in Account Details; "idCard" is the passport photo printed on the ID card. */
-export type PhotoKind = "profile" | "idCard";
+/** "profile" is the avatar in Account Details. */
+export type PhotoKind = "profile";
 
 const STORAGE_PREFIX: Record<PhotoKind, string> = {
   profile: "eca_profile_photo",
-  idCard: "eca_id_card_photo",
 };
 
 const storageKey = (kind: PhotoKind, userId: string) => `${STORAGE_PREFIX[kind]}:${userId}`;

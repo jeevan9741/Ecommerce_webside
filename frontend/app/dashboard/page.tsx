@@ -5,7 +5,6 @@ import {
   CalendarDays,
   Clock,
   HandCoins,
-  IdCard,
   User,
   Users,
   Wallet,
@@ -19,7 +18,6 @@ import type { PartnerStats } from "@/components/dashboard/partner-program";
 
 const SECTIONS: { href: string; title: string; description: string; icon: LucideIcon }[] = [
   { href: "/dashboard/profile", title: "My Profile", description: "Your photo, contact details and learning language.", icon: User },
-  { href: "/dashboard/id-card", title: "My ID Card", description: "Upload your photo and download your student ID.", icon: IdCard },
   { href: "/dashboard/courses", title: "My Courses", description: "Open your unlocked package content and support.", icon: BookOpen },
   { href: "/dashboard/referral", title: "Referral & Earnings", description: "Your referral code, earnings and payouts.", icon: Users },
   {
