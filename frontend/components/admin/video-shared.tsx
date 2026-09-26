@@ -95,6 +95,13 @@ export interface PickedVideo {
   frame: Blob | null;
 }
 
+const READ_TIMEOUT_MS = 10_000;
+
+/** Resolves to null if `promise` hasn't settled within `ms`. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([promise, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
+}
+
 /** MP4 drop zone: validates type/size and reads duration + a thumbnail frame locally. */
 export function VideoFilePicker({
   picked,
@@ -116,8 +123,15 @@ export function VideoFilePicker({
     if (f.type !== "video/mp4" && !/\.mp4$/i.test(f.name)) return push("error", "Only MP4 videos can be uploaded.");
     if (f.size > MAX_VIDEO_BYTES) return push("error", `That file is ${formatBytes(f.size)} — the limit is 2 GB.`);
     try {
-      const meta = await readVideoFile(f);
-      const frame = await meta.captureFrame();
+      // Some browsers never finish reading a file's metadata (e.g. in a background tab), so don't
+      // wait forever: without duration/thumbnail the upload still works.
+      const reading = readVideoFile(f);
+      const meta = await withTimeout(reading, READ_TIMEOUT_MS);
+      if (!meta) {
+        void reading.then((m) => m.release()).catch(() => {});
+        throw new Error("This browser couldn't read the video's details in time.");
+      }
+      const frame = await withTimeout(meta.captureFrame(), READ_TIMEOUT_MS);
       meta.release();
       onPicked({ file: f, durationSeconds: meta.durationSeconds, frame });
     } catch (err) {

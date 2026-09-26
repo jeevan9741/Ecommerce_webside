@@ -16,6 +16,8 @@ export interface AdminVideo {
   id: string;
   courseId: string | null;
   courseTitle: string | null;
+  categoryId: string | null;
+  category: { id: string; name: string; parentName: string | null } | null;
   languageId: string | null;
   language: VideoLanguage | null;
   title: string;
@@ -51,8 +53,12 @@ export interface WatchPayload {
     durationSeconds: number | null;
     mimeType: string;
     thumbnailUrl: string | null;
-    course: { id: string; title: string };
+    course: { id: string; title: string } | null;
   };
+  /** Where the playlist comes from: the package page or a category in the Course Library. */
+  context:
+    | { kind: "course"; title: string; courseId: string }
+    | { kind: "category"; title: string; categorySlug: string; sectionSlug: string };
   streamUrl: string;
   expiresAt: string;
   progress: VideoProgress | null;
@@ -63,6 +69,7 @@ export interface VideoEdit {
   title?: string;
   description?: string | null;
   courseId?: string | null;
+  categoryId?: string | null;
   languageId?: string | null;
   thumbnailKey?: string | null;
   /** A new upload replaces the video file (students keep their progress). */
@@ -104,9 +111,10 @@ export const videoService = {
   uploadToken: (body: { kind: "video" | "thumbnail"; purpose: "course" | "demo"; filename: string; contentType: string; sizeBytes: number }) =>
     api.post<{ pathname: string; clientToken: string; access: "private" | "public" }>("/admin/videos/upload-token", body),
   discardUpload: (key: string) => api.post<{ ok: true }>("/admin/videos/discard-upload", { key }),
-  list: (params: { courseId?: string; q?: string } = {}) => {
+  list: (params: { courseId?: string; categoryId?: string; q?: string } = {}) => {
     const qs = new URLSearchParams();
     if (params.courseId) qs.set("courseId", params.courseId);
+    if (params.categoryId) qs.set("categoryId", params.categoryId);
     if (params.q) qs.set("q", params.q);
     return api.get<{ videos: AdminVideo[] }>(`/admin/videos${qs.size ? `?${qs}` : ""}`);
   },
@@ -123,7 +131,7 @@ export const videoService = {
 
   // Students
   courseVideos: (courseId: string) => api.get<{ videos: StudentVideo[] }>(`/me/courses/${courseId}/videos`),
-  watch: (id: string) => api.get<WatchPayload>(`/me/videos/${id}`),
+  watch: (id: string, context: "course" | "category" = "course") => api.get<WatchPayload>(`/me/videos/${id}?context=${context}`),
   /** `keepalive` lets the final save survive the page being closed. */
   saveProgress: (id: string, body: { positionSeconds: number; durationSeconds?: number; completed?: boolean }, keepalive = false) =>
     api.put<{ progress: VideoProgress }>(`/me/videos/${id}/progress`, body, keepalive ? { keepalive: true } : undefined),

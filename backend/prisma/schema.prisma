@@ -168,6 +168,8 @@ model Course {
   access         CourseAccess[]
   referralClaims ReferralClaim[]
   videos         CourseVideo[]
+  /// Topic categories this package unlocks (see CategoryPackage).
+  categories     CategoryPackage[]
 
   @@index([type])
 }
@@ -207,8 +209,11 @@ model Lesson {
 /// Blob store; students only ever receive short-lived signed URLs, and only for courses they own.
 model CourseVideo {
   id              String   @id @default(cuid())
-  /// Unassigned videos (null) are never shown to students.
+  /// Videos reach students through a package (courseId) and/or a topic category (categoryId);
+  /// with neither they're never shown to students.
   courseId        String?
+  /// The category — or subcategory — the video is filed under (see CourseCategory).
+  categoryId      String?
   /// Spoken language of the video (optional; lets students filter a multi-language course).
   languageId      String?
   title           String
@@ -224,10 +229,50 @@ model CourseVideo {
   updatedAt       DateTime @updatedAt
 
   course   Course?         @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  category CourseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   language Language?       @relation(fields: [languageId], references: [id], onDelete: SetNull)
   progress VideoProgress[]
 
   @@index([courseId, displayOrder])
+  @@index([categoryId, displayOrder])
+}
+
+/// Topic library for course videos (Meesho, Flipkart, …). One level of nesting: a category can have
+/// subcategories; videos are filed in a subcategory, or directly in a category that has none.
+/// Access is granted per top-level category by the packages linked in CategoryPackage, and covers
+/// all of its subcategories.
+model CourseCategory {
+  id           String   @id @default(cuid())
+  /// Null for a top-level category; set for a subcategory.
+  parentId     String?
+  name         String
+  slug         String   @unique
+  description  String?
+  displayOrder Int      @default(0)
+  /// Inactive categories (and everything under them) are hidden from students.
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  parent   CourseCategory?   @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children CourseCategory[]  @relation("CategoryTree")
+  videos   CourseVideo[]
+  packages CategoryPackage[]
+
+  @@index([parentId, displayOrder])
+}
+
+/// Buying `courseId` (a package) unlocks top-level category `categoryId` and all its subcategories.
+model CategoryPackage {
+  categoryId String
+  courseId   String
+  createdAt  DateTime @default(now())
+
+  category CourseCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  course   Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@id([categoryId, courseId])
+  @@index([courseId])
 }
 
 /// Where a student is in a video, saved periodically by the player.

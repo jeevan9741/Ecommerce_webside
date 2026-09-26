@@ -8,6 +8,14 @@ import { HttpError, param } from "../utils/http.js";
 import { rateLimit } from "../utils/rate-limit.js";
 import type { SessionPayload } from "../utils/tokens.js";
 import {
+  categoryRefSelect,
+  hasCategoryAccess,
+  isLive,
+  topOf,
+  unlockingPackages,
+  type CategoryRef,
+} from "../services/category-access.service.js";
+import {
   deleteObject,
   getClientUploadToken,
   getDownloadUrl,
@@ -76,14 +84,47 @@ async function notPurchased(courseId: string) {
  * Hidden or unassigned videos 404 so their IDs can't be probed; published ones in a live course
  * answer 403 NOT_PURCHASED so a non-buyer is pointed at the package instead.
  */
+/** Same "Buy Course to Access" answer as notPurchased, naming the packages that unlock the category. */
+async function categoryNotPurchased(category: CategoryRef) {
+  const top = topOf(category);
+  const [packages, videoCount] = await Promise.all([
+    unlockingPackages(top.id),
+    prisma.courseVideo.count({ where: { isPublished: true, category: { OR: [{ id: top.id }, { parentId: top.id }] } } }),
+  ]);
+  return new HttpError(403, "Buy Course to Access", {
+    code: "NOT_PURCHASED",
+    category: { slug: top.slug, name: top.name },
+    packages: packages.map((p) => ({ id: p.id, title: p.title })),
+    videoCount,
+  });
+}
+
+/**
+ * A playable video. Students reach a video through its package (courseId, owned) and/or its
+ * category (categoryId, live and unlocked by an owned package); admins reach everything.
+ * Hidden videos, and videos no student could reach, 404 so their IDs can't be probed; reachable
+ * ones the user hasn't bought answer 403 NOT_PURCHASED so the UI can point at a package.
+ */
 async function watchableVideo(user: SessionPayload, videoId: string) {
   const video = await prisma.courseVideo.findUnique({
     where: { id: videoId },
-    include: { course: { select: { id: true, title: true } }, language: { select: { code: true, name: true } } },
+    include: {
+      course: { select: { id: true, title: true } },
+      language: { select: { code: true, name: true } },
+      category: { select: categoryRefSelect },
+    },
   });
-  if (!video || !video.courseId || (!video.isPublished && user.role !== "ADMIN")) throw new HttpError(404, "Video not found");
-  if (!(await canAccessCourse(user, video.courseId))) throw await notPurchased(video.courseId);
-  return video as typeof video & { courseId: string };
+  const isAdmin = user.role === "ADMIN";
+  if (!video || (!video.isPublished && !isAdmin)) throw new HttpError(404, "Video not found");
+  const category = video.category && (isAdmin || isLive(video.category)) ? video.category : null;
+  if (!video.courseId && !category) throw new HttpError(404, "Video not found");
+
+  const [viaCourse, viaCategory] = await Promise.all([
+    video.courseId ? canAccessCourse(user, video.courseId) : false,
+    category ? hasCategoryAccess(user, topOf(category).id) : false,
+  ]);
+  if (!viaCourse && !viaCategory) throw category ? await categoryNotPurchased(category) : await notPurchased(video.courseId!);
+  return { ...video, category, viaCourse, viaCategory };
 }
 
 function progressView(p: { positionSeconds: number; maxPositionSeconds: number; completed: boolean; updatedAt: Date } | null | undefined) {
@@ -153,6 +194,7 @@ const createSchema = z.object({
   title: z.string().trim().min(2, "Enter a title").max(150),
   description: nullableText(5000),
   courseId: z.string().min(1).nullable().optional(),
+  categoryId: z.string().min(1).nullable().optional(),
   languageId: z.string().min(1).nullable().optional(),
   storageKey: z.string().startsWith(VIDEO_PREFIX, "Invalid video upload"),
   thumbnailKey: z.string().startsWith(THUMBNAIL_PREFIX, "Invalid thumbnail upload").nullable().optional(),
@@ -164,6 +206,7 @@ const updateSchema = z.object({
   title: z.string().trim().min(2).max(150).optional(),
   description: nullableText(5000),
   courseId: z.string().min(1).nullable().optional(),
+  categoryId: z.string().min(1).nullable().optional(),
   languageId: z.string().min(1).nullable().optional(),
   thumbnailKey: z.string().startsWith(THUMBNAIL_PREFIX, "Invalid thumbnail upload").nullable().optional(),
   /** Replaces the video file; students keep their progress. */
@@ -177,6 +220,14 @@ async function assertCourse(courseId: string | null | undefined) {
   if (!courseId) return;
   const exists = await prisma.course.count({ where: { id: courseId } });
   if (!exists) throw new HttpError(400, "That course doesn't exist");
+}
+
+/** Videos are filed in a subcategory, or in a category that has none — never in a parent category. */
+async function assertCategory(categoryId: string | null | undefined) {
+  if (!categoryId) return;
+  const category = await prisma.courseCategory.findUnique({ where: { id: categoryId }, select: { _count: { select: { children: true } } } });
+  if (!category) throw new HttpError(400, "That category doesn't exist");
+  if (category._count.children > 0) throw new HttpError(400, "Choose a subcategory — this category is split into subcategories.");
 }
 
 async function assertLanguage(languageId: string | null | undefined) {
@@ -202,19 +253,34 @@ async function assertThumbnail(key: string | null | undefined) {
   if (!THUMBNAIL_TYPES.includes(stat.contentType) || stat.size > MAX_THUMBNAIL_BYTES) throw new HttpError(400, "Invalid thumbnail file");
 }
 
-async function nextOrder(courseId: string | null | undefined) {
-  const { _max } = await prisma.courseVideo.aggregate({ where: { courseId: courseId ?? null }, _max: { displayOrder: true } });
+/** New/moved videos go to the end of their category (or, without one, of their package). */
+async function nextOrder(courseId: string | null | undefined, categoryId?: string | null) {
+  const where = categoryId ? { categoryId } : { courseId: courseId ?? null, categoryId: null };
+  const { _max } = await prisma.courseVideo.aggregate({ where, _max: { displayOrder: true } });
   return (_max.displayOrder ?? -1) + 1;
 }
 
+const adminInclude = {
+  course: { select: { title: true } },
+  language: { select: { code: true, name: true } },
+  category: { select: { id: true, name: true, parent: { select: { name: true } } } },
+} as const;
+
 async function adminView(
-  v: CourseVideo & { course: { title: string } | null; language?: { code: string; name: string } | null; _count?: { progress: number } },
+  v: CourseVideo & {
+    course: { title: string } | null;
+    language?: { code: string; name: string } | null;
+    category?: { id: string; name: string; parent: { name: string } | null } | null;
+    _count?: { progress: number };
+  },
   completions = 0
 ) {
   return {
     id: v.id,
     courseId: v.courseId,
     courseTitle: v.course?.title ?? null,
+    categoryId: v.categoryId,
+    category: v.category ? { id: v.category.id, name: v.category.name, parentName: v.category.parent?.name ?? null } : null,
     languageId: v.languageId,
     language: v.language ?? null,
     title: v.title,
@@ -235,16 +301,23 @@ async function adminView(
 
 export async function adminListVideos(req: Request, res: Response) {
   const courseId = typeof req.query.courseId === "string" ? req.query.courseId : "";
+  const categoryId = typeof req.query.categoryId === "string" ? req.query.categoryId : "";
   const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
   const where: Prisma.CourseVideoWhereInput = {
     ...(courseId === "unassigned" ? { courseId: null } : courseId ? { courseId } : {}),
+    // "uncategorized" = not filed in any category; a category ID also matches its subcategories.
+    ...(categoryId === "uncategorized"
+      ? { categoryId: null }
+      : categoryId
+        ? { OR: [{ categoryId }, { category: { parentId: categoryId } }] }
+        : {}),
     ...(q ? { title: { contains: q, mode: "insensitive" } } : {}),
   };
   const [videos, completions] = await Promise.all([
     prisma.courseVideo.findMany({
       where,
-      include: { course: { select: { title: true } }, language: { select: { code: true, name: true } }, _count: { select: { progress: true } } },
-      orderBy: [{ courseId: "asc" }, { displayOrder: "asc" }, { createdAt: "asc" }],
+      include: { ...adminInclude, _count: { select: { progress: true } } },
+      orderBy: [{ categoryId: "asc" }, { courseId: "asc" }, { displayOrder: "asc" }, { createdAt: "asc" }],
       take: 500,
     }),
     prisma.videoProgress.groupBy({ by: ["videoId"], where: { completed: true }, _count: true }),
@@ -256,7 +329,7 @@ export async function adminListVideos(req: Request, res: Response) {
 export async function adminCreateVideo(req: Request, res: Response) {
   const admin = currentUser(req);
   const body = parse(createSchema, req.body);
-  await Promise.all([assertCourse(body.courseId), assertLanguage(body.languageId)]);
+  await Promise.all([assertCourse(body.courseId), assertCategory(body.categoryId), assertLanguage(body.languageId)]);
 
   const stat = await verifyVideoUpload(body.storageKey);
   await assertThumbnail(body.thumbnailKey);
@@ -267,6 +340,7 @@ export async function adminCreateVideo(req: Request, res: Response) {
         title: body.title,
         description: body.description ?? null,
         courseId: body.courseId ?? null,
+        categoryId: body.categoryId ?? null,
         languageId: body.languageId ?? null,
         storageKey: body.storageKey,
         thumbnailKey: body.thumbnailKey ?? null,
@@ -274,9 +348,9 @@ export async function adminCreateVideo(req: Request, res: Response) {
         sizeBytes: BigInt(stat.size),
         durationSeconds: body.durationSeconds ?? null,
         isPublished: body.isPublished ?? true,
-        displayOrder: await nextOrder(body.courseId),
+        displayOrder: await nextOrder(body.courseId, body.categoryId),
       },
-      include: { course: { select: { title: true } }, language: { select: { code: true, name: true } } },
+      include: adminInclude,
     })
     .catch((err: { code?: string }) => {
       if (err.code === "P2002") throw new HttpError(409, "This upload is already saved as a video.");
@@ -293,21 +367,25 @@ export async function adminUpdateVideo(req: Request, res: Response) {
   const existing = await prisma.courseVideo.findUnique({ where: { id: param(req, "id") } });
   if (!existing) throw new HttpError(404, "Video not found");
   if (body.courseId !== undefined) await assertCourse(body.courseId);
+  if (body.categoryId !== undefined) await assertCategory(body.categoryId);
   if (body.languageId !== undefined) await assertLanguage(body.languageId);
   if (body.thumbnailKey) await assertThumbnail(body.thumbnailKey);
   const replacing = body.storageKey !== undefined && body.storageKey !== existing.storageKey;
   const file = replacing ? await verifyVideoUpload(body.storageKey!) : null;
 
-  const movingCourse = body.courseId !== undefined && body.courseId !== existing.courseId;
+  // A video moved to another category (or, when it has none, another course) joins the end of that list.
+  const finalCourse = body.courseId !== undefined ? body.courseId : existing.courseId;
+  const finalCategory = body.categoryId !== undefined ? body.categoryId : existing.categoryId;
+  const movingCategory = body.categoryId !== undefined && body.categoryId !== existing.categoryId;
+  const movingCourse = body.courseId !== undefined && body.courseId !== existing.courseId && !finalCategory;
   const video = await prisma.courseVideo.update({
     where: { id: existing.id },
     data: {
       ...body,
       ...(file ? { mimeType: file.contentType, sizeBytes: BigInt(file.size) } : {}),
-      // A video moved to another course joins the end of that course's list.
-      ...(movingCourse && body.displayOrder === undefined ? { displayOrder: await nextOrder(body.courseId) } : {}),
+      ...((movingCategory || movingCourse) && body.displayOrder === undefined ? { displayOrder: await nextOrder(finalCourse, finalCategory) } : {}),
     },
-    include: { course: { select: { title: true } }, language: { select: { code: true, name: true } } },
+    include: adminInclude,
   });
   if (body.thumbnailKey !== undefined && existing.thumbnailKey && existing.thumbnailKey !== body.thumbnailKey) {
     await cleanup(existing.thumbnailKey, "replaced thumbnail");
@@ -543,13 +621,17 @@ export async function watchVideo(req: Request, res: Response) {
   const user = currentUser(req);
   const video = await watchableVideo(user, param(req, "id"));
   const ttl = streamTtlSeconds(video.durationSeconds);
+  // The playlist follows where the student came from (?context=category|course) when they have
+  // access that way; otherwise whichever way they do have access.
+  const wantsCategory = req.query.context === "category" || !video.viaCourse;
+  const category = video.viaCategory && wantsCategory ? video.category : null;
 
   const [streamUrl, thumb, progress, playlist] = await Promise.all([
     getDownloadUrl(video.storageKey, ttl),
     thumbnailUrl(video.thumbnailKey),
     prisma.videoProgress.findUnique({ where: { userId_videoId: { userId: user.id, videoId: video.id } } }),
     prisma.courseVideo.findMany({
-      where: { courseId: video.courseId, isPublished: true },
+      where: category ? { categoryId: category.id, isPublished: true } : { courseId: video.courseId, isPublished: true },
       orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
       select: { id: true, title: true, durationSeconds: true, progress: { where: { userId: user.id }, take: 1 } },
     }),
@@ -565,6 +647,10 @@ export async function watchVideo(req: Request, res: Response) {
       thumbnailUrl: thumb,
       course: video.course,
     },
+    // Where the playlist comes from, so the player can link back to the right page.
+    context: category
+      ? { kind: "category", title: category.name, categorySlug: topOf(category).slug, sectionSlug: category.slug }
+      : { kind: "course", title: video.course?.title ?? "Course", courseId: video.courseId },
     streamUrl,
     expiresAt: new Date(Date.now() + ttl * 1000),
     progress: progressView(progress),

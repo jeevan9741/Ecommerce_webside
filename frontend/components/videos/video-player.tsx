@@ -11,7 +11,11 @@ const SAVE_EVERY_MS = 10_000;
 /** Refresh the signed URL this long before it expires, so long sessions never hit a dead link. */
 const REFRESH_BEFORE_MS = 5 * 60_000;
 
-export function VideoPlayer({ courseId, videoId }: { courseId: string; videoId: string }) {
+/** Where the student is watching from: a package page, or a category in the Course Library. */
+export type PlayerContext = { kind: "course"; courseId: string } | { kind: "category"; slug: string };
+
+export function VideoPlayer({ context, videoId }: { context: PlayerContext; videoId: string }) {
+  const basePath = context.kind === "course" ? `/dashboard/courses/${context.courseId}` : `/dashboard/library/${context.slug}`;
   const [data, setData] = useState<WatchPayload | null>(null);
   const [error, setError] = useState<{ notFound: boolean; message: string } | null>(null);
   const [resumedFrom, setResumedFrom] = useState<number | null>(null);
@@ -23,11 +27,11 @@ export function VideoPlayer({ courseId, videoId }: { courseId: string; videoId: 
   const playbackErrors = useRef<number[]>([]);
 
   const load = useCallback(async () => {
-    const payload = await videoService.watch(videoId);
+    const payload = await videoService.watch(videoId, context.kind);
     setData(payload);
     setCompleted(Boolean(payload.progress?.completed));
     return payload;
-  }, [videoId]);
+  }, [videoId, context.kind]);
 
   useEffect(() => {
     lastSave.current = 0;
@@ -128,8 +132,8 @@ export function VideoPlayer({ courseId, videoId }: { courseId: string; videoId: 
         <p className="mt-2 text-sm text-parchment-muted">
           {error.notFound ? "It may have been removed, or it belongs to a course you haven't purchased." : error.message}
         </p>
-        <Link href={`/dashboard/courses/${courseId}`} className="btn-outline btn-sm mt-5">
-          Back to course
+        <Link href={basePath} className="btn-outline btn-sm mt-5">
+          {context.kind === "course" ? "Back to course" : "Back to category"}
         </Link>
       </div>
     );
@@ -144,11 +148,12 @@ export function VideoPlayer({ courseId, videoId }: { courseId: string; videoId: 
 
   const index = data.playlist.findIndex((p) => p.id === data.video.id);
   const next = index >= 0 ? data.playlist[index + 1] : undefined;
+  const backHref = data.context.kind === "category" ? `${basePath}?section=${data.context.sectionSlug}` : basePath;
 
   return (
     <div>
-      <Link href={`/dashboard/courses/${courseId}`} className="inline-flex items-center gap-1 text-xs font-semibold text-gold-500 hover:underline">
-        <ArrowLeft className="h-3.5 w-3.5" /> {data.video.course.title}
+      <Link href={backHref} className="inline-flex items-center gap-1 text-xs font-semibold text-gold-500 hover:underline">
+        <ArrowLeft className="h-3.5 w-3.5" /> {data.context.title}
       </Link>
 
       <div className="mt-3 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
@@ -223,14 +228,16 @@ export function VideoPlayer({ courseId, videoId }: { courseId: string; videoId: 
             <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-parchment-muted">{data.video.description}</p>
           )}
           {next && (
-            <Link href={`/dashboard/courses/${courseId}/videos/${next.id}`} className="btn-outline btn-sm mt-5">
+            <Link href={`${basePath}/videos/${next.id}`} className="btn-outline btn-sm mt-5">
               Next: {next.title} <ChevronRight className="h-4 w-4" />
             </Link>
           )}
         </div>
 
         <aside className="card h-fit overflow-hidden">
-          <p className="border-b border-border-soft px-4 py-3 text-sm font-semibold text-parchment">Course videos</p>
+          <p className="border-b border-border-soft px-4 py-3 text-sm font-semibold text-parchment">
+            {data.context.kind === "category" ? data.context.title : "Course videos"}
+          </p>
           <ol className="max-h-[60vh] overflow-y-auto">
             {data.playlist.map((p, i) => {
               const current = p.id === data.video.id;
@@ -238,7 +245,7 @@ export function VideoPlayer({ courseId, videoId }: { courseId: string; videoId: 
               return (
                 <li key={p.id}>
                   <Link
-                    href={`/dashboard/courses/${courseId}/videos/${p.id}`}
+                    href={`${basePath}/videos/${p.id}`}
                     className={`flex items-center gap-3 px-4 py-3 text-sm transition ${current ? "bg-gold-500/10" : "hover:bg-surface-hover"}`}
                   >
                     {p.progress?.completed ? (

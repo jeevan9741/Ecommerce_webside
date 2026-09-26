@@ -6,6 +6,7 @@ import * as ops from "../controllers/admin-ops.controller.js";
 import * as content from "../controllers/admin-content.controller.js";
 import * as partnerCard from "../controllers/partner-card.controller.js";
 import * as video from "../controllers/video.controller.js";
+import * as category from "../controllers/category.controller.js";
 
 const router = Router();
 
@@ -86,6 +87,14 @@ router.post("/admin/videos", asyncHandler(video.adminCreateVideo));
 router.patch("/admin/videos/:id", asyncHandler(video.adminUpdateVideo));
 router.delete("/admin/videos/:id", asyncHandler(video.adminDeleteVideo));
 router.get("/admin/videos/:id/preview", asyncHandler(video.adminPreviewVideo));
+
+// Course category library (topics like Meesho / Flipkart, and which packages unlock them)
+router.get("/admin/categories", asyncHandler(category.adminListCategories));
+router.post("/admin/categories", asyncHandler(category.adminCreateCategory));
+router.patch("/admin/categories/:id", asyncHandler(category.adminUpdateCategory));
+router.post("/admin/categories/:id/move", asyncHandler(category.adminMoveCategory));
+router.put("/admin/categories/:id/packages", asyncHandler(category.adminSetCategoryPackages));
+router.delete("/admin/categories/:id", asyncHandler(category.adminDeleteCategory));
 
 // Uploads (admin-only signed PUT URLs)
 router.post("/upload/presign", asyncHandler(course.presignUpload));
