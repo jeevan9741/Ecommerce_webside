@@ -3,8 +3,8 @@
 import { backendFetch } from "@/lib/api";
 
 import { useEffect, useState } from "react";
-import { Loader2, Pencil, Save, Trash2, Video } from "lucide-react";
-import { FileUploadField } from "@/components/admin/file-upload-field";
+import Link from "next/link";
+import { Loader2, Save, Video } from "lucide-react";
 
 interface AboutSettings {
   intro: string;
@@ -29,20 +29,6 @@ interface SocialLinksSettings {
 interface LegalSettings {
   note: string;
 }
-interface DemoVideo {
-  id: string;
-  languageId: string;
-  storageKey: string;
-  language: { id: string; code: string; name: string; nativeName: string };
-}
-interface AdminLanguage {
-  id: string;
-  code: string;
-  name: string;
-  nativeName: string;
-  isActive: boolean;
-}
-
 const DEFAULT_ABOUT: AboutSettings = {
   intro:
     "E-Commerce Training Academy was founded to make practical, honest, results-oriented e-commerce education accessible to anyone.",
@@ -69,19 +55,13 @@ export default function AdminSettingsPage() {
   const [contact, setContact] = useState(DEFAULT_CONTACT);
   const [social, setSocial] = useState(DEFAULT_SOCIAL);
   const [legal, setLegal] = useState(DEFAULT_LEGAL);
-  const [videos, setVideos] = useState<DemoVideo[] | null>(null);
-  const [languages, setLanguages] = useState<AdminLanguage[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [savedKey, setSavedKey] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
-      const [settingsData, videosData, languagesData] = await Promise.all([
-        backendFetch("/api/admin/settings").then((r) => r.json()),
-        backendFetch("/api/admin/demo-videos").then((r) => r.json()),
-        backendFetch("/api/admin/languages").then((r) => r.json()),
-      ]);
+      const settingsData = await backendFetch("/api/admin/settings").then((r) => r.json());
       const map: Record<string, unknown> = {};
       for (const s of settingsData.settings ?? []) map[s.key] = s.value;
       if (map.about) setAbout({ ...DEFAULT_ABOUT, ...(map.about as object) });
@@ -89,8 +69,6 @@ export default function AdminSettingsPage() {
       if (map.contact) setContact({ ...DEFAULT_CONTACT, ...(map.contact as object) });
       if (map.socialLinks) setSocial({ ...DEFAULT_SOCIAL, ...(map.socialLinks as object) });
       if (map.legal) setLegal({ ...DEFAULT_LEGAL, ...(map.legal as object) });
-      setVideos(videosData.videos);
-      setLanguages((languagesData.languages ?? []).filter((l: AdminLanguage) => l.isActive));
       setLoading(false);
     }
     load();
@@ -109,7 +87,7 @@ export default function AdminSettingsPage() {
     setTimeout(() => setSavedKey((k) => (k === key ? null : k)), 2000);
   }
 
-  if (loading || !videos) {
+  if (loading) {
     return (
       <div className="flex justify-center py-20">
         <Loader2 className="h-6 w-6 animate-spin text-gold-500" />
@@ -216,7 +194,15 @@ export default function AdminSettingsPage() {
         <textarea className="input-field min-h-20" value={legal.note} onChange={(e) => setLegal({ ...legal, note: e.target.value })} />
       </SettingSection>
 
-      <DemoVideosSection videos={videos} languages={languages} onChange={setVideos} />
+      <div className="card flex flex-wrap items-center justify-between gap-3 p-6">
+        <div>
+          <h2 className="font-display text-lg font-semibold text-parchment">Demo Videos by Language</h2>
+          <p className="mt-1 text-sm text-parchment-muted">Demo and course videos are managed together on the Videos page.</p>
+        </div>
+        <Link href="/admin/videos?tab=demo" className="btn-outline btn-sm">
+          <Video className="h-4 w-4" /> Manage demo videos
+        </Link>
+      </div>
     </div>
   );
 }
@@ -242,145 +228,6 @@ function SettingSection({
         {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
         {saved ? "Saved" : "Save Changes"}
       </button>
-    </div>
-  );
-}
-
-function DemoVideosSection({
-  videos,
-  languages,
-  onChange,
-}: {
-  videos: DemoVideo[];
-  languages: AdminLanguage[];
-  onChange: (videos: DemoVideo[]) => void;
-}) {
-  const [languageId, setLanguageId] = useState("");
-  const [pendingKey, setPendingKey] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [replacingId, setReplacingId] = useState<string | null>(null);
-  const [previewId, setPreviewId] = useState<string | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-
-  async function togglePreview(v: DemoVideo) {
-    if (previewId === v.id) {
-      setPreviewId(null);
-      setPreviewUrl(null);
-      return;
-    }
-    setPreviewLoading(true);
-    const res = await backendFetch(`/api/demo-videos?lang=${v.language.code}`);
-    const data = await res.json();
-    setPreviewLoading(false);
-    if (res.ok && data.video) {
-      setPreviewId(v.id);
-      setPreviewUrl(data.video.url);
-    }
-  }
-
-  const availableLanguages = languages.filter((l) => !videos.some((v) => v.languageId === l.id));
-
-  async function add() {
-    if (!languageId || !pendingKey) return;
-    setBusy(true);
-    const res = await backendFetch("/api/admin/demo-videos", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ languageId, storageKey: pendingKey }),
-    });
-    const data = await res.json();
-    setBusy(false);
-    if (res.ok) {
-      onChange([...videos.filter((v) => v.languageId !== data.video.languageId), data.video]);
-      setLanguageId("");
-      setPendingKey(null);
-    }
-  }
-
-  async function replace(video: DemoVideo, storageKey: string) {
-    const res = await backendFetch("/api/admin/demo-videos", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ languageId: video.languageId, storageKey }),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      onChange([...videos.filter((v) => v.languageId !== data.video.languageId), data.video]);
-      setReplacingId(null);
-    }
-  }
-
-  async function remove(id: string) {
-    await backendFetch(`/api/admin/demo-videos/${id}`, { method: "DELETE" });
-    onChange(videos.filter((v) => v.id !== id));
-  }
-
-  return (
-    <div className="card p-6">
-      <h2 className="font-display text-lg font-semibold text-parchment">Demo Videos by Language</h2>
-      <p className="mt-1 text-sm text-parchment-muted">
-        Shown on the Home page after a visitor selects their preferred language.
-      </p>
-
-      <div className="mt-4">
-        <select className="input-field" value={languageId} onChange={(e) => setLanguageId(e.target.value)}>
-          <option value="">Select a language...</option>
-          {availableLanguages.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name} ({l.nativeName})
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="mt-3">
-        <FileUploadField prefix="demo-videos" accept="video/*" onUploaded={(key) => setPendingKey(key)} />
-      </div>
-      <button onClick={add} disabled={busy || !pendingKey || !languageId} className="btn-gold mt-3 !py-2 text-sm">
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add Demo Video"}
-      </button>
-
-      <div className="mt-5 space-y-2">
-        {videos.map((v) => (
-          <div key={v.id} className="rounded-xl border border-border-soft px-3 py-2 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-2 text-parchment">
-                <Video className="h-4 w-4 text-gold-500" /> {v.language.name} ({v.language.code})
-              </span>
-              <div className="flex items-center gap-1">
-                <button onClick={() => togglePreview(v)} className="btn-ghost !px-2 !py-1 text-xs" title="Preview">
-                  {previewLoading && previewId !== v.id ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : previewId === v.id ? (
-                    "Hide"
-                  ) : (
-                    "Preview"
-                  )}
-                </button>
-                <button
-                  onClick={() => setReplacingId(replacingId === v.id ? null : v.id)}
-                  className="btn-ghost !px-2 !py-1"
-                  title="Replace"
-                >
-                  <Pencil className="h-4 w-4" />
-                </button>
-                <button onClick={() => remove(v.id)} className="btn-ghost !px-2 !py-1 !text-danger" title="Delete">
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-            {previewId === v.id && previewUrl && (
-              <video src={previewUrl} controls className="mt-2 w-full rounded-xl border border-border-soft" />
-            )}
-            {replacingId === v.id && (
-              <div className="mt-2">
-                <FileUploadField prefix="demo-videos" accept="video/*" onUploaded={(key) => replace(v, key)} />
-              </div>
-            )}
-          </div>
-        ))}
-        {videos.length === 0 && <p className="text-sm text-parchment-muted">No demo videos uploaded yet.</p>}
-      </div>
     </div>
   );
 }

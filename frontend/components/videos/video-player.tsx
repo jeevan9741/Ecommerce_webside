@@ -162,7 +162,8 @@ export function VideoPlayer({ courseId, videoId }: { courseId: string; videoId: 
               controls
               playsInline
               preload="metadata"
-              controlsList="nodownload"
+              controlsList="nodownload noremoteplayback"
+              disablePictureInPicture
               onContextMenu={(e) => e.preventDefault()}
               className="aspect-video w-full"
               onLoadedMetadata={(e) => {

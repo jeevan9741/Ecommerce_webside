@@ -222,43 +222,6 @@ export async function updateLanguage(req: Request, res: Response) {
   res.json({ language });
 }
 
-// ---------- Demo videos ----------
-
-const demoVideoSchema = z.object({
-  languageId: z.string().min(1),
-  storageKey: z.string().min(1),
-});
-
-export async function listDemoVideos(_req: Request, res: Response) {
-  const videos = await prisma.demoVideo.findMany({
-    include: { language: true },
-    orderBy: { language: { displayOrder: "asc" } },
-  });
-  res.json({ videos });
-}
-
-export async function upsertDemoVideo(req: Request, res: Response) {
-  const parsed = demoVideoSchema.safeParse(req.body);
-  if (!parsed.success) throw new HttpError(400, "Invalid request");
-
-  const existing = await prisma.demoVideo.findUnique({ where: { languageId: parsed.data.languageId } });
-  const video = await prisma.demoVideo.upsert({
-    where: { languageId: parsed.data.languageId },
-    update: { storageKey: parsed.data.storageKey },
-    create: parsed.data,
-    include: { language: true },
-  });
-
-  if (existing && existing.storageKey !== parsed.data.storageKey) await cleanupBlob(existing.storageKey, "old demo video");
-  res.json({ video });
-}
-
-export async function deleteDemoVideo(req: Request, res: Response) {
-  const deleted = await prisma.demoVideo.delete({ where: { id: param(req, "id") } });
-  await cleanupBlob(deleted.storageKey, "demo video");
-  res.json({ ok: true });
-}
-
 // ---------- Uploads ----------
 
 const presignSchema = z.object({

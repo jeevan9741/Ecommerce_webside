@@ -7,10 +7,17 @@ export interface VideoProgress {
   updatedAt: string;
 }
 
+export interface VideoLanguage {
+  code: string;
+  name: string;
+}
+
 export interface AdminVideo {
   id: string;
   courseId: string | null;
   courseTitle: string | null;
+  languageId: string | null;
+  language: VideoLanguage | null;
   title: string;
   description: string | null;
   mimeType: string;
@@ -31,6 +38,7 @@ export interface StudentVideo {
   title: string;
   description: string | null;
   durationSeconds: number | null;
+  language: VideoLanguage | null;
   thumbnailUrl: string | null;
   progress: VideoProgress | null;
 }
@@ -55,17 +63,46 @@ export interface VideoEdit {
   title?: string;
   description?: string | null;
   courseId?: string | null;
+  languageId?: string | null;
   thumbnailKey?: string | null;
+  /** A new upload replaces the video file (students keep their progress). */
+  storageKey?: string;
+  durationSeconds?: number | null;
   isPublished?: boolean;
   displayOrder?: number;
+}
+
+/** The free demo for one language, shown on the homepage without login. */
+export interface AdminDemoVideo {
+  id: string;
+  languageId: string;
+  language: VideoLanguage & { id: string; nativeName: string; isActive: boolean };
+  title: string;
+  description: string | null;
+  sizeBytes: number | null;
+  durationSeconds: number | null;
+  isPublic: boolean;
+  url: string;
+  thumbnailUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DemoVideoEdit {
+  title?: string;
+  description?: string | null;
+  languageId?: string;
+  storageKey?: string;
+  thumbnailKey?: string | null;
+  durationSeconds?: number | null;
 }
 
 export const MAX_VIDEO_BYTES = 2 * 1024 ** 3;
 
 export const videoService = {
   // Admin
-  uploadToken: (body: { kind: "video" | "thumbnail"; filename: string; contentType: string; sizeBytes: number }) =>
-    api.post<{ pathname: string; clientToken: string }>("/admin/videos/upload-token", body),
+  uploadToken: (body: { kind: "video" | "thumbnail"; purpose: "course" | "demo"; filename: string; contentType: string; sizeBytes: number }) =>
+    api.post<{ pathname: string; clientToken: string; access: "private" | "public" }>("/admin/videos/upload-token", body),
   discardUpload: (key: string) => api.post<{ ok: true }>("/admin/videos/discard-upload", { key }),
   list: (params: { courseId?: string; q?: string } = {}) => {
     const qs = new URLSearchParams();
@@ -78,6 +115,11 @@ export const videoService = {
   update: (id: string, body: VideoEdit) => api.patch<{ video: AdminVideo }>(`/admin/videos/${id}`, body),
   remove: (id: string) => api.delete<{ ok: true }>(`/admin/videos/${id}`),
   preview: (id: string) => api.get<{ streamUrl: string; expiresAt: string }>(`/admin/videos/${id}/preview`),
+  demos: () => api.get<{ videos: AdminDemoVideo[] }>("/admin/demo-videos"),
+  createDemo: (body: DemoVideoEdit & { title: string; languageId: string; storageKey: string }) =>
+    api.post<{ video: AdminDemoVideo }>("/admin/demo-videos", body),
+  updateDemo: (id: string, body: DemoVideoEdit) => api.patch<{ video: AdminDemoVideo }>(`/admin/demo-videos/${id}`, body),
+  removeDemo: (id: string) => api.delete<{ ok: true }>(`/admin/demo-videos/${id}`),
 
   // Students
   courseVideos: (courseId: string) => api.get<{ videos: StudentVideo[] }>(`/me/courses/${courseId}/videos`),

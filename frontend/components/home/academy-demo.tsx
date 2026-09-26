@@ -5,6 +5,8 @@ import { backendFetch } from "@/lib/api";
 import { createContext, useContext, useEffect, useState } from "react";
 import { Loader2, Search } from "lucide-react";
 import { LanguageSelector } from "@/components/language-selector";
+import { StreamOnlyVideo } from "@/components/videos/stream-only-video";
+import type { PublicDemoVideo } from "@/services/courseService";
 
 interface LanguageOption {
   code: string;
@@ -18,8 +20,7 @@ interface DemoState {
   selectedCode: string;
   selectLanguage: (code: string) => void;
   videoStatus: "loading" | "ready" | "empty";
-  videoUrl: string | null;
-  videoLanguageName: string | null;
+  video: PublicDemoVideo | null;
 }
 
 const LANG_COOKIE = "eca_lang";
@@ -58,13 +59,11 @@ export function DemoLanguageProvider({ children }: { children: React.ReactNode }
   const [videoResult, setVideoResult] = useState<{
     forCode: string;
     status: "ready" | "empty";
-    url: string | null;
-    languageName: string | null;
+    video: PublicDemoVideo | null;
   } | null>(null);
 
   const videoStatus = videoResult?.forCode === selectedCode ? videoResult.status : "loading";
-  const videoUrl = videoResult?.forCode === selectedCode ? videoResult.url : null;
-  const videoLanguageName = videoResult?.forCode === selectedCode ? videoResult.languageName : null;
+  const video = videoResult?.forCode === selectedCode ? videoResult.video : null;
 
   useEffect(() => {
     backendFetch("/api/languages")
@@ -95,16 +94,11 @@ export function DemoLanguageProvider({ children }: { children: React.ReactNode }
       .then((data) => {
         if (cancelled) return;
         if (!data.video) throw new Error("not found");
-        setVideoResult({
-          forCode: selectedCode,
-          status: "ready",
-          url: data.video.url,
-          languageName: data.video.languageName,
-        });
+        setVideoResult({ forCode: selectedCode, status: "ready", video: data.video });
       })
       .catch(() => {
         if (!cancelled) {
-          setVideoResult({ forCode: selectedCode, status: "empty", url: null, languageName: null });
+          setVideoResult({ forCode: selectedCode, status: "empty", video: null });
         }
       });
 
@@ -120,7 +114,7 @@ export function DemoLanguageProvider({ children }: { children: React.ReactNode }
 
   return (
     <DemoContext.Provider
-      value={{ languages, languagesLoaded, selectedCode, selectLanguage, videoStatus, videoUrl, videoLanguageName }}
+      value={{ languages, languagesLoaded, selectedCode, selectLanguage, videoStatus, video }}
     >
       {children}
     </DemoContext.Provider>
@@ -133,9 +127,12 @@ function useDemoState(): DemoState {
   return ctx;
 }
 
-/** Large embedded-video-style player. Content is real (per-language, admin-uploaded); only the chrome is styled to look like a video platform embed. */
+/**
+ * Large embedded-video-style player for the free demo (no login). Content is real (per-language,
+ * admin-uploaded); it streams only — no download button, picture-in-picture or "Save video as".
+ */
 export function DemoVideoPlayer() {
-  const { videoStatus, videoUrl } = useDemoState();
+  const { videoStatus, video } = useDemoState();
 
   return (
     <div className="mx-auto max-w-4xl overflow-hidden rounded-2xl border border-border-soft bg-black shadow-[0_25px_60px_-20px_rgba(15,23,42,0.35)]">
@@ -146,10 +143,24 @@ export function DemoVideoPlayer() {
             Our demo video is being prepared for this language — pick another language below, or check back soon.
           </p>
         )}
-        {videoStatus === "ready" && videoUrl && (
-          <video src={videoUrl} controls playsInline className="h-full w-full bg-black" />
+        {videoStatus === "ready" && video && (
+          <StreamOnlyVideo
+            key={video.url}
+            src={video.url}
+            poster={video.thumbnailUrl ?? undefined}
+            playsInline
+            preload="metadata"
+            title={video.title}
+            className="h-full w-full bg-black"
+          />
         )}
       </div>
+      {videoStatus === "ready" && video && (video.title || video.description) && (
+        <div className="border-t border-white/10 bg-[#0b0f1f] px-4 py-3 sm:px-6">
+          <p className="text-sm font-semibold text-white sm:text-base">{video.title}</p>
+          {video.description && <p className="mt-0.5 text-xs text-white/70 sm:text-sm">{video.description}</p>}
+        </div>
+      )}
     </div>
   );
 }

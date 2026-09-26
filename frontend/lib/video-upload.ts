@@ -4,7 +4,7 @@ import { put } from "@vercel/blob/client";
 import { videoService } from "@/services/videoService";
 
 /**
- * Browser → private Blob store uploads for the course video library. The backend only hands out
+ * Browser → Blob store uploads for course and demo videos. The backend only hands out
  * a scoped token (one path, one content type, size cap); the bytes never pass through our servers.
  * Anything over a few MB goes up in parallel parts, which Blob retries individually — that's
  * what makes 2 GB uploads practical over flaky connections.
@@ -22,11 +22,18 @@ export async function uploadToStore(
   body: Blob,
   filename: string,
   contentType: string,
-  opts: { onProgress?: (p: UploadProgress) => void; signal?: AbortSignal } = {}
+  opts: { onProgress?: (p: UploadProgress) => void; signal?: AbortSignal; purpose?: "course" | "demo" } = {}
 ): Promise<string> {
-  const { pathname, clientToken } = await videoService.uploadToken({ kind, filename, contentType, sizeBytes: body.size });
+  const { pathname, clientToken, access } = await videoService.uploadToken({
+    kind,
+    purpose: opts.purpose ?? "course",
+    filename,
+    contentType,
+    sizeBytes: body.size,
+  });
   await put(pathname, body, {
-    access: "private",
+    // Course files always go to the private store; demos may go to the public one (backend decides).
+    access,
     token: clientToken,
     contentType,
     multipart: body.size > MULTIPART_OVER_BYTES,

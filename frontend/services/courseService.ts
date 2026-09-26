@@ -1,11 +1,21 @@
 import { api } from "@/lib/api";
 
+export interface PublicDemoVideo {
+  title: string;
+  description: string | null;
+  languageCode: string;
+  languageName: string;
+  durationSeconds: number | null;
+  url: string;
+  thumbnailUrl: string | null;
+}
+
 export const courseService = {
   list: () => api.get<{ courses: unknown[]; ownedCourseIds: string[] }>("/courses"),
   content: (courseId: string) => api.get<Record<string, unknown>>(`/courses/${courseId}/content`),
   languages: () => api.get<{ languages: { id: string; code: string; name: string; nativeName: string }[] }>("/languages"),
   demoVideo: (lang: string) =>
-    api.get<{ video: { languageCode: string; languageName: string; url: string } | null }>(
+    api.get<{ video: PublicDemoVideo | null }>(
       `/demo-videos?lang=${encodeURIComponent(lang)}`
     ),
   reviews: () => api.get<{ reviews: unknown[] }>("/reviews"),

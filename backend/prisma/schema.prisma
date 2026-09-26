@@ -209,6 +209,8 @@ model CourseVideo {
   id              String   @id @default(cuid())
   /// Unassigned videos (null) are never shown to students.
   courseId        String?
+  /// Spoken language of the video (optional; lets students filter a multi-language course).
+  languageId      String?
   title           String
   description     String?
   storageKey      String   @unique
@@ -222,6 +224,7 @@ model CourseVideo {
   updatedAt       DateTime @updatedAt
 
   course   Course?         @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  language Language?       @relation(fields: [languageId], references: [id], onDelete: SetNull)
   progress VideoProgress[]
 
   @@index([courseId, displayOrder])
@@ -259,6 +262,7 @@ model Language {
 
   demoVideo        DemoVideo?
   courseVideos     CourseLanguageVideo[]
+  originalVideos   CourseVideo[]
   preferredByUsers User[]                @relation("PreferredLanguage")
 
   @@index([isActive])
@@ -282,11 +286,23 @@ model CourseLanguageVideo {
   @@index([languageId])
 }
 
+/// The free demo video for one language (languageId is unique: one demo per language), shown on
+/// the homepage without login. Stored in the public Blob store when one is configured (publicUrl
+/// set), otherwise in the private store and served through signed links.
 model DemoVideo {
-  id         String   @id @default(cuid())
-  languageId String   @unique
-  storageKey String
-  createdAt  DateTime @default(now())
+  id              String   @id @default(cuid())
+  languageId      String   @unique
+  title           String   @default("")
+  description     String?
+  storageKey      String
+  /// Direct CDN URL when the file lives in the public store; null = private store (signed links).
+  publicUrl       String?
+  thumbnailKey    String?
+  thumbnailUrl    String?
+  sizeBytes       BigInt?
+  durationSeconds Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
 
   language Language @relation(fields: [languageId], references: [id], onDelete: Cascade)
 }

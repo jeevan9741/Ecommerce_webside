@@ -45,14 +45,10 @@ export const adminService = {
   deleteLesson: (id: string) => api.delete(`/admin/lessons/${id}`),
   previewLesson: (id: string) => api.get<{ videoUrl: string; subtitleUrl: string | null }>(`/admin/lessons/${id}/preview`),
 
-  // Languages & demo videos
+  // Languages (demo videos: videoService)
   languages: () => api.get<{ languages: unknown[] }>("/admin/languages"),
   createLanguage: (data: unknown) => api.post<{ language: unknown }>("/admin/languages", data),
   updateLanguage: (id: string, data: unknown) => api.patch<{ language: unknown }>(`/admin/languages/${id}`, data),
-  demoVideos: () => api.get<{ videos: unknown[] }>("/admin/demo-videos"),
-  saveDemoVideo: (languageId: string, storageKey: string) =>
-    api.post<{ video: unknown }>("/admin/demo-videos", { languageId, storageKey }),
-  deleteDemoVideo: (id: string) => api.delete(`/admin/demo-videos/${id}`),
 
   // Uploads
   presign: (filename: string, contentType: string, prefix: "course-content" | "demo-videos" | "certificates") =>

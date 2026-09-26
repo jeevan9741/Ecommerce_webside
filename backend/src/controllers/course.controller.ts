@@ -5,6 +5,7 @@ import { jobApplicationSchema } from "../utils/validation.js";
 import { rateLimit } from "../utils/rate-limit.js";
 import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError, param } from "../utils/http.js";
+import { demoPublicView } from "./video.controller.js";
 
 /**
  * Public course catalogue — price and content only. Commission amounts and any
@@ -113,13 +114,9 @@ export async function demoVideos(req: Request, res: Response) {
     });
     // A language without a demo yet is a normal state, not an error — the page shows a placeholder.
     if (!video) return res.json({ video: null });
-    return res.json({
-      video: {
-        languageCode: video.language.code,
-        languageName: video.language.name,
-        url: await getDownloadUrl(video.storageKey, 600),
-      },
-    });
+    // Private-store demos get a signed link sized to the video, so it can't be shared long-term.
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({ video: await demoPublicView(video) });
   }
 
   const videos = await prisma.demoVideo.findMany({

@@ -73,9 +73,10 @@ router.post("/admin/languages", asyncHandler(course.createLanguage));
 router.patch("/admin/languages/:id", asyncHandler(course.updateLanguage));
 
 // Demo videos
-router.get("/admin/demo-videos", asyncHandler(course.listDemoVideos));
-router.post("/admin/demo-videos", asyncHandler(course.upsertDemoVideo));
-router.delete("/admin/demo-videos/:id", asyncHandler(course.deleteDemoVideo));
+router.get("/admin/demo-videos", asyncHandler(video.adminListDemoVideos));
+router.post("/admin/demo-videos", asyncHandler(video.adminCreateDemoVideo));
+router.patch("/admin/demo-videos/:id", asyncHandler(video.adminUpdateDemoVideo));
+router.delete("/admin/demo-videos/:id", asyncHandler(video.adminDeleteDemoVideo));
 
 // Course video library (files go browser → private Blob store via scoped client tokens)
 router.post("/admin/videos/upload-token", asyncHandler(video.createVideoUploadToken));
