@@ -13,8 +13,6 @@ import referralRoutes from "./routes/referral.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import partnerCardRoutes from "./routes/partner-card.routes.js";
 import videoRoutes from "./routes/video.routes.js";
-import { blobDiagnostics, inspectBlobToken } from "./services/blob-diagnostics.js";
-import { redactBlobSecrets } from "./services/storage.service.js";
 
 export function createApp() {
   const app = express();
@@ -51,18 +49,9 @@ export function createApp() {
   app.use(express.json({ limit: "2mb" }));
   app.use(express.urlencoded({ extended: true }));
 
-  app.get("/api/health", async (req, res) => {
+  app.get("/api/health", (_req, res) => {
     // Render sets RENDER_GIT_COMMIT on every deploy — lets anyone confirm which build is live.
-    const base = { ok: true, service: "ecommerce-academy-backend", commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? null };
-    // TEMPORARY Blob diagnostics: token checks always (no network); live checks only on ?blob=1 / ?blob=full
-    // so Render's own health probes never depend on Blob.
-    const mode = req.query.blob;
-    if (mode !== "1" && mode !== "full") return res.json({ ...base, blobToken: inspectBlobToken() });
-    try {
-      res.json({ ...base, blob: await blobDiagnostics(mode === "full") });
-    } catch (err) {
-      res.json({ ...base, blob: { blobConnected: false, blobError: redactBlobSecrets(err instanceof Error ? err.message : String(err)) } });
-    }
+    res.json({ ok: true, service: "ecommerce-academy-backend", commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? null });
   });
 
   for (const router of [authRoutes, emailRoutes, userRoutes, courseRoutes, paymentRoutes, referralRoutes, partnerCardRoutes, videoRoutes, adminRoutes]) {
