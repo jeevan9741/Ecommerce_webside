@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Don't advertise the framework in an X-Powered-By header.
+  poweredByHeader: false,
   // resvg ships a native binary per platform; keep it out of the bundle and load it from node_modules.
   serverExternalPackages: ["@resvg/resvg-js"],
   // The card export route reads its fonts and logo from disk at runtime.

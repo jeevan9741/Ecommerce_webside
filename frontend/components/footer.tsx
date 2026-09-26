@@ -1,15 +1,11 @@
-import Link from "next/link";
 import { MessageCircle, Send, MapPin, Mail, Phone } from "lucide-react";
 import { LogoMark } from "@/components/logo";
 import { getContact } from "@/lib/contact";
-import { homeFor } from "@/lib/routes";
-import { getSession } from "@/lib/session";
+import { FooterExploreLinks } from "@/components/footer-explore-links";
 
 export async function Footer() {
-  // The footer renders on every marketing page, so a backend hiccup falls back to
-  // defaults instead of taking the whole page down with it.
-  const [contact, session] = await Promise.all([getContact(), getSession().catch(() => null)]);
-  const isAuthenticated = Boolean(session?.user);
+  // Cached and time-limited (see getContact), so the footer never makes a marketing page wait on the backend.
+  const contact = await getContact();
 
   return (
     <footer className="bg-gradient-to-br from-gold-600 to-gold-500">
@@ -45,14 +41,7 @@ export async function Footer() {
         <div className="min-w-0">
           <h3 className="mb-4 text-xs font-semibold uppercase tracking-wider text-white">Explore</h3>
           <ul className="space-y-2.5 text-sm text-blue-100">
-            {isAuthenticated ? (
-              <>
-                <li><Link href={homeFor(session?.user.role)} className="hover:text-white">{session?.user.role === "ADMIN" ? "Admin Panel" : "Dashboard"}</Link></li>
-                <li><Link href="/courses" className="hover:text-white">Courses</Link></li>
-              </>
-            ) : (
-              <li><Link href="/about" className="hover:text-white">About Us</Link></li>
-            )}
+            <FooterExploreLinks />
           </ul>
         </div>
 

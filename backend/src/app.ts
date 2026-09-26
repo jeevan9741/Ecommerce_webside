@@ -4,6 +4,7 @@ import { env } from "./config/env.js";
 import { asyncHandler } from "./utils/http.js";
 import { razorpayWebhook } from "./controllers/payment.controller.js";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware.js";
+import { responseHeaders } from "./middleware/response-headers.middleware.js";
 import authRoutes from "./routes/auth.routes.js";
 import emailRoutes from "./routes/email.routes.js";
 import userRoutes from "./routes/user.routes.js";
@@ -20,6 +21,7 @@ export function createApp() {
   // Behind a proxy (Vercel/Render/Nginx) req.ip must come from X-Forwarded-For for rate limiting.
   app.set("trust proxy", 1);
   app.disable("x-powered-by");
+  app.use(responseHeaders);
 
   // Razorpay calls this server-to-server, so it's mounted before CORS and — critically —
   // before express.json(): HMAC verification needs the exact raw bytes that were signed.
