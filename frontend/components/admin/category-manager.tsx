@@ -117,7 +117,7 @@ function CategoryCard({
   return (
     <div className={`card overflow-hidden ${c.isActive ? "" : "opacity-70"}`}>
       <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-        <CategoryTile slug={c.slug} />
+        <CategoryTile />
         <EntryRow entry={c} first={first} last={last} reload={reload} push={push} />
       </div>
 

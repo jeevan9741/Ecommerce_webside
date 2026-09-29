@@ -165,36 +165,23 @@ function checkBullet(cx: number, cy: number, r: number) {
   return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#1e9e45"/><path d="M${cx - r * 0.45} ${cy + r * 0.02} l${r * 0.32} ${r * 0.33} l${r * 0.6} ${-r * 0.62}" fill="none" stroke="${WHITE}" stroke-width="${r * 0.3}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
-/** Marketplace strip (text-built marks, so nothing depends on third-party image files). */
-function marketplaces(x: number, y: number, w: number, h: number, darkAmazon: boolean) {
-  const seg = w / 3;
+/**
+ * Platform strip: the platform names as plain text in the card's own colours — no brand logos,
+ * colours or lettering styles.
+ */
+function marketplaces(x: number, y: number, w: number, h: number) {
+  const names = ["Amazon", "Flipkart", "Meesho"];
+  const seg = w / names.length;
   const cy = y + h / 2;
-  const amazonX = x + seg / 2;
-  const flipX = x + seg * 1.5;
-  const meeshoX = x + seg * 2.5;
-  const amazon = darkAmazon
-    ? `<rect x="${amazonX - seg * 0.42}" y="${y + 9}" width="${seg * 0.84}" height="${h - 18}" rx="8" fill="#101a38"/>
-       ${wordmark(amazonX, cy + 4, "amazon", seg * 0.6, 700, WHITE)}
-       <path d="M${amazonX - seg * 0.22} ${cy + 10} q${seg * 0.2} ${9} ${seg * 0.4} ${-1}" fill="none" stroke="#ff9900" stroke-width="3" stroke-linecap="round"/>
-       <path d="M${amazonX + seg * 0.15} ${cy + 6} l${seg * 0.05} ${3} l${-seg * 0.05} ${2}" fill="none" stroke="#ff9900" stroke-width="2.6" stroke-linecap="round"/>`
-    : `${wordmark(amazonX, cy + 4, "amazon", seg * 0.66, 700, "#111111")}
-       <path d="M${amazonX - seg * 0.26} ${cy + 11} q${seg * 0.24} ${10} ${seg * 0.46} ${-1}" fill="none" stroke="#ff9900" stroke-width="3.4" stroke-linecap="round"/>
-       <path d="M${amazonX + seg * 0.16} ${cy + 6} l${seg * 0.06} ${3.5} l${-seg * 0.06} ${2.5}" fill="none" stroke="#ff9900" stroke-width="2.8" stroke-linecap="round"/>`;
-  const flipkart = `
-    <g transform="translate(${flipX - seg * 0.1} ${cy + 8}) skewX(-12)">${wordmark(0, 0, "Flipkart", seg * 0.56, 700, "#2874f0")}</g>
-    <rect x="${flipX + seg * 0.22}" y="${cy - 15}" width="24" height="28" rx="4" fill="${YELLOW}"/>
-    <g transform="translate(${flipX + seg * 0.22 + 12} ${cy + 8}) skewX(-10)"><text x="0" y="0" font-family="${FONT}" font-weight="800" font-size="24" fill="#2874f0" text-anchor="middle">f</text></g>`;
-  const meesho = `
-    <rect x="${meeshoX - seg * 0.38}" y="${y + 7}" width="${seg * 0.76}" height="${h - 14}" rx="8" fill="#e5237a"/>
-    <text x="${meeshoX}" y="${cy + 4}" font-family="${FONT}" font-weight="700" font-size="${h * 0.48}" fill="${WHITE}" text-anchor="middle">m</text>
-    ${wordmark(meeshoX, y + h - 12, "meesho", seg * 0.42, 600, WHITE)}`;
   return `
     <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="12" fill="${WHITE}" filter="url(#{P}soft)"/>
-    ${amazon}
-    <line x1="${x + seg}" y1="${y + 10}" x2="${x + seg}" y2="${y + h - 10}" stroke="#cfd6ea" stroke-width="2"/>
-    ${flipkart}
-    <line x1="${x + seg * 2}" y1="${y + 10}" x2="${x + seg * 2}" y2="${y + h - 10}" stroke="#cfd6ea" stroke-width="2"/>
-    ${meesho}`;
+    ${names
+      .map((name, i) => {
+        const cx = x + seg * (i + 0.5);
+        const divider = i > 0 ? `<line x1="${x + seg * i}" y1="${y + 10}" x2="${x + seg * i}" y2="${y + h - 10}" stroke="#cfd6ea" stroke-width="2"/>` : "";
+        return `${divider}${wordmark(cx, cy + h * 0.12, name, seg * 0.62, 600, NAVY_TEXT)}`;
+      })
+      .join("")}`;
 }
 
 /** Circular academy logo with the yellow ring used on both sides. */
@@ -296,7 +283,7 @@ export function renderCardFront(card: PartnerCardArt, opts: RenderOptions) {
 
     ${logoBadge(148, 150, 118, opts.logoHref)}
     ${academyTitle(468, 118, 1)}
-    ${marketplaces(270, 222, 376, 56, false)}
+    ${marketplaces(270, 222, 376, 56)}
 
     <!-- taglines -->
     <g fill="${WHITE}">
@@ -506,7 +493,7 @@ export function renderCardBack(card: PartnerCardArt, opts: RenderOptions) {
       ${script(34, 932, "Your Growth", 31, "#0d1670")}
       ${script(70, 968, "Our Mission", 31, "#0d1670")}
     </g>
-    ${marketplaces(284, 892, 370, 74, true)}
+    ${marketplaces(284, 892, 370, 74)}
   `;
 
   return wrap(body, opts, `Partner ID card back — ${card.fullName}`);

@@ -58,7 +58,7 @@ function CategoryCard({ category: c }: { category: LibraryCategory }) {
   return (
     <Link href={`/dashboard/library/${c.slug}`} className="card card-interactive flex flex-col p-5">
       <div className="flex items-start gap-3">
-        <CategoryTile slug={c.slug} />
+        <CategoryTile />
         <div className="min-w-0 flex-1">
           <p className="font-semibold text-parchment">{c.name}</p>
           <p className="mt-0.5 text-xs text-parchment-muted">

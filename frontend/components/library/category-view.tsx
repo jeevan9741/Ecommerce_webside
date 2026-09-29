@@ -56,7 +56,7 @@ export function CategoryView({ slug, initialSection }: { slug: string; initialSe
       </Link>
 
       <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-center">
-        <CategoryTile slug={category.slug} size="lg" />
+        <CategoryTile size="lg" />
         <div className="min-w-0 flex-1">
           <h1 className="font-display text-2xl font-semibold text-parchment">{category.name}</h1>
           {category.description && <p className="mt-1 text-sm text-parchment-muted">{category.description}</p>}

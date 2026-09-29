@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import { Check, Clock, Globe2, Info, Loader2, MousePointerClick, Search } from "lucide-react";
 import { LanguageSelector } from "@/components/language-selector";
 import { StreamOnlyVideo } from "@/components/videos/stream-only-video";
-import { PlatformWordmark } from "@/components/home/platform-wordmark";
+import { PlatformTile } from "@/components/home/platform-tile";
 import { courseService, type DemoPlatform, type PublicDemoVideo } from "@/services/courseService";
 
 /**
@@ -230,7 +230,7 @@ export function DemoPlatformPicker() {
                 : "border-border-soft hover:-translate-y-0.5 hover:border-gold-500/60 hover:shadow-md"
             }`}
           >
-            <PlatformWordmark slug={p.slug} name={p.name} className="w-28 shrink-0 sm:h-24 sm:w-full" />
+            <PlatformTile name={p.name} className="w-28 shrink-0 sm:h-24 sm:w-full" />
             <span className="flex min-w-0 flex-1 flex-col p-3 sm:p-4">
               <span className="flex items-center justify-between gap-2">
                 <span className="font-bold text-parchment">{p.name}</span>
@@ -310,7 +310,7 @@ export function DemoVideoPlayer() {
         </div>
       ) : video.status === "empty" && platform ? (
         <div role="status" className="flex flex-col items-center gap-4 rounded-2xl border border-border-soft bg-ink-elevated px-6 py-12 text-center shadow-sm sm:py-16">
-          <PlatformWordmark slug={platform.slug} name={platform.name} className="h-16 w-40 rounded-xl shadow-sm" />
+          <PlatformTile name={platform.name} className="h-20 w-40 rounded-xl shadow-sm" />
           <span className="inline-flex items-center gap-1.5 rounded-full border border-gold-500/30 bg-gold-500/10 px-3 py-1 text-xs font-bold uppercase tracking-wider text-gold-600">
             <Clock className="h-3.5 w-3.5" /> Coming soon
           </span>
