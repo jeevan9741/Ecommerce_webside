@@ -6,6 +6,20 @@ interface SendEmailInput {
 
 class EmailConfigError extends Error {}
 
+/**
+ * The SMTP host's IPv4 address. Nodemailer picks randomly among a host's IPv4 *and* IPv6
+ * addresses, and hosts without IPv6 routing (Render) then fail with ENETUNREACH on the IPv6 ones
+ * (e.g. smtp.gmail.com). Falls back to the hostname if there's no IPv4 record.
+ */
+async function smtpIPv4(host: string) {
+  const { isIP } = await import("node:net");
+  if (isIP(host)) return host;
+  // The OS resolver (like everything else in the app), asked for IPv4 only.
+  const { lookup } = await import("node:dns/promises");
+  const result = await lookup(host, { family: 4 }).catch(() => null);
+  return result?.address ?? host;
+}
+
 export async function sendEmail({ to, subject, html }: SendEmailInput): Promise<void> {
   const provider = process.env.EMAIL_PROVIDER ?? "console";
 
@@ -29,11 +43,17 @@ export async function sendEmail({ to, subject, html }: SendEmailInput): Promise<
     const nodemailer = await import("nodemailer");
     const port = Number(process.env.SMTP_PORT ?? 587);
     const transport = nodemailer.createTransport({
-      host: SMTP_HOST,
+      host: await smtpIPv4(SMTP_HOST),
       port,
       // 465 is implicit TLS; 587/25 upgrade via STARTTLS.
       secure: port === 465,
       auth: { user: SMTP_USER, pass: SMTP_PASSWORD },
+      // We may connect by IP (above), so verify the certificate against the real hostname.
+      tls: { servername: SMTP_HOST },
+      // Fail in seconds rather than holding the signup request open for minutes.
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 20_000,
     });
     await transport.sendMail({ from: EMAIL_FROM, to, subject, html });
     return;
