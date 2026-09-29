@@ -1,8 +1,7 @@
 "use client";
 
-import { forwardRef } from "react";
 import { motion } from "framer-motion";
-import { Check, CreditCard, Landmark, Smartphone, Zap } from "lucide-react";
+import { Check, CreditCard, Landmark, Loader2, Smartphone, Zap } from "lucide-react";
 import type { PaymentMethod, PaymentMethodId } from "./payment-methods";
 
 /**
@@ -56,45 +55,38 @@ function MethodIcon({ id }: { id: PaymentMethodId }) {
   }
 }
 
-export const PaymentMethodCard = forwardRef<
-  HTMLButtonElement,
-  {
-    method: PaymentMethod;
-    selected: boolean;
-    tabIndex: number;
-    onSelect: () => void;
-    onKeyDown: (e: React.KeyboardEvent<HTMLButtonElement>) => void;
-  }
->(function PaymentMethodCard({ method, selected, tabIndex, onSelect, onKeyDown }, ref) {
+export function PaymentMethodCard({
+  method,
+  highlighted,
+  pending,
+  disabled,
+  onPay,
+}: {
+  method: PaymentMethod;
+  highlighted: boolean;
+  pending: boolean;
+  disabled: boolean;
+  onPay: () => void;
+}) {
+  const active = highlighted || pending;
   return (
     <motion.button
-      ref={ref}
       type="button"
-      role="radio"
-      aria-checked={selected}
-      aria-label={`${method.label} — ${method.hint}`}
-      tabIndex={tabIndex}
-      onClick={onSelect}
-      onKeyDown={onKeyDown}
-      whileHover={{ y: -3 }}
-      whileTap={{ scale: 0.96 }}
+      data-method={method.id}
+      data-last={highlighted}
+      aria-label={`Pay with ${method.label} — ${method.hint}`}
+      aria-busy={pending}
+      disabled={disabled}
+      onClick={onPay}
+      whileHover={disabled ? undefined : { y: -3 }}
+      whileTap={disabled ? undefined : { scale: 0.96 }}
       transition={{ type: "spring", stiffness: 400, damping: 26 }}
-      className={`group relative flex h-full min-h-[148px] w-full min-w-0 flex-col items-start gap-3 overflow-hidden rounded-[22px] border p-4 text-left outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-gold-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-ink sm:p-5 lg:p-4 ${
-        selected
+      className={`group relative flex h-full min-h-[148px] w-full min-w-0 flex-col items-start gap-3 overflow-hidden rounded-[22px] border p-4 text-left outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-gold-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-ink disabled:cursor-not-allowed sm:p-5 lg:p-4 ${
+        active
           ? "border-gold-500 bg-gradient-to-br from-gold-100/80 via-white to-white shadow-[0_18px_40px_-20px_rgba(37,99,235,0.55)]"
           : "border-border-soft bg-white/70 backdrop-blur-sm hover:border-gold-500/40 hover:shadow-[0_14px_32px_-22px_rgba(37,99,235,0.45)]"
-      }`}
+      } ${disabled && !pending ? "opacity-60" : ""}`}
     >
-      {/* Selection ring shared across cards so it glides between them */}
-      {selected && (
-        <motion.span
-          layoutId="payment-method-selection"
-          className="pointer-events-none absolute inset-0 rounded-[22px] ring-2 ring-gold-500"
-          transition={{ type: "spring", stiffness: 380, damping: 30 }}
-          aria-hidden
-        />
-      )}
-
       <MethodIcon id={method.id} />
 
       <span className="min-w-0">
@@ -102,19 +94,21 @@ export const PaymentMethodCard = forwardRef<
         <span className="mt-0.5 block text-[11px] leading-snug text-parchment-muted sm:text-xs">{method.hint}</span>
       </span>
 
-      <span className="mt-auto inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-emerald/10 px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-normal text-emerald sm:text-[10px]">
-        <Zap className="h-3 w-3" aria-hidden /> Instant Payment
-      </span>
+      {pending ? (
+        <span className="mt-auto inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-gold-500 px-2.5 py-0.5 text-[10px] font-semibold uppercase text-white">
+          <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> Opening…
+        </span>
+      ) : (
+        <span className="mt-auto inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-emerald/10 px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-normal text-emerald transition-colors group-hover:bg-emerald group-hover:text-white sm:text-[10px]">
+          <Zap className="h-3 w-3" aria-hidden /> Tap to pay
+        </span>
+      )}
 
-      <motion.span
-        initial={false}
-        animate={{ scale: selected ? 1 : 0, opacity: selected ? 1 : 0 }}
-        transition={{ type: "spring", stiffness: 500, damping: 28 }}
-        className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full bg-gold-500 text-white shadow-md"
-        aria-hidden
-      >
-        <Check className="h-3.5 w-3.5" strokeWidth={3} />
-      </motion.span>
+      {highlighted && !pending && (
+        <span className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full bg-gold-500 text-white shadow-md" aria-hidden>
+          <Check className="h-3.5 w-3.5" strokeWidth={3} />
+        </span>
+      )}
     </motion.button>
   );
-});
+}

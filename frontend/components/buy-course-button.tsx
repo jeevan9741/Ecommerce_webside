@@ -138,15 +138,18 @@ export function BuyCourseButton({
     );
   }
 
-  async function handleBuy() {
+  // One click → one order → Razorpay opens on that method. The method is passed in rather than
+  // read from state so a click on a method card doesn't race the setMethod() render.
+  async function handleBuy(methodId: PaymentMethodId) {
     if (inFlightRef.current) {
       console.log(`${LOG_PREFIX} ignored duplicate click — checkout already in progress`);
       return;
     }
     inFlightRef.current = true;
+    setMethod(methodId);
     setError(null);
     setBusy(true);
-    console.log(`${LOG_PREFIX} starting checkout`, { courseId: course.id, language });
+    console.log(`${LOG_PREFIX} starting checkout`, { courseId: course.id, language, method: methodId });
 
     if (typeof window.Razorpay !== "function") {
       console.error(`${LOG_PREFIX} Razorpay checkout script has not loaded yet`);
@@ -185,7 +188,7 @@ export function BuyCourseButton({
       return;
     }
 
-    const selectedMethod = PAYMENT_METHODS.find((m) => m.id === method) ?? PAYMENT_METHODS[0];
+    const selectedMethod = PAYMENT_METHODS.find((m) => m.id === methodId) ?? PAYMENT_METHODS[0];
     try {
       const rzp = new window.Razorpay({
         key: data.keyId,
@@ -266,9 +269,8 @@ export function BuyCourseButton({
         open={modalOpen}
         course={course}
         method={method}
-        onMethodChange={setMethod}
         onClose={() => setModalOpen(false)}
-        onProceed={handleBuy}
+        onPay={handleBuy}
         loading={busy}
         error={error}
       />

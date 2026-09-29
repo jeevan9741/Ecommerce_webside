@@ -16,18 +16,18 @@ export function PaymentModal({
   open,
   course,
   method,
-  onMethodChange,
   onClose,
-  onProceed,
+  onPay,
   loading,
   error,
 }: {
   open: boolean;
   course: CoursePublic;
+  /** Most recently used method — preselected for the big Pay button. */
   method: PaymentMethodId;
-  onMethodChange: (id: PaymentMethodId) => void;
   onClose: () => void;
-  onProceed: () => void;
+  /** Creates the order and opens Razorpay Checkout on this method. */
+  onPay: (id: PaymentMethodId) => void;
   loading: boolean;
   error: string | null;
 }) {
@@ -35,14 +35,14 @@ export function PaymentModal({
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const selected = PAYMENT_METHODS.find((m) => m.id === method) ?? PAYMENT_METHODS[0];
 
-  // Focus the selected method on open; restore focus to the trigger on close; lock page scroll.
+  // Focus the last-used method on open; restore focus to the trigger on close; lock page scroll.
   useEffect(() => {
     if (!open) return;
     returnFocusRef.current = document.activeElement as HTMLElement | null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const t = setTimeout(() => {
-      dialogRef.current?.querySelector<HTMLElement>('[role="radio"][tabindex="0"]')?.focus();
+      dialogRef.current?.querySelector<HTMLElement>('[data-last="true"]')?.focus();
     }, 60);
     return () => {
       clearTimeout(t);
@@ -131,13 +131,15 @@ export function PaymentModal({
             <div className="flex-1 overflow-y-auto">
               <div className="grid gap-6 p-5 sm:p-8 lg:grid-cols-[1fr_320px] lg:gap-6">
                 <div className="min-w-0">
-                  <div className="mb-4 flex items-baseline justify-between gap-3">
+                  <div className="mb-4">
                     <h3 id="payment-method-heading" className="text-base font-semibold text-parchment sm:text-lg">
-                      Choose payment method
+                      Tap a payment method to pay
                     </h3>
-                    <span className="text-xs text-parchment-muted">Step 1 of 2</span>
+                    <p className="mt-0.5 text-xs text-parchment-muted">
+                      Razorpay opens straight on the method you tap — no extra steps.
+                    </p>
                   </div>
-                  <PaymentMethodGrid value={method} onChange={onMethodChange} />
+                  <PaymentMethodGrid last={method} pending={loading ? method : null} disabled={loading} onPay={onPay} />
 
                   {error && (
                     <motion.p
@@ -160,7 +162,7 @@ export function PaymentModal({
                       amountInPaise={course.priceInPaise}
                       methodLabel={selected.label}
                       loading={loading}
-                      onClick={onProceed}
+                      onClick={() => onPay(selected.id)}
                     />
                   </div>
                 </aside>
@@ -173,7 +175,7 @@ export function PaymentModal({
                 amountInPaise={course.priceInPaise}
                 methodLabel={selected.label}
                 loading={loading}
-                onClick={onProceed}
+                onClick={() => onPay(selected.id)}
               />
             </div>
           </motion.div>
