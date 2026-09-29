@@ -1,12 +1,18 @@
 "use client";
 
-import { backendFetch } from "@/lib/api";
-
-import { createContext, useContext, useEffect, useState } from "react";
-import { Loader2, Search } from "lucide-react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { Check, Clock, Globe2, Info, Loader2, MousePointerClick, Search } from "lucide-react";
 import { LanguageSelector } from "@/components/language-selector";
 import { StreamOnlyVideo } from "@/components/videos/stream-only-video";
-import type { PublicDemoVideo } from "@/services/courseService";
+import { PlatformWordmark } from "@/components/home/platform-wordmark";
+import { courseService, type DemoPlatform, type PublicDemoVideo } from "@/services/courseService";
+
+/**
+ * Homepage demo flow: 1. language → 2. platform (Meesho / Amazon / Flipkart / Shopify …) → 3. that
+ * platform's demo in that language, or its English demo (flagged), or a "coming soon" panel.
+ * The language picker, platform cards and player live in different parts of the page, so their
+ * state is shared through this provider.
+ */
 
 interface LanguageOption {
   code: string;
@@ -14,69 +20,72 @@ interface LanguageOption {
   nativeName?: string;
 }
 
+type VideoState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; video: PublicDemoVideo }
+  | { status: "empty" }
+  | { status: "error" };
+
 interface DemoState {
   languages: LanguageOption[];
   languagesLoaded: boolean;
   selectedCode: string;
   selectLanguage: (code: string) => void;
-  videoStatus: "loading" | "ready" | "empty";
-  video: PublicDemoVideo | null;
+  platforms: DemoPlatform[] | null;
+  selectedPlatform: string;
+  selectPlatform: (slug: string) => void;
+  video: VideoState;
+  /** Set when the visitor picked a platform in this visit, so the player may start on its own. */
+  autoPlay: boolean;
 }
 
 const LANG_COOKIE = "eca_lang";
+const PLATFORM_COOKIE = "eca_demo_platform";
+const PLAYER_ID = "demo-player";
+export const FALLBACK_NOTICE = "Selected language version is coming soon. Showing the English demo.";
 
-function rememberLanguage(code: string) {
-  document.cookie = `${LANG_COOKIE}=${code}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+function remember(name: string, value: string) {
+  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
   try {
-    localStorage.setItem(LANG_COOKIE, code);
+    localStorage.setItem(name, value);
   } catch {
     // localStorage may be unavailable (private mode); the cookie still persists the choice.
   }
 }
 
-function getRememberedLanguage(): string | null {
+function recall(name: string): string | null {
   try {
-    const fromStorage = localStorage.getItem(LANG_COOKIE);
+    const fromStorage = localStorage.getItem(name);
     if (fromStorage) return fromStorage;
   } catch {
     // ignore
   }
-  const match = document.cookie.match(new RegExp(`(?:^|; )${LANG_COOKIE}=([^;]*)`));
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
   return match ? decodeURIComponent(match[1]) : null;
 }
 
 const DemoContext = createContext<DemoState | null>(null);
 
-/**
- * Holds the language + demo-video state shared by the Demo Video section and the
- * Language Selector inside Get Started — they live in different parts of the page
- * layout but must stay in sync (picking a language updates the video instantly).
- */
 export function DemoLanguageProvider({ children }: { children: React.ReactNode }) {
   const [languages, setLanguages] = useState<LanguageOption[]>([]);
   const [languagesLoaded, setLanguagesLoaded] = useState(false);
   const [selectedCode, setSelectedCode] = useState("");
-  const [videoResult, setVideoResult] = useState<{
-    forCode: string;
-    status: "ready" | "empty";
-    video: PublicDemoVideo | null;
-  } | null>(null);
+  const [platformResult, setPlatformResult] = useState<{ forCode: string; platforms: DemoPlatform[] } | null>(null);
+  const [selectedPlatform, setSelectedPlatform] = useState("");
+  const [videoResult, setVideoResult] = useState<{ key: string; state: VideoState } | null>(null);
+  const [autoPlay, setAutoPlay] = useState(false);
 
-  const videoStatus = videoResult?.forCode === selectedCode ? videoResult.status : "loading";
-  const video = videoResult?.forCode === selectedCode ? videoResult.video : null;
-
+  // Language first: only a returning visitor's remembered choice is preselected.
   useEffect(() => {
-    backendFetch("/api/languages")
-      .then((r) => r.json())
-      .then((data) => {
-        const list: LanguageOption[] = data.languages ?? [];
+    courseService
+      .languages()
+      .then(({ languages: list }) => {
         setLanguages(list);
-        const remembered = getRememberedLanguage();
-        const initial =
-          (remembered && list.find((l) => l.code === remembered)) ??
-          list.find((l) => l.code === "en") ??
-          list[0];
-        if (initial) setSelectedCode(initial.code);
+        const remembered = recall(LANG_COOKIE);
+        if (remembered && list.some((l) => l.code === remembered)) setSelectedCode(remembered);
+        const platform = recall(PLATFORM_COOKIE);
+        if (platform) setSelectedPlatform(platform);
       })
       .catch(() => setLanguages([]))
       .finally(() => setLanguagesLoaded(true));
@@ -85,36 +94,66 @@ export function DemoLanguageProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     if (!selectedCode) return;
     let cancelled = false;
-
-    backendFetch(`/api/demo-videos?lang=${selectedCode}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("not found");
-        return res.json();
-      })
-      .then((data) => {
-        if (cancelled) return;
-        if (!data.video) throw new Error("not found");
-        setVideoResult({ forCode: selectedCode, status: "ready", video: data.video });
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setVideoResult({ forCode: selectedCode, status: "empty", video: null });
-        }
-      });
-
+    courseService
+      .demoPlatforms(selectedCode)
+      .then(({ platforms }) => !cancelled && setPlatformResult({ forCode: selectedCode, platforms }))
+      .catch(() => !cancelled && setPlatformResult({ forCode: selectedCode, platforms: [] }));
     return () => {
       cancelled = true;
     };
   }, [selectedCode]);
 
-  function selectLanguage(code: string) {
+  const platforms = platformResult?.forCode === selectedCode ? platformResult.platforms : null;
+  // A remembered platform that's no longer offered is ignored.
+  const activePlatform = platforms?.some((p) => p.slug === selectedPlatform) ? selectedPlatform : "";
+  const videoKey = selectedCode && activePlatform ? `${selectedCode}:${activePlatform}` : "";
+
+  useEffect(() => {
+    if (!videoKey) return;
+    const [lang, platform] = videoKey.split(":");
+    let cancelled = false;
+    courseService
+      .demoVideo(lang, platform)
+      .then(({ video }) => !cancelled && setVideoResult({ key: videoKey, state: video ? { status: "ready", video } : { status: "empty" } }))
+      .catch(() => !cancelled && setVideoResult({ key: videoKey, state: { status: "error" } }));
+    return () => {
+      cancelled = true;
+    };
+  }, [videoKey]);
+
+  const video: VideoState = !videoKey
+    ? { status: "idle" }
+    : videoResult?.key === videoKey
+      ? videoResult.state
+      : { status: "loading" };
+
+  const selectLanguage = useCallback((code: string) => {
     setSelectedCode(code);
-    rememberLanguage(code);
-  }
+    remember(LANG_COOKIE, code);
+  }, []);
+
+  const selectPlatform = useCallback((slug: string) => {
+    setSelectedPlatform(slug);
+    setAutoPlay(true);
+    remember(PLATFORM_COOKIE, slug);
+    // Bring the (single) player into view — on phones it's well below the cards. Its container
+    // always exists (a panel until a video loads), so no need to wait for a render.
+    document.getElementById(PLAYER_ID)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
 
   return (
     <DemoContext.Provider
-      value={{ languages, languagesLoaded, selectedCode, selectLanguage, videoStatus, video }}
+      value={{
+        languages,
+        languagesLoaded,
+        selectedCode,
+        selectLanguage,
+        platforms,
+        selectedPlatform: activePlatform,
+        selectPlatform,
+        video,
+        autoPlay,
+      }}
     >
       {children}
     </DemoContext.Provider>
@@ -127,45 +166,7 @@ function useDemoState(): DemoState {
   return ctx;
 }
 
-/**
- * Large embedded-video-style player for the free demo (no login). Content is real (per-language,
- * admin-uploaded); it streams only — no download button, picture-in-picture or "Save video as".
- */
-export function DemoVideoPlayer() {
-  const { videoStatus, video } = useDemoState();
-
-  return (
-    <div className="mx-auto max-w-4xl overflow-hidden rounded-2xl border border-border-soft bg-black shadow-[0_25px_60px_-20px_rgba(15,23,42,0.35)]">
-      <div className="flex aspect-video items-center justify-center bg-black">
-        {videoStatus === "loading" && <Loader2 className="h-8 w-8 animate-spin text-gold-500" />}
-        {videoStatus === "empty" && (
-          <p className="px-6 text-center text-sm text-parchment-muted">
-            Our demo video is being prepared for this language — pick another language below, or check back soon.
-          </p>
-        )}
-        {videoStatus === "ready" && video && (
-          <StreamOnlyVideo
-            key={video.url}
-            src={video.url}
-            poster={video.thumbnailUrl ?? undefined}
-            playsInline
-            preload="metadata"
-            title={video.title}
-            className="h-full w-full bg-black"
-          />
-        )}
-      </div>
-      {videoStatus === "ready" && video && (video.title || video.description) && (
-        <div className="border-t border-white/10 bg-[#0b0f1f] px-4 py-3 sm:px-6">
-          <p className="text-sm font-semibold text-white sm:text-base">{video.title}</p>
-          {video.description && <p className="mt-0.5 text-xs text-white/70 sm:text-sm">{video.description}</p>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Searchable language dropdown, placed inside the "Get Started" card. */
+/** Step 1: searchable language dropdown. */
 export function DemoLanguagePicker() {
   const { languages, languagesLoaded, selectedCode, selectLanguage } = useDemoState();
 
@@ -186,5 +187,150 @@ export function DemoLanguagePicker() {
       icon={Search}
       triggerClassName="!rounded-xl !py-4 !text-base shadow-sm"
     />
+  );
+}
+
+/** Step 2: platform cards, shown once a language is chosen. The selected card is highlighted. */
+export function DemoPlatformPicker() {
+  const { languages, selectedCode, platforms, selectedPlatform, selectPlatform } = useDemoState();
+  const languageName = languages.find((l) => l.code === selectedCode)?.name ?? "";
+
+  if (!selectedCode) {
+    return (
+      <p className="flex items-center justify-center gap-2 rounded-2xl border border-dashed border-gold-500/40 bg-ink-elevated/60 px-4 py-6 text-center text-sm text-parchment-muted">
+        <Globe2 className="h-4 w-4 shrink-0 text-gold-500" /> Select your language above to see the platform demos.
+      </p>
+    );
+  }
+  if (!platforms) {
+    return (
+      <div className="flex justify-center py-8">
+        <Loader2 className="h-6 w-6 animate-spin text-gold-500" />
+      </div>
+    );
+  }
+  if (platforms.length === 0) {
+    return <p className="text-center text-sm text-parchment-muted">Platform demos are coming soon.</p>;
+  }
+
+  return (
+    <div role="radiogroup" aria-label="Choose a platform" className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+      {platforms.map((p) => {
+        const selected = p.slug === selectedPlatform;
+        return (
+          <button
+            key={p.slug}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => selectPlatform(p.slug)}
+            className={`group relative flex overflow-hidden rounded-2xl border bg-ink-elevated text-left shadow-sm transition sm:flex-col ${
+              selected
+                ? "border-gold-500 ring-2 ring-gold-500 ring-offset-2 ring-offset-gold-100"
+                : "border-border-soft hover:-translate-y-0.5 hover:border-gold-500/60 hover:shadow-md"
+            }`}
+          >
+            <PlatformWordmark slug={p.slug} name={p.name} className="w-28 shrink-0 sm:h-24 sm:w-full" />
+            <span className="flex min-w-0 flex-1 flex-col p-3 sm:p-4">
+              <span className="flex items-center justify-between gap-2">
+                <span className="font-bold text-parchment">{p.name}</span>
+                {selected && (
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gold-500 text-white">
+                    <Check className="h-3.5 w-3.5" />
+                  </span>
+                )}
+              </span>
+              {p.description && <span className="mt-1 text-xs leading-relaxed text-parchment-muted sm:text-[13px]">{p.description}</span>}
+              <span className="mt-2">
+                <StatusBadge status={p.status} languageName={languageName} />
+              </span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function StatusBadge({ status, languageName }: { status: DemoPlatform["status"]; languageName: string }) {
+  const [label, tone] =
+    status === "available"
+      ? [`${languageName} demo`, "border-emerald/30 bg-emerald/10 text-emerald"]
+      : status === "fallback"
+        ? ["English demo", "border-gold-500/30 bg-gold-500/10 text-gold-600"]
+        : ["Coming soon", "border-border-soft bg-surface-hover text-parchment-muted"];
+  return <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${tone}`}>{label}</span>;
+}
+
+/**
+ * Step 3: the one demo player. It only exists when there's a video to play; every other state
+ * (nothing chosen yet, loading, no demo for the platform, error) is a panel, never an empty player.
+ */
+export function DemoVideoPlayer() {
+  const { selectedCode, selectedPlatform, platforms, video, autoPlay } = useDemoState();
+  const platform = platforms?.find((p) => p.slug === selectedPlatform);
+
+  if (video.status === "ready") {
+    const v = video.video;
+    const platformName = v.platform?.name ?? platform?.name ?? "Platform";
+    return (
+      <div id={PLAYER_ID} className="mx-auto max-w-4xl scroll-mt-24">
+        <div className="mb-3">
+          <p className="text-xs font-bold uppercase tracking-wider text-gold-500">{platformName} demo</p>
+          <h3 className="mt-0.5 font-display text-lg font-bold text-parchment sm:text-xl">{v.title}</h3>
+          <p className="mt-0.5 text-xs text-parchment-muted">{v.languageName}</p>
+        </div>
+        {v.languageFallback && (
+          <p role="status" className="mb-3 flex items-start gap-2 rounded-xl border border-gold-500/30 bg-gold-500/10 px-4 py-2.5 text-sm text-parchment">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-gold-500" /> {FALLBACK_NOTICE}
+          </p>
+        )}
+        <div className="overflow-hidden rounded-2xl border border-border-soft bg-black shadow-[0_25px_60px_-20px_rgba(15,23,42,0.35)]">
+          <StreamOnlyVideo
+            key={v.url}
+            src={v.url}
+            poster={v.thumbnailUrl ?? undefined}
+            autoPlay={autoPlay}
+            playsInline
+            preload="metadata"
+            title={v.title}
+            className="aspect-video w-full bg-black"
+          />
+        </div>
+        {v.description && <p className="mt-3 px-1 text-xs text-parchment-muted sm:text-sm">{v.description}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div id={PLAYER_ID} className="mx-auto max-w-4xl scroll-mt-24">
+      {video.status === "loading" ? (
+        <div className="flex aspect-video items-center justify-center rounded-2xl border border-border-soft bg-ink-elevated">
+          <Loader2 className="h-8 w-8 animate-spin text-gold-500" aria-label="Loading the demo" />
+        </div>
+      ) : video.status === "empty" && platform ? (
+        <div role="status" className="flex flex-col items-center gap-4 rounded-2xl border border-border-soft bg-ink-elevated px-6 py-12 text-center shadow-sm sm:py-16">
+          <PlatformWordmark slug={platform.slug} name={platform.name} className="h-16 w-40 rounded-xl shadow-sm" />
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-gold-500/30 bg-gold-500/10 px-3 py-1 text-xs font-bold uppercase tracking-wider text-gold-600">
+            <Clock className="h-3.5 w-3.5" /> Coming soon
+          </span>
+          <div>
+            <h3 className="font-display text-lg font-bold text-parchment sm:text-xl">The {platform.name} demo is on its way</h3>
+            <p className="mx-auto mt-1 max-w-md text-sm text-parchment-muted">
+              We&apos;re preparing this demo. Pick another platform above to watch its demo in the meantime.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-gold-500/40 bg-ink-elevated/60 px-6 py-12 text-center text-sm text-parchment-muted sm:py-16">
+          <MousePointerClick className="h-7 w-7 text-gold-500" />
+          {video.status === "error"
+            ? "The demo couldn't be loaded. Please try again in a moment."
+            : !selectedCode
+              ? "Choose your language, then pick a platform to watch its free demo."
+              : "Pick a platform above to watch its free demo."}
+        </div>
+      )}
+    </div>
   );
 }

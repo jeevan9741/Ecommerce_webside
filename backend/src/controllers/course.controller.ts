@@ -5,7 +5,7 @@ import { jobApplicationSchema } from "../utils/validation.js";
 import { rateLimit } from "../utils/rate-limit.js";
 import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError, param } from "../utils/http.js";
-import { demoPublicView } from "./video.controller.js";
+import { homepageDemoVideo } from "./video.controller.js";
 
 /**
  * Public course catalogue — price and content only. Commission amounts and any
@@ -106,21 +106,19 @@ export async function listLanguages(_req: Request, res: Response) {
 
 export async function demoVideos(req: Request, res: Response) {
   const lang = typeof req.query.lang === "string" ? req.query.lang : null;
+  const platform = typeof req.query.platform === "string" ? req.query.platform : null;
 
   if (lang) {
-    const video = await prisma.demoVideo.findFirst({
-      where: { language: { code: lang, isActive: true } },
-      include: { language: true },
-    });
-    // A language without a demo yet is a normal state, not an error — the page shows a placeholder.
-    if (!video) return res.json({ video: null });
+    // A platform/language without a demo yet is a normal state, not an error — the page shows a placeholder.
     // Private-store demos get a signed link sized to the video, so it can't be shared long-term.
     res.setHeader("Cache-Control", "no-store");
-    return res.json({ video: await demoPublicView(video) });
+    return res.json({ video: await homepageDemoVideo(lang, platform) });
   }
 
+  // Languages that have at least one demo.
   const videos = await prisma.demoVideo.findMany({
     where: { language: { isActive: true } },
+    distinct: ["languageId"],
     include: { language: true },
     orderBy: { language: { displayOrder: "asc" } },
   });

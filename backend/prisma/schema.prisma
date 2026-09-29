@@ -242,22 +242,25 @@ model CourseVideo {
 /// Access is granted per top-level category by the packages linked in CategoryPackage, and covers
 /// all of its subcategories.
 model CourseCategory {
-  id           String   @id @default(cuid())
+  id             String   @id @default(cuid())
   /// Null for a top-level category; set for a subcategory.
-  parentId     String?
-  name         String
-  slug         String   @unique
-  description  String?
-  displayOrder Int      @default(0)
+  parentId       String?
+  name           String
+  slug           String   @unique
+  description    String?
+  displayOrder   Int      @default(0)
   /// Inactive categories (and everything under them) are hidden from students.
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  isActive       Boolean  @default(true)
+  /// Offered as a platform card in the homepage demo section (top-level categories only).
+  showOnHomepage Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  parent   CourseCategory?   @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children CourseCategory[]  @relation("CategoryTree")
-  videos   CourseVideo[]
-  packages CategoryPackage[]
+  parent     CourseCategory?   @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children   CourseCategory[]  @relation("CategoryTree")
+  videos     CourseVideo[]
+  packages   CategoryPackage[]
+  demoVideos DemoVideo[]
 
   @@index([parentId, displayOrder])
 }
@@ -305,7 +308,7 @@ model Language {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  demoVideo        DemoVideo?
+  demoVideos       DemoVideo[]
   courseVideos     CourseLanguageVideo[]
   originalVideos   CourseVideo[]
   preferredByUsers User[]                @relation("PreferredLanguage")
@@ -331,12 +334,14 @@ model CourseLanguageVideo {
   @@index([languageId])
 }
 
-/// The free demo video for one language (languageId is unique: one demo per language), shown on
-/// the homepage without login. Stored in the public Blob store when one is configured (publicUrl
-/// set), otherwise in the private store and served through signed links.
+/// A free demo video for one platform (a homepage CourseCategory such as Meesho) in one language —
+/// one per language and platform — shown on the homepage without login. Stored in the public Blob
+/// store when one is configured (publicUrl set), otherwise in the private store behind signed links.
 model DemoVideo {
   id              String   @id @default(cuid())
-  languageId      String   @unique
+  languageId      String
+  /// The platform the demo is for.
+  categoryId      String
   title           String   @default("")
   description     String?
   storageKey      String
@@ -349,7 +354,11 @@ model DemoVideo {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @default(now()) @updatedAt
 
-  language Language @relation(fields: [languageId], references: [id], onDelete: Cascade)
+  language Language       @relation(fields: [languageId], references: [id], onDelete: Cascade)
+  category CourseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@unique([languageId, categoryId])
+  @@index([categoryId])
 }
 
 model Order {

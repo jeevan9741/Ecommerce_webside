@@ -15,6 +15,10 @@ export interface AdminSubcategory {
 }
 
 export interface AdminCategory extends AdminSubcategory {
+  /** Offered as a platform card in the homepage demo section. */
+  showOnHomepage: boolean;
+  /** Homepage demo videos for this platform (any language). */
+  demoCount: number;
   /** Packages whose buyers can watch this category and all its subcategories. */
   packageIds: string[];
   subcategories: AdminSubcategory[];
@@ -63,7 +67,7 @@ export const categoryService = {
   adminList: () => api.get<{ categories: AdminCategory[]; packages: PackageOption[] }>("/admin/categories"),
   create: (body: { name: string; description?: string | null; parentId?: string | null }) =>
     api.post<{ category: { id: string } }>("/admin/categories", body),
-  update: (id: string, body: { name?: string; description?: string | null; isActive?: boolean }) =>
+  update: (id: string, body: { name?: string; description?: string | null; isActive?: boolean; showOnHomepage?: boolean }) =>
     api.patch<{ category: { id: string } }>(`/admin/categories/${id}`, body),
   move: (id: string, direction: "up" | "down") => api.post<{ ok: true }>(`/admin/categories/${id}/move`, { direction }),
   setPackages: (id: string, courseIds: string[]) => api.put<{ packageIds: string[] }>(`/admin/categories/${id}/packages`, { courseIds }),

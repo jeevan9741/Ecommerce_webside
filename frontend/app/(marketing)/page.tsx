@@ -1,21 +1,19 @@
-import Link from "next/link";
-import { ArrowRight, BarChart3, GraduationCap, Globe2, Headset, Mail, PlayCircle, Settings, ShoppingBag } from "lucide-react";
+import { BarChart3, GraduationCap, Globe2, Headset, LayoutGrid, Mail, PlayCircle, Settings, UserPlus } from "lucide-react";
 import { BrandLogo } from "@/components/logo";
-import { DemoLanguagePicker, DemoLanguageProvider, DemoVideoPlayer } from "@/components/home/academy-demo";
+import {
+  DemoLanguagePicker,
+  DemoLanguageProvider,
+  DemoPlatformPicker,
+  DemoVideoPlayer,
+} from "@/components/home/academy-demo";
 import { CurvedArrow, HeroArtLeft, HeroArtRight } from "@/components/home/hero-decorations";
 
 const STEPS = [
   { number: 1, icon: Globe2, title: "Language", subtitle: "Choose your language" },
-  { number: 2, icon: PlayCircle, title: "Demo Video", subtitle: "Watch free demo" },
-  { number: 3, icon: Mail, title: "Verify Email", subtitle: "Confirm your email" },
-  { number: 4, icon: Settings, title: "Go to Process", subtitle: "Start next process" },
-];
-
-const PLATFORMS = [
-  { name: "meesho", wrapper: "bg-[#f43397]", label: "text-white" },
-  { name: "amazon", wrapper: "bg-[#131921]", label: "text-white" },
-  { name: "Flipkart", wrapper: "bg-[#fbd000]", label: "text-[#1d4ed8]" },
-  { name: "shopify", wrapper: "bg-white border border-border-soft", label: "text-[#0f172a]" },
+  { number: 2, icon: LayoutGrid, title: "Platform", subtitle: "Pick a platform" },
+  { number: 3, icon: PlayCircle, title: "Demo Video", subtitle: "Watch free demo" },
+  { number: 4, icon: Mail, title: "Verify Email", subtitle: "Confirm your email" },
+  { number: 5, icon: UserPlus, title: "Register", subtitle: "Create your account" },
 ];
 
 const FEATURES = [
@@ -90,15 +88,15 @@ export default function HomePage() {
                 Get Started In Minutes
               </h2>
               <p className="mx-auto mt-3 max-w-2xl text-sm text-parchment-muted sm:text-base">
-                Pick your language, preview the teaching style, confirm your email, and you&apos;re ready to create an
-                account and unlock any course.
+                Pick your language and a platform, watch its free demo, confirm your email, and you&apos;re ready to
+                create an account and unlock any course.
               </p>
             </div>
 
             {/* 4-step flow */}
-            <div className="relative mx-auto mt-9 max-w-3xl">
-              <div className="absolute left-[12%] right-[12%] top-5 h-px bg-border-strong sm:top-6" />
-              <div className="relative grid grid-cols-4 gap-2">
+            <div className="relative mx-auto mt-9 max-w-4xl">
+              <div className="absolute left-[10%] right-[10%] top-5 h-px bg-border-strong sm:top-6" />
+              <div className="relative grid grid-cols-5 gap-1 sm:gap-2">
                 {STEPS.map((step) => (
                   <div key={step.number} className="flex flex-col items-center text-center">
                     <span
@@ -111,8 +109,8 @@ export default function HomePage() {
                       {step.number}
                     </span>
                     <step.icon className="mt-3 h-5 w-5 text-gold-500 sm:h-6 sm:w-6" />
-                    <span className="mt-2 text-xs font-bold text-gold-500 sm:text-sm">{step.title}</span>
-                    <span className="mt-0.5 text-[11px] text-parchment-muted sm:text-xs">{step.subtitle}</span>
+                    <span className="mt-2 text-[11px] font-bold text-gold-500 sm:text-sm">{step.title}</span>
+                    <span className="mt-0.5 hidden text-xs text-parchment-muted sm:block">{step.subtitle}</span>
                   </div>
                 ))}
               </div>
@@ -126,14 +124,14 @@ export default function HomePage() {
               <div className="mt-4">
                 <DemoLanguagePicker />
               </div>
+            </div>
 
-              <div className="mt-5 flex justify-center">
-                <Link
-                  href="/register"
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-gold-400 to-gold-600 px-10 py-3.5 text-base font-semibold text-white shadow-[0_10px_24px_-8px_rgba(37,99,235,0.6)] transition hover:from-gold-hover hover:to-gold-500 sm:w-auto sm:min-w-[260px]"
-                >
-                  Continue <ArrowRight className="h-4 w-4" />
-                </Link>
+            {/* Platform cards (step 2) — the chosen platform's demo plays in the player below */}
+            <div className="mx-auto mt-9 max-w-5xl">
+              <h3 className="text-center text-base font-bold text-parchment sm:text-lg">Choose a platform</h3>
+              <p className="mt-1 text-center text-xs text-parchment-muted sm:text-sm">Tap a platform to watch its free demo.</p>
+              <div className="mt-4">
+                <DemoPlatformPicker />
               </div>
             </div>
           </div>
@@ -146,39 +144,15 @@ export default function HomePage() {
           <div className="mx-auto max-w-3xl text-center">
             <span className="badge-pill">Watch &amp; Learn</span>
             <h2 className="font-display mt-4 text-2xl font-bold text-parchment sm:text-3xl">
-              E-Commerce Training Academy - Demo Video
+              Platform Demo Video
             </h2>
             <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-parchment-muted sm:text-base">
-              Watch the demo video below to understand how we train you on Meesho, Amazon, Flipkart, Dropshipping &amp;
-              Meta Ads.
+              See how we train you on the platform you chose — in your language.
             </p>
           </div>
 
           <div className="mt-8">
             <DemoVideoPlayer />
-          </div>
-        </div>
-      </section>
-
-      {/* Learn On Top Platforms */}
-      <section className="pb-14">
-        <div className="container-academy">
-          <div className="text-center">
-            <span className="badge-pill">Learn On Top Platforms</span>
-          </div>
-
-          <div className="mx-auto mt-7 grid max-w-5xl grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
-            {PLATFORMS.map((p) => (
-              <div
-                key={p.name}
-                className={`flex h-20 items-center justify-center rounded-2xl shadow-md transition hover:-translate-y-0.5 sm:h-24 ${p.wrapper}`}
-              >
-                <span className={`flex items-center gap-2 text-xl font-bold sm:text-2xl ${p.label}`}>
-                  {p.name === "shopify" && <ShoppingBag className="h-5 w-5 text-[#95bf47]" />}
-                  <span className={p.name === "meesho" ? "italic" : ""}>{p.name}</span>
-                </span>
-              </div>
-            ))}
           </div>
         </div>
       </section>

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { demoPlatforms } from "../controllers/video.controller.js";
 import multer from "multer";
 import { asyncHandler } from "../utils/http.js";
 import { optionalAuth, requireUser } from "../middleware/auth.middleware.js";
@@ -26,6 +27,7 @@ router.get("/courses", optionalAuth, asyncHandler(listCourses));
 router.get("/courses/:id/content", requireUser, asyncHandler(courseContent));
 router.get("/languages", asyncHandler(listLanguages));
 router.get("/demo-videos", asyncHandler(demoVideos));
+router.get("/demo-platforms", asyncHandler(demoPlatforms));
 router.get("/reviews", asyncHandler(listReviews));
 router.get("/settings/public", asyncHandler(publicSettings));
 router.get("/certificates", asyncHandler(listCertificates));

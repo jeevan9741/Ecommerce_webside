@@ -72,7 +72,7 @@ export async function adminListCategories(_req: Request, res: Response) {
       include: {
         packages: { select: { courseId: true } },
         children: { orderBy, include: { _count: { select: { videos: true } } } },
-        _count: { select: { videos: true } },
+        _count: { select: { videos: true, demoVideos: true } },
       },
     }),
     publishedCounts(),
@@ -99,6 +99,8 @@ export async function adminListCategories(_req: Request, res: Response) {
         description: c.description,
         displayOrder: c.displayOrder,
         isActive: c.isActive,
+        showOnHomepage: c.showOnHomepage,
+        demoCount: c._count.demoVideos,
         packageIds: c.packages.map((p) => p.courseId),
         // A category's totals include its subcategories.
         videoCount: c._count.videos + children.reduce((n, s) => n + s.videoCount, 0),
@@ -154,12 +156,18 @@ const updateSchema = z.object({
   name: z.string().trim().min(2).max(80).optional(),
   description: nullableText(500),
   isActive: z.boolean().optional(),
+  /** Offer as a platform card in the homepage demo section (main categories only). */
+  showOnHomepage: z.boolean().optional(),
 });
 
 /** The slug is kept on rename so student links and bookmarks keep working. */
 export async function adminUpdateCategory(req: Request, res: Response) {
   const admin = currentUser(req);
   const body = parse(updateSchema, req.body);
+  if (body.showOnHomepage) {
+    const target = await prisma.courseCategory.findUnique({ where: { id: param(req, "id") }, select: { parentId: true } });
+    if (target?.parentId) throw new HttpError(400, "Only main categories can be shown on the homepage.");
+  }
   const category = await prisma.courseCategory
     .update({ where: { id: param(req, "id") }, data: body })
     .catch((err: { code?: string }) => {
@@ -208,10 +216,11 @@ export async function adminDeleteCategory(req: Request, res: Response) {
   const admin = currentUser(req);
   const category = await prisma.courseCategory.findUnique({
     where: { id: param(req, "id") },
-    include: { _count: { select: { videos: true, children: true } } },
+    include: { _count: { select: { videos: true, children: true, demoVideos: true } } },
   });
   if (!category) throw new HttpError(404, "Category not found");
   if (category._count.children) throw new HttpError(409, "Delete or move its subcategories first.");
+  if (category._count.demoVideos) throw new HttpError(409, `It has ${category._count.demoVideos} homepage demo video(s) — delete them first.`);
   if (category._count.videos) throw new HttpError(409, `It still has ${category._count.videos} video(s) — move or delete them first.`);
   await prisma.courseCategory.delete({ where: { id: category.id } });
   await prisma.auditLog.create({ data: { actorId: admin.id, action: "CATEGORY_DELETED", target: category.id, metadata: { name: category.name } } });

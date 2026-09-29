@@ -22,12 +22,32 @@ import {
   type Push,
 } from "@/components/admin/video-shared";
 
+export interface DemoPlatformOption {
+  id: string;
+  name: string;
+}
+
+/** A demo's platform label; data from before platforms existed has none. */
+function platformLabel(v: AdminDemoVideo) {
+  return v.platform?.name ?? "No platform";
+}
+
 /**
- * Demo videos: one per language, shown on the homepage before registration (no login). Visitors
- * see the demo for the language they pick in "Get Started".
+ * Demo videos: one per platform and language, shown on the homepage before registration (no login).
+ * Visitors pick a language and a platform in "Get Started" and see that demo, or its English one.
  */
-export function DemoVideosPanel({ languages, push }: { languages: AdminLanguage[]; push: Push }) {
+export function DemoVideosPanel({
+  languages,
+  platforms,
+  push,
+}: {
+  languages: AdminLanguage[];
+  /** Homepage platforms (categories marked "Show on homepage"). */
+  platforms: DemoPlatformOption[];
+  push: Push;
+}) {
   const [videos, setVideos] = useState<AdminDemoVideo[] | null>(null);
+  const [platformFilter, setPlatformFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ video: AdminDemoVideo | null } | null>(null);
   const [previewing, setPreviewing] = useState<AdminDemoVideo | null>(null);
@@ -46,24 +66,79 @@ export function DemoVideosPanel({ languages, push }: { languages: AdminLanguage[
     load();
   }, [load]);
 
-  const missing = videos ? languages.filter((l) => l.isActive && !videos.some((v) => v.languageId === l.id)) : [];
+  const active = languages.filter((l) => l.isActive);
+  // Per platform: which active languages have no demo (visitors get the English one, if it exists).
+  const coverage = videos
+    ? platforms.map((p) => {
+        const own = videos.filter((v) => v.categoryId === p.id);
+        return {
+          platform: p,
+          hasEnglish: own.some((v) => v.language.code === "en"),
+          missing: active.filter((l) => !own.some((v) => v.languageId === l.id)),
+        };
+      })
+    : [];
+  const shown = videos?.filter((v) => !platformFilter || v.categoryId === platformFilter) ?? null;
+  const unassigned = videos?.filter((v) => !v.platform) ?? [];
 
   return (
     <div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <p className="max-w-2xl text-sm text-parchment-muted">
-          One demo per language, played on the homepage for the language a visitor picks — no login needed. The player
-          streams only (no download button).
+          One demo per platform and language. Visitors pick a language, then a platform, and see that demo — or the
+          platform&apos;s English demo if their language isn&apos;t ready yet. No login needed; the player streams only.
         </p>
         <button type="button" onClick={() => setDialog({ video: null })} className="btn-gold btn-sm self-start">
           <Plus className="h-4 w-4" /> Upload demo video
         </button>
       </div>
 
-      {missing.length > 0 && (
+      {platforms.length === 0 && (
         <p className="mt-4 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          No demo yet for: {missing.map((l) => l.name).join(", ")}. Visitors choosing these languages see a “coming soon” message.
+          No platform is shown on the homepage yet — turn on “Show on homepage” for a category in the Categories tab.
         </p>
+      )}
+      {unassigned.length > 0 && (
+        <p className="mt-4 rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
+          {unassigned.length} demo video{unassigned.length === 1 ? " isn't" : "s aren't"} assigned to a platform, so visitors
+          can&apos;t see {unassigned.length === 1 ? "it" : "them"}. Use Edit / Replace to choose a platform.
+        </p>
+      )}
+      {coverage.some((c) => c.missing.length > 0) && (
+        <div className="mt-4 space-y-1.5 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {coverage
+            .filter((c) => c.missing.length > 0)
+            .map((c) => (
+              <p key={c.platform.id}>
+                <span className="font-semibold">{c.platform.name}:</span>{" "}
+                {c.missing.length === active.length
+                  ? "no demo yet — visitors see “coming soon”."
+                  : `${c.missing.length} language${c.missing.length === 1 ? "" : "s"} without a demo (${c.missing
+                      .slice(0, 6)
+                      .map((l) => l.name)
+                      .join(", ")}${c.missing.length > 6 ? ", …" : ""})${c.hasEnglish ? " — visitors see the English demo." : " — no English fallback yet."}`}
+              </p>
+            ))}
+        </div>
+      )}
+
+      {platforms.length > 1 && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {[{ id: "", name: "All platforms" }, ...platforms].map((p) => (
+            <button
+              key={p.id || "all"}
+              type="button"
+              onClick={() => setPlatformFilter(p.id)}
+              aria-pressed={platformFilter === p.id}
+              className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                platformFilter === p.id ? "border-gold-500 bg-gold-500/10 text-parchment" : "border-border-soft text-parchment-muted hover:border-gold-500/50"
+              }`}
+            >
+              {p.name}
+              {p.id && videos ? ` · ${videos.filter((v) => v.categoryId === p.id).length}` : ""}
+            </button>
+          ))}
+        </div>
       )}
 
       {error && <p className="card mt-5 p-5 text-sm text-danger">{error}</p>}
@@ -74,7 +149,7 @@ export function DemoVideosPanel({ languages, push }: { languages: AdminLanguage[
       )}
 
       <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {videos?.map((v) => (
+        {shown?.map((v) => (
           <DemoCard
             key={v.id}
             video={v}
@@ -82,13 +157,13 @@ export function DemoVideosPanel({ languages, push }: { languages: AdminLanguage[
             onEdit={() => setDialog({ video: v })}
             onDeleted={() => {
               load();
-              push("success", `Deleted the ${v.language.name} demo.`);
+              push("success", `Deleted the ${platformLabel(v)} ${v.language.name} demo.`);
             }}
             push={push}
           />
         ))}
       </div>
-      {videos?.length === 0 && (
+      {shown?.length === 0 && (
         <div className="card flex flex-col items-center gap-3 p-10 text-center">
           <Play className="h-10 w-10 text-gold-500" />
           <p className="text-sm text-parchment-muted">No demo videos yet.</p>
@@ -101,19 +176,22 @@ export function DemoVideosPanel({ languages, push }: { languages: AdminLanguage[
       {dialog && videos && (
         <DemoDialog
           video={dialog.video}
-          // Each language has one demo: offer only free languages (plus the current one when editing).
-          languages={languages.filter((l) => l.id === dialog.video?.languageId || !videos.some((v) => v.languageId === l.id))}
+          languages={languages}
+          platforms={platforms}
+          defaultPlatformId={platformFilter}
+          // One demo per platform and language: the dialog hides pairs that are already taken.
+          taken={videos.filter((v) => v.id !== dialog.video?.id).map((v) => `${v.categoryId}:${v.languageId}`)}
           onClose={() => setDialog(null)}
           onSaved={(v, created) => {
             setDialog(null);
             load();
-            push("success", created ? `Uploaded the ${v.language.name} demo.` : "Demo video updated.");
+            push("success", created ? `Uploaded the ${platformLabel(v)} ${v.language.name} demo.` : "Demo video updated.");
           }}
           push={push}
         />
       )}
       {previewing && (
-        <Modal title={previewing.title || `${previewing.language.name} demo`} onClose={() => setPreviewing(null)} size="xl">
+        <Modal title={previewing.title || `${platformLabel(previewing)} · ${previewing.language.name} demo`} onClose={() => setPreviewing(null)} size="xl">
           <StreamOnlyVideo
             src={previewing.url}
             poster={previewing.thumbnailUrl ?? undefined}
@@ -161,13 +239,17 @@ function DemoCard({
 
   return (
     <div className="card flex flex-col overflow-hidden">
-      <button type="button" onClick={onPreview} className="group relative" aria-label={`Preview ${v.language.name} demo`}>
+      <button type="button" onClick={onPreview} className="group relative" aria-label={`Preview ${platformLabel(v)} ${v.language.name} demo`}>
         <Thumb url={v.thumbnailUrl} className="w-full !rounded-none" />
         <span className="absolute inset-0 flex items-center justify-center bg-black/0 transition group-hover:bg-black/30">
           <Play className="h-10 w-10 text-white opacity-0 transition group-hover:opacity-100" />
         </span>
-        <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-white">
-          {v.language.name}
+        <span
+          className={`absolute left-2 top-2 rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-white ${
+            v.platform ? "bg-black/70" : "bg-danger"
+          }`}
+        >
+          {platformLabel(v)} · {v.language.name}
         </span>
         <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[11px] font-semibold text-white">
           {formatDuration(v.durationSeconds)}
@@ -209,12 +291,19 @@ type Stage = "idle" | "video" | "thumbnail" | "saving";
 function DemoDialog({
   video,
   languages,
+  platforms,
+  defaultPlatformId,
+  taken,
   onClose,
   onSaved,
   push,
 }: {
   video: AdminDemoVideo | null;
   languages: AdminLanguage[];
+  platforms: DemoPlatformOption[];
+  defaultPlatformId: string;
+  /** "platformId:languageId" pairs that already have a demo. */
+  taken: string[];
   onClose: () => void;
   onSaved: (v: AdminDemoVideo, created: boolean) => void;
   push: Push;
@@ -222,7 +311,11 @@ function DemoDialog({
   const [picked, setPicked] = useState<PickedVideo | null>(null);
   const [title, setTitle] = useState(video?.title ?? "");
   const [description, setDescription] = useState(video?.description ?? "");
+  // Editing keeps the demo's platform (none for pre-platform data: the admin must pick one); new
+  // uploads start on the filtered platform, or the first.
+  const [categoryId, setCategoryId] = useState(video ? (video.categoryId ?? "") : defaultPlatformId || platforms[0]?.id || "");
   const [languageId, setLanguageId] = useState(video?.languageId ?? "");
+  const freeLanguages = languages.filter((l) => !taken.includes(`${categoryId}:${l.id}`));
   const [thumb, setThumb] = useState<{ blob: Blob; auto: boolean } | null>(null);
   const thumbUrl = useObjectUrl(thumb?.blob ?? null);
   const [removeThumb, setRemoveThumb] = useState(false);
@@ -245,7 +338,9 @@ function DemoDialog({
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!video && !picked) return push("error", "Choose an MP4 file first.");
+    if (!categoryId) return push("error", "Choose a platform.");
     if (!languageId) return push("error", "Choose a language.");
+    if (taken.includes(`${categoryId}:${languageId}`)) return push("error", "That platform already has a demo in this language.");
     if (title.trim().length < 2) return push("error", "Enter a title.");
     const controller = new AbortController();
     abortRef.current = controller;
@@ -278,10 +373,11 @@ function DemoDialog({
       if (!video || title.trim() !== video.title) body.title = title.trim();
       if (!video || (description.trim() || null) !== video.description) body.description = description.trim() || null;
       if (!video || languageId !== video.languageId) body.languageId = languageId;
+      if (!video || categoryId !== video.categoryId) body.categoryId = categoryId;
 
       const saved = video
         ? await videoService.updateDemo(video.id, body)
-        : await videoService.createDemo({ ...body, title: body.title!, languageId, storageKey: body.storageKey! });
+        : await videoService.createDemo({ ...body, title: body.title!, languageId, categoryId, storageKey: body.storageKey! });
       onSaved(saved.video, !video);
     } catch (err) {
       await Promise.all(uploaded.map((k) => videoService.discardUpload(k).catch(() => {})));
@@ -332,8 +428,39 @@ function DemoDialog({
         </div>
 
         <div className="space-y-4">
-          <LanguageSelect languages={languages} value={languageId} onChange={setLanguageId} disabled={busy} />
-          {languages.length === 0 && <p className="text-xs text-amber-600">Every language already has a demo — edit one to replace it.</p>}
+          <label className="block">
+            <span className="label-field">Platform</span>
+            <select
+              value={categoryId}
+              onChange={(e) => {
+                setCategoryId(e.target.value);
+                if (taken.includes(`${e.target.value}:${languageId}`)) setLanguageId("");
+              }}
+              className="input-field"
+              disabled={busy}
+            >
+              <option value="" disabled>
+                Choose a platform…
+              </option>
+              {platforms.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <LanguageSelect languages={freeLanguages} value={languageId} onChange={setLanguageId} disabled={busy} />
+          {platforms.length === 0 && (
+            <p className="text-xs text-amber-600">
+              No homepage platform is set up yet — turn on &ldquo;Show on homepage&rdquo; for a category in the Categories tab first.
+            </p>
+          )}
+          {video && !video.platform && (
+            <p className="text-xs text-danger">This demo has no platform yet — choose one so visitors can see it.</p>
+          )}
+          {categoryId && freeLanguages.length === 0 && (
+            <p className="text-xs text-amber-600">This platform has a demo in every language — edit one to replace it.</p>
+          )}
           <label className="block">
             <span className="label-field">Title</span>
             <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={150} className="input-field" disabled={busy} />

@@ -149,6 +149,8 @@ function CategoryCard({
         {c.packageIds.length === 0 && <p className="mt-2 text-xs text-amber-600">No package unlocks this category yet — students see it as “Coming soon”.</p>}
       </div>
 
+      <HomepageSettings category={c} reload={reload} push={push} />
+
       <div className="border-t border-border-soft bg-surface-hover/40 px-4 py-3">
         <p className="text-xs font-semibold uppercase tracking-wider text-parchment-muted">Subcategories</p>
         {c.subcategories.length === 0 && !addingSub && (
@@ -181,6 +183,68 @@ function CategoryCard({
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Whether the category is a platform card in the homepage demo section, and the card's description. */
+function HomepageSettings({ category: c, reload, push }: { category: AdminCategory; reload: () => Promise<void>; push: Push }) {
+  const [description, setDescription] = useState(c.description ?? "");
+  const [busy, setBusy] = useState(false);
+
+  async function save(body: { showOnHomepage?: boolean; description?: string | null }, success: string) {
+    setBusy(true);
+    try {
+      await categoryService.update(c.id, body);
+      await reload();
+      push("success", success);
+    } catch (err) {
+      push("error", errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const changed = (description.trim() || null) !== c.description;
+  return (
+    <div className="border-t border-border-soft px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-parchment-muted">
+          Homepage demo {c.demoCount > 0 && <span className="normal-case tracking-normal">· {c.demoCount} demo video(s)</span>}
+        </p>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() =>
+            save({ showOnHomepage: !c.showOnHomepage }, c.showOnHomepage ? `${c.name} removed from the homepage.` : `${c.name} is now a homepage platform.`)
+          }
+          aria-pressed={c.showOnHomepage}
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition ${
+            c.showOnHomepage ? "border-emerald bg-emerald/10 text-emerald" : "border-border-soft text-parchment-muted hover:border-gold-500/50"
+          }`}
+        >
+          {c.showOnHomepage ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />} Show on homepage
+        </button>
+      </div>
+      {c.showOnHomepage && (
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            maxLength={500}
+            placeholder="One-line description shown on the platform card"
+            className="input-field !py-2 flex-1"
+          />
+          <button
+            type="button"
+            disabled={busy || !changed}
+            onClick={() => save({ description: description.trim() || null }, "Description saved.")}
+            className="btn-outline btn-sm"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Save
+          </button>
+        </div>
+      )}
     </div>
   );
 }
