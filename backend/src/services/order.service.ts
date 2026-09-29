@@ -1,19 +1,38 @@
 import { prisma } from "../config/prisma.js";
 import { getRazorpayClient } from "./razorpay.service.js";
 import type { Order } from "@prisma/client";
+import { paymentMismatch, paymentSafetyProblem, type RazorpayPaymentFacts } from "./payment-safety.js";
+
+/** Normalises a Razorpay payment entity (webhook payload or API response) for verification. */
+export function paymentFacts(p: { id: string; order_id: string; amount: number | string; currency: string; status: string }): RazorpayPaymentFacts {
+  return { id: p.id, orderId: p.order_id, amountInPaise: Number(p.amount), currency: p.currency, status: p.status };
+}
 
 /**
  * Marks an order PAID, grants course access, and credits referral commission —
  * all inside one transaction so a retried webhook can never double-unlock or
  * double-credit. Safe to call multiple times for the same payment id.
+ *
+ * Nothing is granted unless the configuration is safe (no TEST keys against production data) and
+ * the Razorpay payment is captured, belongs to this order, and is for the order's exact amount in INR.
  */
 export async function markOrderPaid(params: {
   razorpayOrderId: string;
-  razorpayPaymentId: string;
+  payment: RazorpayPaymentFacts;
   razorpaySignature?: string | null;
 }) {
-  const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = params;
+  const { razorpayOrderId, payment, razorpaySignature } = params;
+  const razorpayPaymentId = payment.id;
   console.log("[PAYMENT] markOrderPaid start", { razorpayOrderId, razorpayPaymentId });
+
+  const unsafe = paymentSafetyProblem();
+  if (unsafe) {
+    console.error("[PAYMENT] markOrderPaid REFUSED — unsafe payment configuration:", unsafe);
+    await prisma.auditLog
+      .create({ data: { action: "PAYMENT_REFUSED_UNSAFE_CONFIG", target: razorpayOrderId, metadata: { razorpayPaymentId, reason: unsafe } } })
+      .catch(() => undefined);
+    return { ok: false as const, reason: "unsafe_payment_configuration" };
+  }
 
   return prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({
@@ -28,6 +47,16 @@ export async function markOrderPaid(params: {
     if (order.status === "PAID") {
       console.log("[PAYMENT] markOrderPaid: already processed (idempotent no-op)", { orderId: order.id });
       return { ok: true as const, alreadyProcessed: true };
+    }
+
+    // Verify the payment itself before anything is marked paid or unlocked.
+    const mismatch = paymentMismatch(payment, order);
+    if (mismatch) {
+      console.error("[PAYMENT] markOrderPaid REJECTED — payment doesn't match the order", { orderId: order.id, razorpayPaymentId, mismatch });
+      await tx.auditLog.create({
+        data: { actorId: order.userId, action: "PAYMENT_MISMATCH_REJECTED", target: order.id, metadata: { razorpayPaymentId, mismatch } },
+      });
+      return { ok: false as const, reason: "payment_mismatch" };
     }
     // FAILED is recoverable: Razorpay lets the customer retry inside the same checkout, so an earlier
     // payment.failed can be followed by a captured payment on the very same order. A captured
@@ -154,7 +183,7 @@ export async function reconcileOrderWithRazorpay(
 
   const result = await markOrderPaid({
     razorpayOrderId: order.razorpayOrderId,
-    razorpayPaymentId: captured.id,
+    payment: paymentFacts(captured),
   });
 
   await prisma.auditLog.create({

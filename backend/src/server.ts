@@ -2,6 +2,10 @@ import { env, productionConfigProblems } from "./config/env.js";
 import { prisma } from "./config/prisma.js";
 import { createApp } from "./app.js";
 import { checkEmailOnStartup } from "./services/email.service.js";
+import { checkPaymentModeOnStartup } from "./services/payment-safety.js";
+
+// Before listening: production exits here if it's configured with Razorpay TEST keys.
+checkPaymentModeOnStartup();
 
 const app = createApp();
 

@@ -4,7 +4,8 @@ import { prisma } from "../config/prisma.js";
 import { env } from "../config/env.js";
 import { createOrderSchema } from "../utils/validation.js";
 import { getRazorpayClient, verifyWebhookSignature, RazorpayConfigError } from "../services/razorpay.service.js";
-import { markOrderPaid, markOrderFailed, reverseOrder, reconcileOrderWithRazorpay } from "../services/order.service.js";
+import { markOrderPaid, markOrderFailed, paymentFacts, reverseOrder, reconcileOrderWithRazorpay } from "../services/order.service.js";
+import { paymentSafetyProblem } from "../services/payment-safety.js";
 import { markRequestPaid, reconcileRequestPayment } from "../services/partner-card.service.js";
 import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError, param } from "../utils/http.js";
@@ -78,6 +79,17 @@ export async function createOrder(req: Request, res: Response) {
         referrerUserId = referrer.id;
         log("referral applied", { referrerUserId });
       }
+    }
+
+    // Never start a checkout that couldn't be (or shouldn't be) honoured: TEST keys against
+    // production data would let a no-money test payment unlock a real course.
+    const unsafe = paymentSafetyProblem();
+    if (unsafe) {
+      console.error(`${LOG_PREFIX}[${reqId}] checkout refused — unsafe payment configuration: ${unsafe}`);
+      return res.status(503).json({
+        error: "Payments are disabled in this environment. Please contact support.",
+        code: "PAYMENTS_DISABLED",
+      });
     }
 
     log("creating Razorpay order", { amountInPaise: course.priceInPaise });
@@ -235,7 +247,7 @@ export async function razorpayWebhook(req: Request, res: Response) {
           logAudit("WEBHOOK_PARTNER_CARD_PAYMENT_CAPTURED", { reqId, razorpayOrderId: payment.order_id, ok: cardResult.ok });
           break;
         }
-        const result = await markOrderPaid({ razorpayOrderId: payment.order_id, razorpayPaymentId: payment.id });
+        const result = await markOrderPaid({ razorpayOrderId: payment.order_id, payment: paymentFacts(payment) });
         log("markOrderPaid result", result);
         logAudit("WEBHOOK_PAYMENT_CAPTURED", {
           reqId,
