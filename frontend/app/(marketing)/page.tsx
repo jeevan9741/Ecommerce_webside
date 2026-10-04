@@ -1,19 +1,18 @@
-import { BarChart3, GraduationCap, Globe2, Headset, LayoutGrid, Mail, PlayCircle, Settings, UserPlus } from "lucide-react";
+import { BarChart3, GraduationCap, Globe2, Headset, Mail, PlayCircle, Settings, UserPlus } from "lucide-react";
 import { BrandLogo } from "@/components/logo";
 import {
   DemoLanguagePicker,
   DemoLanguageProvider,
-  DemoPlatformPicker,
+  DemoPlatformLabels,
   DemoVideoPlayer,
 } from "@/components/home/academy-demo";
 import { CurvedArrow, HeroArtLeft, HeroArtRight } from "@/components/home/hero-decorations";
 
 const STEPS = [
   { number: 1, icon: Globe2, title: "Language", subtitle: "Choose your language" },
-  { number: 2, icon: LayoutGrid, title: "Platform", subtitle: "Pick a platform" },
-  { number: 3, icon: PlayCircle, title: "Demo Video", subtitle: "Watch free demo" },
-  { number: 4, icon: Mail, title: "Verify Email", subtitle: "Confirm your email" },
-  { number: 5, icon: UserPlus, title: "Register", subtitle: "Create your account" },
+  { number: 2, icon: PlayCircle, title: "Demo Video", subtitle: "Watch free demo" },
+  { number: 3, icon: Mail, title: "Verify Email", subtitle: "Confirm your email" },
+  { number: 4, icon: UserPlus, title: "Register", subtitle: "Create your account" },
 ];
 
 const FEATURES = [
@@ -88,15 +87,15 @@ export default function HomePage() {
                 Get Started In Minutes
               </h2>
               <p className="mx-auto mt-3 max-w-2xl text-sm text-parchment-muted sm:text-base">
-                Pick your language and a platform, watch its free demo, confirm your email, and you&apos;re ready to
-                create an account and unlock any course.
+                Pick your language, watch the free demo, confirm your email, and you&apos;re ready to create an
+                account and unlock any course.
               </p>
             </div>
 
             {/* 4-step flow */}
             <div className="relative mx-auto mt-9 max-w-4xl">
-              <div className="absolute left-[10%] right-[10%] top-5 h-px bg-border-strong sm:top-6" />
-              <div className="relative grid grid-cols-5 gap-1 sm:gap-2">
+              <div className="absolute left-[12.5%] right-[12.5%] top-5 h-px bg-border-strong sm:top-6" />
+              <div className="relative grid grid-cols-4 gap-1 sm:gap-2">
                 {STEPS.map((step) => (
                   <div key={step.number} className="flex flex-col items-center text-center">
                     <span
@@ -126,12 +125,11 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* Platform cards (step 2) — the chosen platform's demo plays in the player below */}
+            {/* Platforms covered — display-only labels; the demo below is the same for everyone */}
             <div className="mx-auto mt-9 max-w-5xl">
-              <h3 className="text-center text-base font-bold text-parchment sm:text-lg">Choose a platform</h3>
-              <p className="mt-1 text-center text-xs text-parchment-muted sm:text-sm">Tap a platform to watch its free demo.</p>
+              <h3 className="text-center text-base font-bold text-parchment sm:text-lg">Platforms you&apos;ll learn</h3>
               <div className="mt-4">
-                <DemoPlatformPicker />
+                <DemoPlatformLabels />
               </div>
             </div>
           </div>
@@ -144,10 +142,10 @@ export default function HomePage() {
           <div className="mx-auto max-w-3xl text-center">
             <span className="badge-pill">Watch &amp; Learn</span>
             <h2 className="font-display mt-4 text-2xl font-bold text-parchment sm:text-3xl">
-              Platform Demo Video
+              Free Demo Video
             </h2>
             <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-parchment-muted sm:text-base">
-              See how we train you on the platform you chose — in your language.
+              See how we train you — in your language.
             </p>
           </div>
 

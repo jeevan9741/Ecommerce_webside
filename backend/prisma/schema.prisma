@@ -251,7 +251,7 @@ model CourseCategory {
   displayOrder   Int      @default(0)
   /// Inactive categories (and everything under them) are hidden from students.
   isActive       Boolean  @default(true)
-  /// Offered as a platform card in the homepage demo section (top-level categories only).
+  /// Listed as a display-only platform label in the homepage demo section (top-level categories only).
   showOnHomepage Boolean  @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -334,14 +334,14 @@ model CourseLanguageVideo {
   @@index([languageId])
 }
 
-/// A free demo video for one platform (a homepage CourseCategory such as Meesho) in one language —
-/// one per language and platform — shown on the homepage without login. Stored in the public Blob
+/// The free homepage demo video in one language — one per language, the same for every visitor
+/// (English is the default and the fallback) — shown without login. Stored in the public Blob
 /// store when one is configured (publicUrl set), otherwise in the private store behind signed links.
 model DemoVideo {
   id              String   @id @default(cuid())
   languageId      String
-  /// The platform the demo is for.
-  categoryId      String
+  /// Legacy: demos used to be per platform. No longer used; always null for new demos.
+  categoryId      String?
   title           String   @default("")
   description     String?
   storageKey      String
@@ -354,8 +354,8 @@ model DemoVideo {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @default(now()) @updatedAt
 
-  language Language       @relation(fields: [languageId], references: [id], onDelete: Cascade)
-  category CourseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  language Language        @relation(fields: [languageId], references: [id], onDelete: Cascade)
+  category CourseCategory? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
 
   @@unique([languageId, categoryId])
   @@index([categoryId])

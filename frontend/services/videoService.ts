@@ -79,14 +79,11 @@ export interface VideoEdit {
   displayOrder?: number;
 }
 
-/** The free demo for one language, shown on the homepage without login. */
+/** The common free demo in one language, shown on the homepage without login. */
 export interface AdminDemoVideo {
   id: string;
   languageId: string;
   language: VideoLanguage & { id: string; nativeName: string; isActive: boolean };
-  /** Null/missing only when the data predates platforms (e.g. an older API) — the UI must cope. */
-  categoryId: string | null;
-  platform: { id: string; slug: string; name: string } | null;
   title: string;
   description: string | null;
   sizeBytes: number | null;
@@ -102,7 +99,6 @@ export interface DemoVideoEdit {
   title?: string;
   description?: string | null;
   languageId?: string;
-  categoryId?: string;
   storageKey?: string;
   thumbnailKey?: string | null;
   durationSeconds?: number | null;
@@ -128,7 +124,7 @@ export const videoService = {
   remove: (id: string) => api.delete<{ ok: true }>(`/admin/videos/${id}`),
   preview: (id: string) => api.get<{ streamUrl: string; expiresAt: string }>(`/admin/videos/${id}/preview`),
   demos: () => api.get<{ videos: AdminDemoVideo[] }>("/admin/demo-videos"),
-  createDemo: (body: DemoVideoEdit & { title: string; languageId: string; categoryId: string; storageKey: string }) =>
+  createDemo: (body: DemoVideoEdit & { title: string; languageId: string; storageKey: string }) =>
     api.post<{ video: AdminDemoVideo }>("/admin/demo-videos", body),
   updateDemo: (id: string, body: DemoVideoEdit) => api.patch<{ video: AdminDemoVideo }>(`/admin/demo-videos/${id}`, body),
   removeDemo: (id: string) => api.delete<{ ok: true }>(`/admin/demo-videos/${id}`),

@@ -106,13 +106,13 @@ export async function listLanguages(_req: Request, res: Response) {
 
 export async function demoVideos(req: Request, res: Response) {
   const lang = typeof req.query.lang === "string" ? req.query.lang : null;
-  const platform = typeof req.query.platform === "string" ? req.query.platform : null;
 
   if (lang) {
-    // A platform/language without a demo yet is a normal state, not an error — the page shows a placeholder.
+    // The same demo for every visitor (a `platform` query from older pages is ignored). No demo yet
+    // is a normal state, not an error — the page shows a placeholder.
     // Private-store demos get a signed link sized to the video, so it can't be shared long-term.
     res.setHeader("Cache-Control", "no-store");
-    return res.json({ video: await homepageDemoVideo(lang, platform) });
+    return res.json({ video: await homepageDemoVideo(lang) });
   }
 
   // Languages that have at least one demo.

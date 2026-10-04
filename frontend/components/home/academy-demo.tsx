@@ -1,17 +1,17 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { Check, Clock, Globe2, Info, Loader2, MousePointerClick, Search } from "lucide-react";
+import { Clock, Info, Loader2, Search, Store } from "lucide-react";
 import { LanguageSelector } from "@/components/language-selector";
 import { StreamOnlyVideo } from "@/components/videos/stream-only-video";
-import { PlatformTile } from "@/components/home/platform-tile";
 import { courseService, type DemoPlatform, type PublicDemoVideo } from "@/services/courseService";
 
 /**
- * Homepage demo flow: 1. language → 2. platform (Meesho / Amazon / Flipkart / Shopify …) → 3. that
- * platform's demo in that language, or its English demo (flagged), or a "coming soon" panel.
- * The language picker, platform cards and player live in different parts of the page, so their
- * state is shared through this provider.
+ * Homepage demo flow: one common demo video for every visitor. It plays in the visitor's language
+ * when that version exists, otherwise in English (flagged); English is the default until a language
+ * is chosen. The platform names (Meesho / Amazon / Flipkart / Shopify …) are display-only labels.
+ * The language picker, labels and player live in different parts of the page, so their state is
+ * shared through this provider.
  */
 
 interface LanguageOption {
@@ -21,7 +21,6 @@ interface LanguageOption {
 }
 
 type VideoState =
-  | { status: "idle" }
   | { status: "loading" }
   | { status: "ready"; video: PublicDemoVideo }
   | { status: "empty" }
@@ -33,16 +32,11 @@ interface DemoState {
   selectedCode: string;
   selectLanguage: (code: string) => void;
   platforms: DemoPlatform[] | null;
-  selectedPlatform: string;
-  selectPlatform: (slug: string) => void;
   video: VideoState;
-  /** Set when the visitor picked a platform in this visit, so the player may start on its own. */
-  autoPlay: boolean;
 }
 
 const LANG_COOKIE = "eca_lang";
-const PLATFORM_COOKIE = "eca_demo_platform";
-const PLAYER_ID = "demo-player";
+const DEFAULT_LANGUAGE = "en";
 export const FALLBACK_NOTICE = "Selected language version is coming soon. Showing the English demo.";
 
 function remember(name: string, value: string) {
@@ -71,12 +65,10 @@ export function DemoLanguageProvider({ children }: { children: React.ReactNode }
   const [languages, setLanguages] = useState<LanguageOption[]>([]);
   const [languagesLoaded, setLanguagesLoaded] = useState(false);
   const [selectedCode, setSelectedCode] = useState("");
-  const [platformResult, setPlatformResult] = useState<{ forCode: string; platforms: DemoPlatform[] } | null>(null);
-  const [selectedPlatform, setSelectedPlatform] = useState("");
-  const [videoResult, setVideoResult] = useState<{ key: string; state: VideoState } | null>(null);
-  const [autoPlay, setAutoPlay] = useState(false);
+  const [platforms, setPlatforms] = useState<DemoPlatform[] | null>(null);
+  const [videoResult, setVideoResult] = useState<{ lang: string; state: VideoState } | null>(null);
 
-  // Language first: only a returning visitor's remembered choice is preselected.
+  // Only a returning visitor's remembered language is preselected; everyone else gets English.
   useEffect(() => {
     courseService
       .languages()
@@ -84,77 +76,39 @@ export function DemoLanguageProvider({ children }: { children: React.ReactNode }
         setLanguages(list);
         const remembered = recall(LANG_COOKIE);
         if (remembered && list.some((l) => l.code === remembered)) setSelectedCode(remembered);
-        const platform = recall(PLATFORM_COOKIE);
-        if (platform) setSelectedPlatform(platform);
       })
       .catch(() => setLanguages([]))
       .finally(() => setLanguagesLoaded(true));
+    courseService
+      .demoPlatforms()
+      .then(({ platforms: list }) => setPlatforms(list))
+      .catch(() => setPlatforms([]));
   }, []);
 
+  // Wait for the remembered language so a returning visitor doesn't load the English demo first.
+  const videoLang = languagesLoaded ? selectedCode || DEFAULT_LANGUAGE : "";
+
   useEffect(() => {
-    if (!selectedCode) return;
+    if (!videoLang) return;
     let cancelled = false;
     courseService
-      .demoPlatforms(selectedCode)
-      .then(({ platforms }) => !cancelled && setPlatformResult({ forCode: selectedCode, platforms }))
-      .catch(() => !cancelled && setPlatformResult({ forCode: selectedCode, platforms: [] }));
+      .demoVideo(videoLang)
+      .then(({ video }) => !cancelled && setVideoResult({ lang: videoLang, state: video ? { status: "ready", video } : { status: "empty" } }))
+      .catch(() => !cancelled && setVideoResult({ lang: videoLang, state: { status: "error" } }));
     return () => {
       cancelled = true;
     };
-  }, [selectedCode]);
+  }, [videoLang]);
 
-  const platforms = platformResult?.forCode === selectedCode ? platformResult.platforms : null;
-  // A remembered platform that's no longer offered is ignored.
-  const activePlatform = platforms?.some((p) => p.slug === selectedPlatform) ? selectedPlatform : "";
-  const videoKey = selectedCode && activePlatform ? `${selectedCode}:${activePlatform}` : "";
-
-  useEffect(() => {
-    if (!videoKey) return;
-    const [lang, platform] = videoKey.split(":");
-    let cancelled = false;
-    courseService
-      .demoVideo(lang, platform)
-      .then(({ video }) => !cancelled && setVideoResult({ key: videoKey, state: video ? { status: "ready", video } : { status: "empty" } }))
-      .catch(() => !cancelled && setVideoResult({ key: videoKey, state: { status: "error" } }));
-    return () => {
-      cancelled = true;
-    };
-  }, [videoKey]);
-
-  const video: VideoState = !videoKey
-    ? { status: "idle" }
-    : videoResult?.key === videoKey
-      ? videoResult.state
-      : { status: "loading" };
+  const video: VideoState = videoLang && videoResult?.lang === videoLang ? videoResult.state : { status: "loading" };
 
   const selectLanguage = useCallback((code: string) => {
     setSelectedCode(code);
     remember(LANG_COOKIE, code);
   }, []);
 
-  const selectPlatform = useCallback((slug: string) => {
-    setSelectedPlatform(slug);
-    setAutoPlay(true);
-    remember(PLATFORM_COOKIE, slug);
-    // Bring the (single) player into view — on phones it's well below the cards. Its container
-    // always exists (a panel until a video loads), so no need to wait for a render.
-    document.getElementById(PLAYER_ID)?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, []);
-
   return (
-    <DemoContext.Provider
-      value={{
-        languages,
-        languagesLoaded,
-        selectedCode,
-        selectLanguage,
-        platforms,
-        selectedPlatform: activePlatform,
-        selectPlatform,
-        video,
-        autoPlay,
-      }}
-    >
+    <DemoContext.Provider value={{ languages, languagesLoaded, selectedCode, selectLanguage, platforms, video }}>
       {children}
     </DemoContext.Provider>
   );
@@ -190,97 +144,54 @@ export function DemoLanguagePicker() {
   );
 }
 
-/** Step 2: platform cards, shown once a language is chosen. The selected card is highlighted. */
-export function DemoPlatformPicker() {
-  const { languages, selectedCode, platforms, selectedPlatform, selectPlatform } = useDemoState();
-  const languageName = languages.find((l) => l.code === selectedCode)?.name ?? "";
+/** The platforms the training covers, as plain informational labels — they don't choose a video. */
+export function DemoPlatformLabels() {
+  const { platforms } = useDemoState();
 
-  if (!selectedCode) {
-    return (
-      <p className="flex items-center justify-center gap-2 rounded-2xl border border-dashed border-gold-500/40 bg-ink-elevated/60 px-4 py-6 text-center text-sm text-parchment-muted">
-        <Globe2 className="h-4 w-4 shrink-0 text-gold-500" /> Select your language above to see the platform demos.
-      </p>
-    );
-  }
   if (!platforms) {
     return (
-      <div className="flex justify-center py-8">
+      <div className="flex justify-center py-6">
         <Loader2 className="h-6 w-6 animate-spin text-gold-500" />
       </div>
     );
   }
-  if (platforms.length === 0) {
-    return <p className="text-center text-sm text-parchment-muted">Platform demos are coming soon.</p>;
-  }
+  if (platforms.length === 0) return null;
 
   return (
-    <div role="radiogroup" aria-label="Choose a platform" className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
-      {platforms.map((p) => {
-        const selected = p.slug === selectedPlatform;
-        return (
-          <button
-            key={p.slug}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            onClick={() => selectPlatform(p.slug)}
-            className={`group relative flex overflow-hidden rounded-2xl border bg-ink-elevated text-left shadow-sm transition sm:flex-col ${
-              selected
-                ? "border-gold-500 ring-2 ring-gold-500 ring-offset-2 ring-offset-gold-100"
-                : "border-border-soft hover:-translate-y-0.5 hover:border-gold-500/60 hover:shadow-md"
-            }`}
-          >
-            <PlatformTile name={p.name} className="w-28 shrink-0 sm:h-24 sm:w-full" />
-            <span className="flex min-w-0 flex-1 flex-col p-3 sm:p-4">
-              <span className="flex items-center justify-between gap-2">
-                <span className="font-bold text-parchment">{p.name}</span>
-                {selected && (
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gold-500 text-white">
-                    <Check className="h-3.5 w-3.5" />
-                  </span>
-                )}
-              </span>
-              {p.description && <span className="mt-1 text-xs leading-relaxed text-parchment-muted sm:text-[13px]">{p.description}</span>}
-              <span className="mt-2">
-                <StatusBadge status={p.status} languageName={languageName} />
-              </span>
-            </span>
-          </button>
-        );
-      })}
-    </div>
+    <ul aria-label="Platforms covered in the training" className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+      {platforms.map((p) => (
+        <li key={p.slug} className="flex cursor-default select-none items-start gap-3 rounded-2xl border border-border-soft bg-ink-elevated p-4">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gold-500/10 text-gold-500" aria-hidden="true">
+            <Store className="h-5 w-5" />
+          </span>
+          <span className="min-w-0">
+            <span className="block font-bold text-parchment">{p.name}</span>
+            {p.description && <span className="mt-1 block text-xs leading-relaxed text-parchment-muted sm:text-[13px]">{p.description}</span>}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
-function StatusBadge({ status, languageName }: { status: DemoPlatform["status"]; languageName: string }) {
-  const [label, tone] =
-    status === "available"
-      ? [`${languageName} demo`, "border-emerald/30 bg-emerald/10 text-emerald"]
-      : status === "fallback"
-        ? ["English demo", "border-gold-500/30 bg-gold-500/10 text-gold-600"]
-        : ["Coming soon", "border-border-soft bg-surface-hover text-parchment-muted"];
-  return <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${tone}`}>{label}</span>;
-}
-
 /**
- * Step 3: the one demo player. It only exists when there's a video to play; every other state
- * (nothing chosen yet, loading, no demo for the platform, error) is a panel, never an empty player.
+ * The one demo player. It only exists when there's a video to play; every other state (loading,
+ * no demo uploaded yet, error) is a panel, never an empty player.
  */
 export function DemoVideoPlayer() {
-  const { selectedCode, selectedPlatform, platforms, video, autoPlay } = useDemoState();
-  const platform = platforms?.find((p) => p.slug === selectedPlatform);
+  const { selectedCode, video } = useDemoState();
 
   if (video.status === "ready") {
     const v = video.video;
-    const platformName = v.platform?.name ?? platform?.name ?? "Platform";
     return (
-      <div id={PLAYER_ID} className="mx-auto max-w-4xl scroll-mt-24">
+      <div className="mx-auto max-w-4xl">
         <div className="mb-3">
-          <p className="text-xs font-bold uppercase tracking-wider text-gold-500">{platformName} demo</p>
+          <p className="text-xs font-bold uppercase tracking-wider text-gold-500">Free demo</p>
           <h3 className="mt-0.5 font-display text-lg font-bold text-parchment sm:text-xl">{v.title}</h3>
           <p className="mt-0.5 text-xs text-parchment-muted">{v.languageName}</p>
         </div>
-        {v.languageFallback && (
+        {/* Only worth saying when the visitor actually asked for another language. */}
+        {v.languageFallback && selectedCode && selectedCode !== DEFAULT_LANGUAGE && (
           <p role="status" className="mb-3 flex items-start gap-2 rounded-xl border border-gold-500/30 bg-gold-500/10 px-4 py-2.5 text-sm text-parchment">
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-gold-500" /> {FALLBACK_NOTICE}
           </p>
@@ -290,7 +201,6 @@ export function DemoVideoPlayer() {
             key={v.url}
             src={v.url}
             poster={v.thumbnailUrl ?? undefined}
-            autoPlay={autoPlay}
             playsInline
             preload="metadata"
             title={v.title}
@@ -303,32 +213,23 @@ export function DemoVideoPlayer() {
   }
 
   return (
-    <div id={PLAYER_ID} className="mx-auto max-w-4xl scroll-mt-24">
+    <div className="mx-auto max-w-4xl">
       {video.status === "loading" ? (
         <div className="flex aspect-video items-center justify-center rounded-2xl border border-border-soft bg-ink-elevated">
           <Loader2 className="h-8 w-8 animate-spin text-gold-500" aria-label="Loading the demo" />
         </div>
-      ) : video.status === "empty" && platform ? (
-        <div role="status" className="flex flex-col items-center gap-4 rounded-2xl border border-border-soft bg-ink-elevated px-6 py-12 text-center shadow-sm sm:py-16">
-          <PlatformTile name={platform.name} className="h-20 w-40 rounded-xl shadow-sm" />
+      ) : video.status === "empty" ? (
+        <div role="status" className="flex flex-col items-center gap-3 rounded-2xl border border-border-soft bg-ink-elevated px-6 py-12 text-center shadow-sm sm:py-16">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-gold-500/30 bg-gold-500/10 px-3 py-1 text-xs font-bold uppercase tracking-wider text-gold-600">
             <Clock className="h-3.5 w-3.5" /> Coming soon
           </span>
-          <div>
-            <h3 className="font-display text-lg font-bold text-parchment sm:text-xl">The {platform.name} demo is on its way</h3>
-            <p className="mx-auto mt-1 max-w-md text-sm text-parchment-muted">
-              We&apos;re preparing this demo. Pick another platform above to watch its demo in the meantime.
-            </p>
-          </div>
+          <h3 className="font-display text-lg font-bold text-parchment sm:text-xl">The demo video is on its way</h3>
+          <p className="mx-auto max-w-md text-sm text-parchment-muted">We&apos;re preparing the free demo. Please check back soon.</p>
         </div>
       ) : (
         <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-gold-500/40 bg-ink-elevated/60 px-6 py-12 text-center text-sm text-parchment-muted sm:py-16">
-          <MousePointerClick className="h-7 w-7 text-gold-500" />
-          {video.status === "error"
-            ? "The demo couldn't be loaded. Please try again in a moment."
-            : !selectedCode
-              ? "Choose your language, then pick a platform to watch its free demo."
-              : "Pick a platform above to watch its free demo."}
+          <Info className="h-7 w-7 text-gold-500" />
+          The demo couldn&apos;t be loaded. Please try again in a moment.
         </div>
       )}
     </div>

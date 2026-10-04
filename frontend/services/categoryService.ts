@@ -15,9 +15,9 @@ export interface AdminSubcategory {
 }
 
 export interface AdminCategory extends AdminSubcategory {
-  /** Offered as a platform card in the homepage demo section. */
+  /** Listed as a display-only platform label in the homepage demo section. */
   showOnHomepage: boolean;
-  /** Homepage demo videos for this platform (any language). */
+  /** Legacy per-platform demo videos (always 0 now that the demo is shared). */
   demoCount: number;
   /** Packages whose buyers can watch this category and all its subcategories. */
   packageIds: string[];

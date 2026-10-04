@@ -428,9 +428,9 @@ export async function adminPreviewVideo(req: Request, res: Response) {
   res.json({ streamUrl: await getDownloadUrl(video.storageKey, ttl), expiresAt: new Date(Date.now() + ttl * 1000) });
 }
 
-// ---------- Demo videos (one per platform and language, free to watch without login) ----------
+// ---------- Demo videos (one common demo per language, free to watch without login) ----------
 
-const demoInclude = { language: true, category: { select: { id: true, slug: true, name: true } } } as const;
+const demoInclude = { language: true } as const;
 type DemoRow = Prisma.DemoVideoGetPayload<{ include: typeof demoInclude }>;
 
 /** Where the upload tokens put new demo files right now (see createVideoUploadToken). */
@@ -454,9 +454,8 @@ async function cleanupDemoFile(key: string | null, isPublic: boolean, label: str
 /** Shape for the homepage player. */
 export async function demoPublicView(v: DemoRow) {
   return {
-    title: v.title || `${v.category.name} demo`,
+    title: v.title || "Demo video",
     description: v.description,
-    platform: { slug: v.category.slug, name: v.category.name },
     languageCode: v.language.code,
     languageName: v.language.name,
     durationSeconds: v.durationSeconds,
@@ -469,8 +468,6 @@ async function demoAdminView(v: DemoRow) {
     id: v.id,
     languageId: v.languageId,
     language: { id: v.language.id, code: v.language.code, name: v.language.name, nativeName: v.language.nativeName, isActive: v.language.isActive },
-    categoryId: v.categoryId,
-    platform: v.category,
     title: v.title,
     description: v.description,
     sizeBytes: v.sizeBytes === null ? null : Number(v.sizeBytes),
@@ -486,7 +483,6 @@ const demoFields = {
   title: z.string().trim().min(2, "Enter a title").max(150),
   description: nullableText(2000),
   languageId: z.string().min(1, "Choose a language"),
-  categoryId: z.string().min(1, "Choose a platform"),
   storageKey: z.string().startsWith(DEMO_VIDEO_PREFIX, "Invalid video upload"),
   thumbnailKey: z.string().startsWith(DEMO_THUMBNAIL_PREFIX, "Invalid thumbnail upload").nullable().optional(),
   durationSeconds: z.number().int().min(0).max(24 * 60 * 60).nullable().optional(),
@@ -496,15 +492,8 @@ const demoUpdateSchema = z.object({
   ...demoFields,
   title: demoFields.title.optional(),
   languageId: demoFields.languageId.optional(),
-  categoryId: demoFields.categoryId.optional(),
   storageKey: demoFields.storageKey.optional(),
 });
-
-/** Demo platforms are top-level categories (Meesho, Flipkart, …). */
-async function assertPlatform(categoryId: string) {
-  const category = await prisma.courseCategory.findUnique({ where: { id: categoryId }, select: { parentId: true } });
-  if (!category || category.parentId) throw new HttpError(400, "Choose a platform");
-}
 
 /** Verifies a new demo upload and returns the columns it sets. */
 async function demoFileData(storageKey: string) {
@@ -523,15 +512,16 @@ async function demoThumbData(thumbnailKey: string | null) {
   return { thumbnailKey, thumbnailUrl: store === "public" ? stat.url : null };
 }
 
-function languageTaken(err: { code?: string }): never {
-  if (err.code === "P2002") throw new HttpError(409, "That platform already has a demo in this language — edit or replace it instead.");
-  throw err;
+/** One demo per language. Enforced here, since demos left from the per-platform days may share one. */
+async function assertLanguageFree(languageId: string, exceptId?: string) {
+  const taken = await prisma.demoVideo.count({ where: { languageId, ...(exceptId ? { id: { not: exceptId } } : {}) } });
+  if (taken) throw new HttpError(409, "There's already a demo in this language — edit or replace it instead.");
 }
 
 export async function adminListDemoVideos(_req: Request, res: Response) {
   const videos = await prisma.demoVideo.findMany({
     include: demoInclude,
-    orderBy: [{ category: { displayOrder: "asc" } }, { language: { displayOrder: "asc" } }],
+    orderBy: [{ language: { displayOrder: "asc" } }, { updatedAt: "desc" }],
   });
   res.json({ videos: await Promise.all(videos.map(demoAdminView)) });
 }
@@ -539,26 +529,23 @@ export async function adminListDemoVideos(_req: Request, res: Response) {
 export async function adminCreateDemoVideo(req: Request, res: Response) {
   const admin = currentUser(req);
   const body = parse(demoCreateSchema, req.body);
-  await Promise.all([assertLanguage(body.languageId), assertPlatform(body.categoryId)]);
-  if (await prisma.demoVideo.count({ where: { languageId: body.languageId, categoryId: body.categoryId } })) languageTaken({ code: "P2002" });
+  await assertLanguage(body.languageId);
+  await assertLanguageFree(body.languageId);
 
-  const video = await prisma.demoVideo
-    .create({
-      data: {
-        languageId: body.languageId,
-        categoryId: body.categoryId,
-        title: body.title,
-        description: body.description ?? null,
-        durationSeconds: body.durationSeconds ?? null,
-        ...(await demoFileData(body.storageKey)),
-        ...(await demoThumbData(body.thumbnailKey ?? null)),
-      },
-      include: demoInclude,
-    })
-    .catch(languageTaken);
+  const video = await prisma.demoVideo.create({
+    data: {
+      languageId: body.languageId,
+      title: body.title,
+      description: body.description ?? null,
+      durationSeconds: body.durationSeconds ?? null,
+      ...(await demoFileData(body.storageKey)),
+      ...(await demoThumbData(body.thumbnailKey ?? null)),
+    },
+    include: demoInclude,
+  });
 
   await prisma.auditLog.create({
-    data: { actorId: admin.id, action: "DEMO_VIDEO_CREATED", target: video.id, metadata: { language: video.language.code, platform: video.category.slug } },
+    data: { actorId: admin.id, action: "DEMO_VIDEO_CREATED", target: video.id, metadata: { language: video.language.code } },
   });
   res.status(201).json({ video: await demoAdminView(video) });
 }
@@ -568,26 +555,25 @@ export async function adminUpdateDemoVideo(req: Request, res: Response) {
   const body = parse(demoUpdateSchema, req.body);
   const existing = await prisma.demoVideo.findUnique({ where: { id: param(req, "id") } });
   if (!existing) throw new HttpError(404, "Demo video not found");
-  if (body.languageId) await assertLanguage(body.languageId);
-  if (body.categoryId) await assertPlatform(body.categoryId);
+  if (body.languageId && body.languageId !== existing.languageId) {
+    await assertLanguage(body.languageId);
+    await assertLanguageFree(body.languageId, existing.id);
+  }
 
   const replacing = body.storageKey !== undefined && body.storageKey !== existing.storageKey;
   const rethumb = body.thumbnailKey !== undefined && body.thumbnailKey !== existing.thumbnailKey;
-  const video = await prisma.demoVideo
-    .update({
-      where: { id: existing.id },
-      data: {
-        title: body.title,
-        description: body.description,
-        languageId: body.languageId,
-        categoryId: body.categoryId,
-        // A new file gets its duration from the form; keep the old one only for metadata edits.
-        ...(replacing ? { ...(await demoFileData(body.storageKey!)), durationSeconds: body.durationSeconds ?? null } : {}),
-        ...(rethumb ? await demoThumbData(body.thumbnailKey ?? null) : {}),
-      },
-      include: demoInclude,
-    })
-    .catch(languageTaken);
+  const video = await prisma.demoVideo.update({
+    where: { id: existing.id },
+    data: {
+      title: body.title,
+      description: body.description,
+      languageId: body.languageId,
+      // A new file gets its duration from the form; keep the old one only for metadata edits.
+      ...(replacing ? { ...(await demoFileData(body.storageKey!)), durationSeconds: body.durationSeconds ?? null } : {}),
+      ...(rethumb ? await demoThumbData(body.thumbnailKey ?? null) : {}),
+    },
+    include: demoInclude,
+  });
 
   if (replacing) await cleanupDemoFile(existing.storageKey, Boolean(existing.publicUrl), "replaced demo video");
   if (rethumb) await cleanupDemoFile(existing.thumbnailKey, Boolean(existing.thumbnailUrl), "replaced demo thumbnail");
@@ -613,65 +599,33 @@ export async function adminDeleteDemoVideo(req: Request, res: Response) {
 
 const FALLBACK_LANGUAGE = "en";
 
-const homepagePlatforms = () =>
-  prisma.courseCategory.findMany({
+/**
+ * Platform names for the homepage's display-only labels (Meesho, Amazon, …). They don't choose a
+ * video: every visitor gets the same demo.
+ */
+export async function demoPlatforms(_req: Request, res: Response) {
+  const platforms = await prisma.courseCategory.findMany({
     where: { parentId: null, isActive: true, showOnHomepage: true },
     orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
-    select: { id: true, slug: true, name: true, description: true },
+    select: { slug: true, name: true, description: true },
   });
-
-/**
- * Platform cards for the homepage, with what a visitor would get in their language: "available"
- * (a demo in that language), "fallback" (only the English demo) or "none" (no demo yet).
- */
-export async function demoPlatforms(req: Request, res: Response) {
-  const lang = typeof req.query.lang === "string" ? req.query.lang : FALLBACK_LANGUAGE;
-  const [platforms, demos] = await Promise.all([
-    homepagePlatforms(),
-    prisma.demoVideo.findMany({
-      where: { language: { code: { in: [lang, FALLBACK_LANGUAGE] }, isActive: true } },
-      select: { categoryId: true, language: { select: { code: true } } },
-    }),
-  ]);
-  const has = (categoryId: string, code: string) => demos.some((d) => d.categoryId === categoryId && d.language.code === code);
-  res.json({
-    platforms: platforms.map((p) => ({
-      slug: p.slug,
-      name: p.name,
-      description: p.description,
-      status: has(p.id, lang) ? "available" : has(p.id, FALLBACK_LANGUAGE) ? "fallback" : "none",
-    })),
-  });
+  res.json({ platforms });
 }
 
 /**
- * The demo for one platform in the visitor's language, falling back to the English demo (flagged,
- * so the page can say so). Without `platform` (older clients) it returns the first homepage
- * platform's demo in that language.
+ * The common homepage demo in the visitor's language, falling back to the English demo (flagged, so
+ * the page can say so). If a language still has several demos from the per-platform days, the most
+ * recently updated one wins.
  */
-export async function homepageDemoVideo(lang: string, platformSlug: string | null) {
-  const liveLanguage = { isActive: true };
-  if (!platformSlug) {
-    const video = await prisma.demoVideo.findFirst({
-      where: { language: { code: lang, ...liveLanguage }, category: { parentId: null, isActive: true, showOnHomepage: true } },
-      orderBy: { category: { displayOrder: "asc" } },
+export async function homepageDemoVideo(lang: string) {
+  const find = (code: string) =>
+    prisma.demoVideo.findFirst({
+      where: { language: { code, isActive: true } },
+      orderBy: { updatedAt: "desc" },
       include: demoInclude,
     });
-    return video ? { ...(await demoPublicView(video)), languageFallback: false } : null;
-  }
-
-  const platform = await prisma.courseCategory.findFirst({
-    where: { slug: platformSlug, parentId: null, isActive: true, showOnHomepage: true },
-    select: { id: true },
-  });
-  if (!platform) return null;
-  const [exact, fallback] = await Promise.all([
-    prisma.demoVideo.findFirst({ where: { categoryId: platform.id, language: { code: lang, ...liveLanguage } }, include: demoInclude }),
-    lang === FALLBACK_LANGUAGE
-      ? null
-      : prisma.demoVideo.findFirst({ where: { categoryId: platform.id, language: { code: FALLBACK_LANGUAGE, ...liveLanguage } }, include: demoInclude }),
-  ]);
-  const video = exact ?? fallback;
+  const exact = await find(lang);
+  const video = exact ?? (lang === FALLBACK_LANGUAGE ? null : await find(FALLBACK_LANGUAGE));
   return video ? { ...(await demoPublicView(video)), languageFallback: !exact } : null;
 }
 

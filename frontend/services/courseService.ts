@@ -3,8 +3,6 @@ import { api } from "@/lib/api";
 export interface PublicDemoVideo {
   title: string;
   description: string | null;
-  /** Missing from older API versions. */
-  platform?: { slug: string; name: string };
   /** True when the requested language has no demo yet and this is the English version. */
   languageFallback: boolean;
   languageCode: string;
@@ -14,25 +12,21 @@ export interface PublicDemoVideo {
   thumbnailUrl: string | null;
 }
 
-/** A platform card in the homepage demo section, with what's available in the visitor's language. */
+/** A display-only platform label in the homepage demo section (it doesn't choose the video). */
 export interface DemoPlatform {
   slug: string;
   name: string;
   description: string | null;
-  status: "available" | "fallback" | "none";
 }
 
 export const courseService = {
   list: () => api.get<{ courses: unknown[]; ownedCourseIds: string[] }>("/courses"),
   content: (courseId: string) => api.get<Record<string, unknown>>(`/courses/${courseId}/content`),
   languages: () => api.get<{ languages: { id: string; code: string; name: string; nativeName: string }[] }>("/languages"),
-  demoPlatforms: (lang: string) =>
-    api.get<{ platforms: DemoPlatform[] }>(`/demo-platforms?lang=${encodeURIComponent(lang)}`, { token: null }),
-  demoVideo: (lang: string, platform: string) =>
-    api.get<{ video: PublicDemoVideo | null }>(
-      `/demo-videos?lang=${encodeURIComponent(lang)}&platform=${encodeURIComponent(platform)}`,
-      { token: null }
-    ),
+  demoPlatforms: () => api.get<{ platforms: DemoPlatform[] }>("/demo-platforms", { token: null }),
+  /** The common demo in `lang`, or the English one (flagged) when that language has none. */
+  demoVideo: (lang: string) =>
+    api.get<{ video: PublicDemoVideo | null }>(`/demo-videos?lang=${encodeURIComponent(lang)}`, { token: null }),
   reviews: () => api.get<{ reviews: unknown[] }>("/reviews"),
   publicSettings: () => api.get<{ settings: Record<string, unknown> }>("/settings/public"),
   certificates: () => api.get<{ certificates: unknown[] }>("/certificates"),

@@ -187,7 +187,7 @@ function CategoryCard({
   );
 }
 
-/** Whether the category is a platform card in the homepage demo section, and the card's description. */
+/** Whether the category is a display-only platform label in the homepage demo section, and its description. */
 function HomepageSettings({ category: c, reload, push }: { category: AdminCategory; reload: () => Promise<void>; push: Push }) {
   const [description, setDescription] = useState(c.description ?? "");
   const [busy, setBusy] = useState(false);
@@ -210,13 +210,13 @@ function HomepageSettings({ category: c, reload, push }: { category: AdminCatego
     <div className="border-t border-border-soft px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-semibold uppercase tracking-wider text-parchment-muted">
-          Homepage demo {c.demoCount > 0 && <span className="normal-case tracking-normal">· {c.demoCount} demo video(s)</span>}
+          Homepage platform label
         </p>
         <button
           type="button"
           disabled={busy}
           onClick={() =>
-            save({ showOnHomepage: !c.showOnHomepage }, c.showOnHomepage ? `${c.name} removed from the homepage.` : `${c.name} is now a homepage platform.`)
+            save({ showOnHomepage: !c.showOnHomepage }, c.showOnHomepage ? `${c.name} removed from the homepage.` : `${c.name} is now listed on the homepage.`)
           }
           aria-pressed={c.showOnHomepage}
           className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition ${

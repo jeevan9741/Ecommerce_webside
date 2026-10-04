@@ -115,11 +115,7 @@ export default function AdminVideosPage({ searchParams }: { searchParams: Promis
         )}
         {tab === "categories" && <CategoryManager categories={categories} packages={packages} reload={reloadCategories} push={push} />}
         {tab === "demo" && (
-          <DemoVideosPanel
-            languages={languages}
-            platforms={(categories ?? []).filter((c) => c.showOnHomepage).map((c) => ({ id: c.id, name: c.name }))}
-            push={push}
-          />
+          <DemoVideosPanel languages={languages} push={push} />
         )}
       </div>
       <ToastStack toasts={toasts} onDismiss={dismiss} />
