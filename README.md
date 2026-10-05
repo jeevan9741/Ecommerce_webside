@@ -27,30 +27,59 @@ Health check: `curl http://localhost:5000/api/health`
 
 ## Environment
 
-**`backend/.env`** — all secrets live here only.
+Full annotated lists: `backend/.env.example` and `frontend/.env.example`. Local development uses
+`backend/.env` (all secrets) and `frontend/.env` (public values only).
 
-```
-PORT=5000
-CORS_ORIGINS=http://localhost:3000          # comma-separated list of allowed frontend origins
-JWT_SECRET=<long random string>
-JWT_EXPIRES_IN=7d
-DATABASE_URL=<postgres connection string>
-APP_ENCRYPTION_KEY=<64 hex chars — encrypts payout details>
-RAZORPAY_KEY_ID=
-RAZORPAY_KEY_SECRET=
-RAZORPAY_WEBHOOK_SECRET=                    # from Razorpay Dashboard → Settings → Webhooks
-EMAIL_PROVIDER=resend
-RESEND_API_KEY=
-EMAIL_FROM="E-Commerce Training Academy <no-reply@your-verified-domain>"
-BLOB_READ_WRITE_TOKEN=
-```
+## Production deployment
 
-**`frontend/.env`** — public configuration only (never put secrets here).
+| Piece    | Host   | URL                                                                     |
+| -------- | ------ | ----------------------------------------------------------------------- |
+| Frontend | Vercel | https://www.ecommercetrainingacademyeta.com (apex redirects to `www`)   |
+| Backend  | Render | https://ecommerce-webside.onrender.com — `/api/health` shows the commit |
 
-```
-NEXT_PUBLIC_API_URL=http://localhost:5000
-NEXT_PUBLIC_SITE_URL=http://localhost:3000
-```
+### Vercel (frontend) — Settings → Environment Variables, scope **Production**
+
+| Variable                    | Required | Value                                         |
+| --------------------------- | -------- | --------------------------------------------- |
+| `NEXT_PUBLIC_API_URL`       | yes      | `https://ecommerce-webside.onrender.com`      |
+| `NEXT_PUBLIC_SITE_URL`      | yes      | `https://www.ecommercetrainingacademyeta.com` |
+| `NEXT_PUBLIC_VERIFY_ORIGIN` | no       | origin printed in partner-card QR codes       |
+
+`NEXT_PUBLIC_*` values are baked in at build time: after changing one, redeploy **without** the build
+cache. The build fails if `NEXT_PUBLIC_API_URL` is missing — there is no hardcoded backend fallback.
+
+### Render (backend) — Environment tab
+
+| Variable                        | Required | Notes                                                                                   |
+| ------------------------------- | -------- | --------------------------------------------------------------------------------------- |
+| `NODE_ENV`                      | yes      | `production`                                                                            |
+| `DATABASE_URL`                  | yes      | Neon production connection string                                                       |
+| `JWT_SECRET`                    | yes      | `openssl rand -hex 32`                                                                  |
+| `EMAIL_VERIFICATION_SECRET`     | yes      | `openssl rand -hex 32`                                                                  |
+| `APP_ENCRYPTION_KEY`            | yes      | exactly 64 hex chars — `openssl rand -hex 32`                                           |
+| `CORS_ORIGINS`                  | yes      | `https://ecommercetrainingacademyeta.com,https://www.ecommercetrainingacademyeta.com`   |
+| `EMAIL_PROVIDER`                | yes      | `resend`                                                                                |
+| `RESEND_API_KEY`                | yes      | `re_...` (Resend → API Keys)                                                            |
+| `EMAIL_FROM`                    | yes      | `E-Commerce Training Academy <no-reply@ecommercetrainingacademyeta.com>` — verified domain |
+| `RAZORPAY_KEY_ID`               | yes      | `rzp_live_...` — the server refuses to start with a TEST key in production              |
+| `RAZORPAY_KEY_SECRET`           | yes      | live key secret                                                                         |
+| `RAZORPAY_WEBHOOK_SECRET`       | yes      | from the webhook below                                                                  |
+| `BLOB_READ_WRITE_TOKEN`         | yes      | Vercel Blob (private store) for course content and certificates                         |
+| `BLOB_PUBLIC_READ_WRITE_TOKEN`  | no       | public Blob store for demo videos                                                       |
+| `JWT_EXPIRES_IN`                | no       | default `7d`                                                                            |
+| `PRODUCTION_DATABASE_ENDPOINTS` | no       | Neon endpoint id(s) of the prod DB, if it moves                                         |
+| `RAZORPAYX_ENABLED`, `RAZORPAYX_ACCOUNT_NUMBER` | no | automated payouts, leave off until KYC is done                            |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | no | only with `EMAIL_PROVIDER=smtp`                                     |
+
+At boot the backend logs `CORS origins:`, `[EMAIL]`, `[PAYMENT]` and a `[CONFIG]` line for every
+missing or suspicious production setting — check the Render logs after each deploy.
+
+### External services
+
+- **Resend:** verify `ecommercetrainingacademyeta.com` under Domains (SPF/DKIM DNS records) before using it in `EMAIL_FROM`.
+- **Razorpay:** live mode; webhook URL `https://ecommerce-webside.onrender.com/api/webhooks/razorpay`, events
+  `payment.captured`, `payment.failed`, `refund.processed`; copy its secret into `RAZORPAY_WEBHOOK_SECRET`.
+- **Database:** schema changes are not applied by the deploy — run `npm run db:migrate` against production.
 
 ## Database
 

@@ -57,5 +57,7 @@ export function verifyCheckoutSignature(
     .createHmac("sha256", secret)
     .update(`${orderId}|${paymentId}`)
     .digest("hex");
+  // timingSafeEqual throws on unequal lengths — a malformed signature is just a mismatch.
+  if (expected.length !== signature.length) return false;
   return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
 }

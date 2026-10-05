@@ -10,7 +10,7 @@ const isProduction = process.env.NODE_ENV === "production";
 
 /** Used only when CORS_ORIGINS is unset — production must never fall back to localhost. */
 const DEFAULT_CORS_ORIGIN = isProduction
-  ? "https://ecommerce-training-academy-jeevan-f45f.vercel.app"
+  ? "https://ecommercetrainingacademyeta.com,https://www.ecommercetrainingacademyeta.com"
   : "http://localhost:3000";
 
 export const env = {
@@ -32,7 +32,8 @@ export const env = {
 
   corsOrigins: (process.env.CORS_ORIGINS || DEFAULT_CORS_ORIGIN)
     .split(",")
-    .map((o) => o.trim())
+    // Browsers send the Origin without a trailing slash, so "https://site.com/" would never match.
+    .map((o) => o.trim().replace(/\/+$/, ""))
     .filter(Boolean),
 
   razorpay: {
@@ -77,11 +78,20 @@ export function productionConfigProblems(): string[] {
   if (provider === "resend") {
     need("RESEND_API_KEY");
     need("EMAIL_FROM");
+    const apiKey = process.env.RESEND_API_KEY ?? "";
+    if (apiKey && !apiKey.startsWith("re_")) problems.push("RESEND_API_KEY does not look like a Resend key (expected re_...)");
+    // Resend's shared onboarding domain only delivers to the account owner's own address.
+    if (/@resend\.dev>?\s*$/i.test(process.env.EMAIL_FROM ?? "")) {
+      problems.push("EMAIL_FROM uses resend.dev — OTP emails will only reach the Resend account owner; use an address on your verified domain");
+    }
   } else if (provider !== "smtp") {
     problems.push(`EMAIL_PROVIDER is "${provider}" — set it to "resend" or verification emails will fail`);
   }
   if (env.corsOrigins.some((o) => o.includes("localhost"))) {
     problems.push("CORS_ORIGINS includes a localhost origin");
+  }
+  for (const origin of env.corsOrigins) {
+    if (!/^https:\/\/[^/]+$/.test(origin)) problems.push(`CORS_ORIGINS entry "${origin}" is not a bare https origin (https://host, no path)`);
   }
   return problems;
 }
