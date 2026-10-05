@@ -2,7 +2,8 @@
 // caches a small set of static shell assets for faster repeat loads. It deliberately
 // does NOT cache API routes or HTML pages — this app is dynamic (auth, live pricing,
 // payments) and stale cached data would be actively harmful there.
-const CACHE_NAME = "eca-static-v1";
+// Bump the version whenever a cached asset changes (v2: new logo icons) — activate drops old caches.
+const CACHE_NAME = "eca-static-v2";
 const STATIC_ASSETS = ["/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {

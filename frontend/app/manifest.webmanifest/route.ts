@@ -8,7 +8,7 @@ export const dynamic = "force-static";
 
 const manifest: MetadataRoute.Manifest = {
   name: "E-Commerce Training Academy",
-  short_name: "ECA",
+  short_name: "ETA",
   description:
     "Learn to build and scale a profitable e-commerce business — e-books, recorded courses, live Zoom classes, and in-person academy training.",
   start_url: "/",

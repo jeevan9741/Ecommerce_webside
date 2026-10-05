@@ -127,10 +127,15 @@ export async function sendEmail({ to, subject, html }: SendEmailInput): Promise<
   console.log(`\n===== [DEV EMAIL] to=${to} subject="${subject}" =====\n${html}\n=====\n`);
 }
 
+/** Absolute URL — email clients can't resolve relative paths. PNG, since some clients don't render WebP. */
+const EMAIL_LOGO_URL =
+  process.env.EMAIL_LOGO_URL ?? "https://www.ecommercetrainingacademyeta.com/brand/eta-logo-email.png";
+
 export function otpEmailTemplate(code: string): string {
   return `
     <div style="font-family: Georgia, serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 12px;">
-      <h1 style="color: #2563eb; font-size: 20px; margin-bottom: 8px;">E-Commerce Training Academy</h1>
+      <img src="${EMAIL_LOGO_URL}" alt="E-Commerce Training Academy" width="80" height="80" style="display: block; width: 80px; height: 80px; margin: 0 auto 12px; border: 0;" />
+      <h1 style="color: #2563eb; font-size: 20px; margin-bottom: 8px; text-align: center;">E-Commerce Training Academy</h1>
       <p style="font-size: 15px; line-height: 1.6;">Hello,</p>
       <p style="font-size: 15px; line-height: 1.6;">Your verification code is:</p>
       <p style="font-size: 32px; letter-spacing: 8px; font-weight: bold; color: #2563eb; margin: 16px 0;">${code}</p>

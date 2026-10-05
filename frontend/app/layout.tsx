@@ -34,27 +34,28 @@ export const metadata: Metadata = {
     template: "%s | E-Commerce Training Academy",
   },
   description: SITE_DESCRIPTION,
+  // app/favicon.ico is picked up automatically; these add the PNG and iOS home-screen sizes.
   icons: {
-    icon: "/icons/icon-192.png",
+    icon: [{ url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
     apple: "/icons/apple-touch-icon.png",
   },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "ECA",
+    title: "ETA",
   },
   openGraph: {
     type: "website",
     title: "E-Commerce Training Academy",
     description: SITE_DESCRIPTION,
     siteName: "E-Commerce Training Academy",
-    images: ["/icons/icon-512.png"],
+    images: [{ url: "/brand/og-image.png", width: 1200, height: 630, alt: "E-Commerce Training Academy" }],
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: "E-Commerce Training Academy",
     description: SITE_DESCRIPTION,
-    images: ["/icons/icon-512.png"],
+    images: ["/brand/og-image.png"],
   },
 };
 
