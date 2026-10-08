@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import type { PartnerCard, PartnerCardRequest, Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
 import { getRazorpayClient } from "./razorpay.service.js";
+import { paymentMismatch, paymentSafetyProblem, type RazorpayPaymentFacts } from "./payment-safety.js";
+import { paymentFacts } from "./order.service.js";
 
 // ---------- policy settings ----------
 
@@ -118,20 +120,28 @@ export async function issueCard(
  * Records a captured reissue payment. Idempotent and conditional, so the webhook and the
  * checkout confirmation can race safely; the amount must match the fee that was quoted.
  */
-export async function markRequestPaid(params: { razorpayOrderId: string; razorpayPaymentId: string; amountInPaise: number }) {
+/** Same verification as course orders: safe configuration, captured, this order, exact amount, INR. */
+export async function markRequestPaid(params: { razorpayOrderId: string; payment: RazorpayPaymentFacts }) {
+  const { payment } = params;
+  const unsafe = paymentSafetyProblem();
+  if (unsafe) {
+    console.error("[PARTNER_CARD] markRequestPaid REFUSED — unsafe payment configuration:", unsafe);
+    return { ok: false as const, reason: "unsafe_payment_configuration" };
+  }
   const request = await prisma.partnerCardRequest.findUnique({ where: { razorpayOrderId: params.razorpayOrderId } });
   if (!request) return { ok: false as const, reason: "request_not_found" };
   if (request.paymentStatus === "PAID") return { ok: true as const, alreadyProcessed: true, request };
-  if (params.amountInPaise !== request.feeInPaise) {
-    console.error("[PARTNER_CARD] Payment amount mismatch", { requestId: request.id, paid: params.amountInPaise, fee: request.feeInPaise });
-    return { ok: false as const, reason: "amount_mismatch" };
+  const mismatch = paymentMismatch(payment, { razorpayOrderId: params.razorpayOrderId, amountInPaise: request.feeInPaise });
+  if (mismatch) {
+    console.error("[PARTNER_CARD] Payment doesn't match the request", { requestId: request.id, razorpayPaymentId: payment.id, mismatch });
+    return { ok: false as const, reason: "payment_mismatch" };
   }
 
   const { count } = await prisma.partnerCardRequest.updateMany({
     where: { id: request.id, paymentStatus: "PENDING" },
     data: {
       paymentStatus: "PAID",
-      razorpayPaymentId: params.razorpayPaymentId,
+      razorpayPaymentId: payment.id,
       paidAt: new Date(),
       // A paid request moves to the admin's review queue — unless it was cancelled meanwhile.
       ...(request.status === "AWAITING_PAYMENT" ? { status: "PENDING" as const } : {}),
@@ -144,7 +154,7 @@ export async function markRequestPaid(params: { razorpayOrderId: string; razorpa
         actorId: request.userId,
         action: "PARTNER_CARD_REISSUE_PAID",
         target: request.id,
-        metadata: { razorpayPaymentId: params.razorpayPaymentId, amountInPaise: params.amountInPaise },
+        metadata: { razorpayPaymentId: payment.id, amountInPaise: payment.amountInPaise },
       },
     });
   }
@@ -173,10 +183,6 @@ export async function reconcileRequestPayment(request: Pick<PartnerCardRequest, 
   }
   if (!captured) return { paid: false as const, reason: "Payment not received yet." };
 
-  const result = await markRequestPaid({
-    razorpayOrderId: request.razorpayOrderId,
-    razorpayPaymentId: captured.id,
-    amountInPaise: Number(captured.amount),
-  });
+  const result = await markRequestPaid({ razorpayOrderId: request.razorpayOrderId, payment: paymentFacts(captured) });
   return result.ok ? { paid: true as const } : { paid: false as const, reason: "Payment could not be matched to this request." };
 }

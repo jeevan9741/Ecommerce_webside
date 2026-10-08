@@ -238,11 +238,7 @@ export async function razorpayWebhook(req: Request, res: Response) {
           select: { id: true },
         });
         if (cardRequest) {
-          const cardResult = await markRequestPaid({
-            razorpayOrderId: payment.order_id,
-            razorpayPaymentId: payment.id,
-            amountInPaise: Number(payment.amount),
-          });
+          const cardResult = await markRequestPaid({ razorpayOrderId: payment.order_id, payment: paymentFacts(payment) });
           log("partner card reissue payment", { requestId: cardRequest.id, ok: cardResult.ok });
           logAudit("WEBHOOK_PARTNER_CARD_PAYMENT_CAPTURED", { reqId, razorpayOrderId: payment.order_id, ok: cardResult.ok });
           break;

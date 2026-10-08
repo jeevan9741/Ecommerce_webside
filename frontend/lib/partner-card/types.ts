@@ -1,13 +1,10 @@
 import { SITE_URL } from "@/lib/site";
 
 /**
- * Origin printed into every card's QR code. Printed cards outlive deployments, so production pins
- * the stable public domain rather than whichever URL this build happens to run on.
+ * Origin printed into every card's QR code. Printed cards outlive deployments, so this is the
+ * canonical public domain (SITE_URL), never a per-project vercel.app URL that could be deleted.
  */
-export const VERIFY_ORIGIN = (
-  process.env.NEXT_PUBLIC_VERIFY_ORIGIN ??
-  (process.env.NODE_ENV === "production" ? "https://ecommerce-training-academy.vercel.app" : SITE_URL)
-).replace(/\/$/, "");
+export const VERIFY_ORIGIN = (process.env.NEXT_PUBLIC_VERIFY_ORIGIN ?? SITE_URL).replace(/\/$/, "");
 import type { PartnerCardArt } from "./design";
 
 export type PartnerCardStatus = "PENDING" | "ACTIVE" | "REJECTED" | "INACTIVE";

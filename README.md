@@ -32,10 +32,17 @@ Full annotated lists: `backend/.env.example` and `frontend/.env.example`. Local 
 
 ## Production deployment
 
-| Piece    | Host   | URL                                                                     |
-| -------- | ------ | ----------------------------------------------------------------------- |
-| Frontend | Vercel | https://www.ecommercetrainingacademyeta.com (apex redirects to `www`)   |
-| Backend  | Render | https://ecommerce-webside.onrender.com — `/api/health` shows the commit |
+These are the **only** canonical production services:
+
+| Piece    | Host                                                        | URL                                                                     |
+| -------- | ----------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Frontend | Vercel team `ec-ommerce-training-academy`, project `ecommerce-webside` (Git-connected, deploys `master`) | https://www.ecommercetrainingacademyeta.com (apex redirects to `www`)   |
+| Backend  | Render service `ecommerce-webside` (auto-deploys `master`)  | https://ecommerce-webside.onrender.com — `/api/health` shows the commit |
+
+Duplicates to retire (not used by the live site): Render service `ecommerce-training-academy-backend`
+and Vercel project `jeevan-f45f/ecommerce-training-academy`. Never point `NEXT_PUBLIC_API_URL`, the
+Razorpay webhook or any docs at them. Per-deployment `*.vercel.app` URLs are frozen snapshots with the
+env values of their build — always test on the custom domain.
 
 ### Vercel (frontend) — Settings → Environment Variables, scope **Production**
 
