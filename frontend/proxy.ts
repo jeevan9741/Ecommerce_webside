@@ -18,6 +18,8 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/dashboard") ||
     pathname.startsWith("/courses") ||
     pathname.startsWith("/jobs") ||
+    pathname.startsWith("/payment") ||
+    pathname.startsWith("/invoice") ||
     isPortalAlias(pathname)
   ) {
     if (!claims) {
@@ -56,6 +58,8 @@ export const config = {
     "/dashboard/:path*",
     "/courses/:path*",
     "/jobs/:path*",
+    "/payment/:path*",
+    "/invoice/:path*",
     "/my-courses/:path*",
     "/portal/:path*",
   ],

@@ -1,4 +1,3 @@
-import Script from "next/script";
 import { serverApi } from "@/lib/session";
 import { CourseCard, type CoursePublic } from "@/components/course-card";
 import { BuyCourseButton } from "@/components/buy-course-button";
@@ -17,7 +16,6 @@ export default async function CoursesPage() {
 
   return (
     <div className="container-academy pb-16 pt-10 sm:pb-24 sm:pt-12 xl:max-w-[1480px]">
-      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
       <ScrollToPackages />
       <h1 className="sr-only">Courses</h1>
 

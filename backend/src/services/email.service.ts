@@ -131,6 +131,47 @@ export async function sendEmail({ to, subject, html }: SendEmailInput): Promise<
 const EMAIL_LOGO_URL =
   process.env.EMAIL_LOGO_URL ?? "https://www.ecommercetrainingacademyeta.com/brand/eta-logo-email.png";
 
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+}
+
+export function purchaseConfirmationTemplate(p: {
+  name: string;
+  courseTitle: string;
+  amount: string;
+  invoiceNumber: string;
+  paymentId: string;
+  paidAt: string;
+  courseUrl: string;
+  invoiceUrl: string;
+}): string {
+  const row = (label: string, value: string) =>
+    `<tr><td style="padding: 6px 0; color: #475569; font-size: 14px;">${label}</td><td style="padding: 6px 0; text-align: right; font-size: 14px; color: #0f172a;">${escapeHtml(value)}</td></tr>`;
+  const button = (href: string, label: string, solid: boolean) =>
+    `<a href="${href}" style="display: inline-block; margin: 4px; padding: 12px 22px; border-radius: 999px; font-size: 14px; font-weight: bold; text-decoration: none; ${
+      solid ? "background: #2563eb; color: #ffffff;" : "border: 1px solid #2563eb; color: #2563eb;"
+    }">${label}</a>`;
+  return `
+    <div style="font-family: Arial, Helvetica, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; background: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 12px;">
+      <img src="${EMAIL_LOGO_URL}" alt="E-Commerce Training Academy" width="80" height="80" style="display: block; width: 80px; height: 80px; margin: 0 auto 12px; border: 0;" />
+      <h1 style="color: #2563eb; font-size: 20px; margin: 0 0 4px; text-align: center;">Payment successful</h1>
+      <p style="font-size: 14px; color: #475569; margin: 0 0 20px; text-align: center;">E-Commerce Training Academy</p>
+      <p style="font-size: 15px; line-height: 1.6;">Hello ${escapeHtml(p.name)},</p>
+      <p style="font-size: 15px; line-height: 1.6;">Thank you for your purchase. Your course is unlocked and ready in your student portal.</p>
+      <table style="width: 100%; border-collapse: collapse; margin: 16px 0; border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0;">
+        ${row("Course", p.courseTitle)}
+        ${row("Amount paid", p.amount)}
+        ${row("Invoice no.", p.invoiceNumber)}
+        ${row("Payment ID", p.paymentId)}
+        ${row("Date", p.paidAt)}
+      </table>
+      <p style="text-align: center; margin: 24px 0 8px;">${button(p.courseUrl, "Start learning", true)}${button(p.invoiceUrl, "View invoice", false)}</p>
+      <p style="font-size: 13px; color: #475569; line-height: 1.6; margin-top: 20px;">Questions about this payment? Just reply to this email.</p>
+      <p style="font-size: 14px; line-height: 1.6; margin-top: 16px;">Regards,<br />E-Commerce Training Academy</p>
+    </div>
+  `;
+}
+
 export function otpEmailTemplate(code: string): string {
   return `
     <div style="font-family: Georgia, serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 12px;">

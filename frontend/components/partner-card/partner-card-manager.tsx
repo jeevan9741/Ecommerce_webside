@@ -2,7 +2,6 @@
 
 import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import Link from "next/link";
-import Script from "next/script";
 import {
   BadgeCheck,
   Camera,
@@ -20,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { ApiError } from "@/lib/api";
+import { loadRazorpay } from "@/lib/checkout";
 import { formatDate, formatInr } from "@/lib/format";
 import { renderQrSvg, type PartnerCardArt } from "@/lib/partner-card/design";
 import {
@@ -67,15 +67,12 @@ type Push = (type: "success" | "error", message: string) => void;
 export function PartnerCardManager({ initial, defaults }: { initial: PartnerCardView; defaults: PartnerCardDefaults }) {
   const [view, setView] = useState(initial);
   const { toasts, push, dismiss } = useToasts();
-  const { card, policy } = view;
+  const { card } = view;
   // The free request form: no card yet, or the first request was rejected before any issue.
   const showFreeForm = !card || (!card.issued && card.status === "REJECTED");
 
   return (
     <section className="space-y-6">
-      {/* Checkout is only needed for paid reissues; load it lazily. */}
-      {policy.issued && <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />}
-
       <PolicyBanner view={view} />
 
       {showFreeForm ? (
@@ -381,7 +378,9 @@ function Field({ label, error, children }: { label: string; error?: string; chil
 
 /** Opens Razorpay Checkout for the request's fee; resolves once the server has confirmed the payment. */
 async function payForRequest(request: PartnerCardRequest, defaults: PartnerCardDefaults): Promise<PartnerCardView & { paid: boolean }> {
-  if (typeof window.Razorpay !== "function") throw new Error("Payment service is still loading — please try again in a moment.");
+  await loadRazorpay().catch(() => {
+    throw new Error("Couldn't reach the payment service — please check your connection and try again.");
+  });
   const checkout = await partnerCardService.pay(request.id);
 
   await new Promise<void>((resolve, reject) => {

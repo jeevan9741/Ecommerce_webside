@@ -74,6 +74,7 @@ cache. The build fails if `NEXT_PUBLIC_API_URL` is missing — there is no hardc
 | `BLOB_READ_WRITE_TOKEN`         | yes      | Vercel Blob (private store) for course content and certificates                         |
 | `BLOB_PUBLIC_READ_WRITE_TOKEN`  | no       | public Blob store for demo videos                                                       |
 | `JWT_EXPIRES_IN`                | no       | default `7d`                                                                            |
+| `SITE_URL`                      | no       | links in receipt emails; defaults to `https://www.ecommercetrainingacademyeta.com`      |
 | `PRODUCTION_DATABASE_ENDPOINTS` | no       | Neon endpoint id(s) of the prod DB, if it moves                                         |
 | `RAZORPAYX_ENABLED`, `RAZORPAYX_ACCOUNT_NUMBER` | no | automated payouts, leave off until KYC is done                            |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | no | only with `EMAIL_PROVIDER=smtp`                                     |
@@ -85,7 +86,9 @@ missing or suspicious production setting — check the Render logs after each de
 
 - **Resend:** verify `ecommercetrainingacademyeta.com` under Domains (SPF/DKIM DNS records) before using it in `EMAIL_FROM`.
 - **Razorpay:** live mode; webhook URL `https://ecommerce-webside.onrender.com/api/webhooks/razorpay`, events
-  `payment.captured`, `payment.failed`, `refund.processed`; copy its secret into `RAZORPAY_WEBHOOK_SECRET`.
+  `payment.captured`, `payment.authorized`, `payment.failed`, `refund.processed`; copy its secret into
+  `RAZORPAY_WEBHOOK_SECRET`. Enable the methods you want offered (UPI, cards, netbanking, wallets, EMI,
+  Pay Later) under Payment Methods — the checkout lists only what the account has enabled.
 - **Database:** schema changes are not applied by the deploy — run `npm run db:migrate` against production.
 
 ## Database

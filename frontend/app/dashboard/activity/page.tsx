@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { serverApi } from "@/lib/session";
 import { formatInr, formatDateTime, COURSE_TYPE_LABEL } from "@/lib/format";
 
@@ -27,13 +28,14 @@ export default async function ActivityPage() {
       <p className="mt-1 text-sm text-parchment-muted">All your course purchases and their status.</p>
 
       <div className="mt-8 overflow-x-auto">
-        <table className="w-full min-w-[640px] border-separate border-spacing-y-2 text-sm">
+        <table className="w-full min-w-[720px] border-separate border-spacing-y-2 text-sm">
           <thead>
             <tr className="text-left text-xs uppercase tracking-wider text-parchment-muted">
               <th className="px-4 pb-2">Course</th>
               <th className="px-4 pb-2">Amount</th>
               <th className="px-4 pb-2">Status</th>
               <th className="px-4 pb-2">Date</th>
+              <th className="px-4 pb-2" />
             </tr>
           </thead>
           <tbody>
@@ -52,7 +54,18 @@ export default async function ActivityPage() {
                     {o.status}
                   </span>
                 </td>
-                <td className="rounded-r-2xl px-4 py-4 text-parchment-muted">{formatDateTime(o.createdAt)}</td>
+                <td className="px-4 py-4 text-parchment-muted">{formatDateTime(o.createdAt)}</td>
+                <td className="rounded-r-2xl px-4 py-4 text-right">
+                  {o.status === "PAID" || o.status === "REFUNDED" ? (
+                    <Link href={`/invoice/${o.id}`} className="text-xs font-semibold text-gold-500 hover:underline">
+                      Invoice
+                    </Link>
+                  ) : o.status === "CREATED" || o.status === "FAILED" ? (
+                    <Link href={`/payment/${o.id}`} className="text-xs font-semibold text-gold-500 hover:underline">
+                      {o.status === "FAILED" ? "Retry payment" : "Check status"}
+                    </Link>
+                  ) : null}
+                </td>
               </tr>
             ))}
           </tbody>

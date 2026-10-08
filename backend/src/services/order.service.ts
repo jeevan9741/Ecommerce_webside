@@ -2,6 +2,42 @@ import { prisma } from "../config/prisma.js";
 import { getRazorpayClient } from "./razorpay.service.js";
 import type { Order } from "@prisma/client";
 import { paymentMismatch, paymentSafetyProblem, type RazorpayPaymentFacts } from "./payment-safety.js";
+import { env } from "../config/env.js";
+import { sendEmail, purchaseConfirmationTemplate } from "./email.service.js";
+
+/** Stable, human-readable invoice number for a paid order, e.g. ETA-202610-3F9K2Q7A. */
+export function invoiceNumber(order: Pick<Order, "id" | "paidAt" | "createdAt">) {
+  const d = order.paidAt ?? order.createdAt;
+  const month = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  return `ETA-${month}-${order.id.slice(-8).toUpperCase()}`;
+}
+
+const inr = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: paise % 100 ? 2 : 0 })}`;
+
+/** Receipt email after a course unlock. Never throws — a mail failure must not affect the payment. */
+async function sendPurchaseConfirmation(orderId: string) {
+  try {
+    const order = await prisma.order.findUnique({ where: { id: orderId }, include: { user: true, course: true } });
+    if (!order || order.status !== "PAID") return;
+    await sendEmail({
+      to: order.user.email,
+      subject: `Payment successful — ${order.course.title}`,
+      html: purchaseConfirmationTemplate({
+        name: order.user.name,
+        courseTitle: order.course.title,
+        amount: inr(order.amountInPaise),
+        invoiceNumber: invoiceNumber(order),
+        paymentId: order.razorpayPaymentId ?? "—",
+        paidAt: (order.paidAt ?? new Date()).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }),
+        courseUrl: `${env.siteUrl}/dashboard/courses`,
+        invoiceUrl: `${env.siteUrl}/invoice/${order.id}`,
+      }),
+    });
+    console.log("[PAYMENT] Purchase confirmation email sent", { orderId });
+  } catch (err) {
+    console.error("[PAYMENT] Purchase confirmation email failed", { orderId, message: err instanceof Error ? err.message : String(err) });
+  }
+}
 
 /** Normalises a Razorpay payment entity (webhook payload or API response) for verification. */
 export function paymentFacts(p: { id: string; order_id: string; amount: number | string; currency: string; status: string }): RazorpayPaymentFacts {
@@ -34,7 +70,7 @@ export async function markOrderPaid(params: {
     return { ok: false as const, reason: "unsafe_payment_configuration" };
   }
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const order = await tx.order.findUnique({
       where: { razorpayOrderId },
       include: { course: true },
@@ -125,8 +161,12 @@ export async function markOrderPaid(params: {
     });
 
     console.log("[PAYMENT] Access Granted", { orderId: order.id, userId: order.userId, courseId: order.courseId });
-    return { ok: true as const, alreadyProcessed: false };
+    return { ok: true as const, alreadyProcessed: false, orderId: order.id };
   });
+
+  // Exactly once: only the call that actually flipped the order to PAID sends the receipt.
+  if (result.ok && !result.alreadyProcessed && "orderId" in result && result.orderId) void sendPurchaseConfirmation(result.orderId);
+  return result;
 }
 
 /**

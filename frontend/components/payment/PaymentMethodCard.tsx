@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Check, CreditCard, Landmark, Loader2, Smartphone, Zap } from "lucide-react";
+import { CalendarClock, Check, Clock3, CreditCard, Landmark, Loader2, Smartphone, Wallet, Zap } from "lucide-react";
 import type { PaymentMethod, PaymentMethodId } from "./payment-methods";
 
 /**
@@ -50,6 +50,24 @@ function MethodIcon({ id }: { id: PaymentMethodId }) {
       return (
         <span className={`${tile} bg-gradient-to-br from-amber-500 to-orange-600`}>
           <Landmark className="h-6 w-6" aria-hidden />
+        </span>
+      );
+    case "wallet":
+      return (
+        <span className={`${tile} bg-gradient-to-br from-sky-500 to-indigo-600`}>
+          <Wallet className="h-6 w-6" aria-hidden />
+        </span>
+      );
+    case "emi":
+      return (
+        <span className={`${tile} bg-gradient-to-br from-fuchsia-500 to-purple-700`}>
+          <CalendarClock className="h-6 w-6" aria-hidden />
+        </span>
+      );
+    case "paylater":
+      return (
+        <span className={`${tile} bg-gradient-to-br from-rose-500 to-pink-700`}>
+          <Clock3 className="h-6 w-6" aria-hidden />
         </span>
       );
   }

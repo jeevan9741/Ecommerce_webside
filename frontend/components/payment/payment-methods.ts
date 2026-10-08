@@ -9,21 +9,28 @@
  * browser — on Android mobile web that's Google Pay and PhonePe. So those two get an
  * intent instrument plus a QR / UPI-ID fallback (desktop has no intent at all), and
  * Paytm uses QR / UPI-ID, which works for Paytm users on every device.
+ *
+ * Wallets, EMI and Pay Later list whichever providers are enabled on the Razorpay account
+ * (Dashboard → Payment Methods); a method that isn't enabled there simply shows no options.
  */
 
-export type PaymentMethodId = "upi" | "gpay" | "phonepe" | "paytm" | "credit" | "debit" | "netbanking";
+export type PaymentMethodId = "upi" | "gpay" | "phonepe" | "paytm" | "credit" | "debit" | "netbanking" | "wallet" | "emi" | "paylater";
 
 type RazorpayInstrument =
   | { method: "upi"; flows?: ("collect" | "intent" | "qr")[]; apps?: string[] }
   | { method: "card"; types?: ("credit" | "debit")[] }
-  | { method: "netbanking" };
+  | { method: "netbanking" }
+  | { method: "wallet" }
+  | { method: "emi" }
+  | { method: "cardless_emi" }
+  | { method: "paylater" };
 
 export interface PaymentMethod {
   id: PaymentMethodId;
   label: string;
   hint: string;
   /** Value for Razorpay's `prefill.method`. */
-  prefillMethod: "upi" | "card" | "netbanking";
+  prefillMethod: "upi" | "card" | "netbanking" | "wallet" | "emi" | "paylater";
   instruments: RazorpayInstrument[];
 }
 
@@ -33,7 +40,7 @@ export const PAYMENT_METHODS: PaymentMethod[] = [
   {
     id: "upi",
     label: "UPI",
-    hint: "Any UPI app or UPI ID",
+    hint: "BHIM, any UPI app or UPI ID",
     prefillMethod: "upi",
     instruments: [{ method: "upi" }],
   },
@@ -78,6 +85,27 @@ export const PAYMENT_METHODS: PaymentMethod[] = [
     hint: "50+ banks supported",
     prefillMethod: "netbanking",
     instruments: [{ method: "netbanking" }],
+  },
+  {
+    id: "wallet",
+    label: "Wallets",
+    hint: "Paytm, Amazon Pay, Mobikwik & more",
+    prefillMethod: "wallet",
+    instruments: [{ method: "wallet" }],
+  },
+  {
+    id: "emi",
+    label: "EMI",
+    hint: "Card EMI & cardless EMI",
+    prefillMethod: "emi",
+    instruments: [{ method: "emi" }, { method: "cardless_emi" }],
+  },
+  {
+    id: "paylater",
+    label: "Pay Later",
+    hint: "Simpl, LazyPay & more",
+    prefillMethod: "paylater",
+    instruments: [{ method: "paylater" }],
   },
 ];
 

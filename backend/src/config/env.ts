@@ -30,6 +30,9 @@ export const env = {
   /** Encrypts payout details at rest (AES-256-GCM, 64 hex chars). */
   appEncryptionKey: process.env.APP_ENCRYPTION_KEY ?? "",
 
+  /** Public frontend URL, for links in emails (receipts, course access). */
+  siteUrl: (process.env.SITE_URL || (isProduction ? "https://www.ecommercetrainingacademyeta.com" : "http://localhost:3000")).replace(/\/+$/, ""),
+
   corsOrigins: (process.env.CORS_ORIGINS || DEFAULT_CORS_ORIGIN)
     .split(",")
     // Browsers send the Origin without a trailing slash, so "https://site.com/" would never match.

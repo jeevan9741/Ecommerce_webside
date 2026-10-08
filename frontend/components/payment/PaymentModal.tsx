@@ -9,6 +9,7 @@ import { PaymentMethodGrid } from "./PaymentMethodGrid";
 import { OrderSummary } from "./OrderSummary";
 import { SecureCheckoutButton } from "./SecureCheckoutButton";
 import { PAYMENT_METHODS, type PaymentMethodId } from "./payment-methods";
+import { BrandLogo } from "@/components/logo";
 
 const FOCUSABLE = 'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
@@ -107,13 +108,18 @@ export function PaymentModal({
             <div className="relative shrink-0 overflow-hidden bg-gradient-to-r from-gold-600 via-gold-500 to-gold-400 px-5 py-5 text-white sm:px-8">
               <div className="pointer-events-none absolute -right-10 -top-16 h-44 w-44 rounded-full bg-white/15 blur-2xl" aria-hidden />
               <div className="relative flex items-start justify-between gap-4">
-                <div>
-                  <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-100">
-                    <Lock className="h-3 w-3" aria-hidden /> Secure checkout
-                  </p>
-                  <h2 id="payment-modal-title" className="mt-1 font-display text-xl font-semibold sm:text-2xl">
-                    Complete your enrolment
-                  </h2>
+                <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+                  <span className="shrink-0 rounded-full bg-white/95 p-1 shadow-lg ring-2 ring-white/40">
+                    <BrandLogo className="h-11 w-11 sm:h-14 sm:w-14" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-100">
+                      <Lock className="h-3 w-3" aria-hidden /> Secure checkout · ETA
+                    </p>
+                    <h2 id="payment-modal-title" className="mt-1 font-display text-xl font-semibold sm:text-2xl">
+                      Complete your enrolment
+                    </h2>
+                  </div>
                 </div>
                 <button
                   type="button"

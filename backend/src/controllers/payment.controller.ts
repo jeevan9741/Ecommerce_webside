@@ -3,14 +3,16 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
 import { env } from "../config/env.js";
 import { createOrderSchema } from "../utils/validation.js";
-import { getRazorpayClient, verifyWebhookSignature, RazorpayConfigError } from "../services/razorpay.service.js";
-import { markOrderPaid, markOrderFailed, paymentFacts, reverseOrder, reconcileOrderWithRazorpay } from "../services/order.service.js";
+import { getRazorpayClient, verifyWebhookSignature, verifyCheckoutSignature, RazorpayConfigError } from "../services/razorpay.service.js";
+import { markOrderPaid, markOrderFailed, paymentFacts, reverseOrder, reconcileOrderWithRazorpay, invoiceNumber } from "../services/order.service.js";
 import { paymentSafetyProblem } from "../services/payment-safety.js";
 import { markRequestPaid, reconcileRequestPayment } from "../services/partner-card.service.js";
 import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError, param } from "../utils/http.js";
 
 const LOG_PREFIX = "[create-order]";
+/** An unpaid order is reused for this long, so retries and second tabs share one Razorpay order. */
+const ORDER_REUSE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 class PaymentServiceError extends Error {}
 class DatabaseError extends Error {}
@@ -92,6 +94,43 @@ export async function createOrder(req: Request, res: Response) {
       });
     }
 
+    // One open order per customer + course. A retry, a second tab or a double tap reuses it rather
+    // than creating another Razorpay order that could be paid separately (a double charge) — and
+    // Razorpay itself refuses a second payment on an order that's already paid.
+    const openOrder = await prisma.order.findFirst({
+      where: {
+        userId: user.id,
+        courseId,
+        status: { in: ["CREATED", "FAILED"] },
+        amountInPaise: course.priceInPaise,
+        selectedLanguage: selectedLanguage ?? null,
+        referrerUserId,
+        createdAt: { gt: new Date(Date.now() - ORDER_REUSE_WINDOW_MS) },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (openOrder) {
+      // It may already be paid with the webhook still in flight — settle that before reusing it.
+      const reconciled = await reconcileOrderWithRazorpay(openOrder);
+      if (reconciled.synced || "alreadyPaid" in reconciled) {
+        log("open order was already paid", { orderId: openOrder.id });
+        return res.status(409).json({ error: "You already have access to this course.", code: "ALREADY_PURCHASED", orderId: openOrder.id });
+      }
+      if (!("result" in reconciled)) {
+        log("reusing open order", { orderId: openOrder.id });
+        return res.json({
+          orderId: openOrder.id,
+          razorpayOrderId: openOrder.razorpayOrderId,
+          amountInPaise: openOrder.amountInPaise,
+          currency: "INR",
+          keyId: env.razorpay.keyId,
+          courseName: course.title,
+        });
+      }
+      // A captured payment that couldn't be applied (e.g. mismatch) — leave that order for support.
+      log("open order has an unapplied payment — creating a fresh order", { orderId: openOrder.id });
+    }
+
     log("creating Razorpay order", { amountInPaise: course.priceInPaise });
     const razorpay = getRazorpayClient();
     let rpOrder;
@@ -162,6 +201,35 @@ export async function createOrder(req: Request, res: Response) {
   }
 }
 
+/** One order with what the result and invoice pages show. Owner only. */
+export async function orderDetails(req: Request, res: Response) {
+  const user = currentUser(req);
+  const order = await prisma.order.findUnique({
+    where: { id: param(req, "id") },
+    include: {
+      course: { select: { id: true, title: true, type: true, priceInPaise: true } },
+      user: { select: { name: true, email: true, phone: true } },
+    },
+  });
+  if (!order || order.userId !== user.id) throw new HttpError(404, "Not found");
+  res.json({
+    order: {
+      id: order.id,
+      status: order.status,
+      amountInPaise: order.amountInPaise,
+      currency: "INR",
+      selectedLanguage: order.selectedLanguage,
+      createdAt: order.createdAt,
+      paidAt: order.paidAt,
+      razorpayOrderId: order.razorpayOrderId,
+      razorpayPaymentId: order.razorpayPaymentId,
+      invoiceNumber: order.status === "PAID" || order.status === "REFUNDED" ? invoiceNumber(order) : null,
+      course: order.course,
+      customer: order.user,
+    },
+  });
+}
+
 export async function orderStatus(req: Request, res: Response) {
   const user = currentUser(req);
   const order = await prisma.order.findUnique({ where: { id: param(req, "id") } });
@@ -177,6 +245,17 @@ export async function syncOrder(req: Request, res: Response) {
   const user = currentUser(req);
   const order = await prisma.order.findUnique({ where: { id: param(req, "id") } });
   if (!order || order.userId !== user.id) throw new HttpError(404, "Not found");
+
+  // When Checkout's success payload is forwarded, its signature must be genuine. It never unlocks
+  // anything by itself — access still requires Razorpay confirming a captured payment below.
+  const { razorpayPaymentId, razorpaySignature } = (req.body ?? {}) as Record<string, unknown>;
+  if (typeof razorpayPaymentId === "string" && typeof razorpaySignature === "string") {
+    if (!verifyCheckoutSignature(order.razorpayOrderId, razorpayPaymentId, razorpaySignature)) {
+      console.error("[PAYMENT] Checkout signature mismatch", { orderId: order.id, razorpayPaymentId });
+      logAudit("CHECKOUT_SIGNATURE_INVALID", { orderId: order.id, razorpayPaymentId });
+      return res.status(400).json({ error: "Payment verification failed.", code: "INVALID_SIGNATURE" });
+    }
+  }
   try {
     res.json(await reconcileOrderWithRazorpay(order));
   } catch (err) {

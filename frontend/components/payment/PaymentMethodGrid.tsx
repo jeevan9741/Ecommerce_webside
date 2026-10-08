@@ -22,7 +22,7 @@ export function PaymentMethodGrid({
   onPay: (id: PaymentMethodId) => void;
 }) {
   return (
-    <ul aria-labelledby="payment-method-heading" className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
+    <ul aria-labelledby="payment-method-heading" className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
       {PAYMENT_METHODS.map((method, i) => (
         <motion.li
           key={method.id}
