@@ -144,6 +144,31 @@ export function DemoLanguagePicker() {
   );
 }
 
+/**
+ * Brand-coloured monogram tiles — original marks in each platform's colours, deliberately not
+ * reproductions of their trademarked logos. Unknown platforms fall back to a store icon.
+ */
+const PLATFORM_TILE: Record<string, { mark: string; className: string }> = {
+  meesho: { mark: "M", className: "bg-gradient-to-br from-[#c1279f] to-[#7a1a6b]" },
+  amazon: { mark: "a", className: "bg-gradient-to-br from-[#232f3e] to-[#131a22] text-[#ff9900]" },
+  flipkart: { mark: "F", className: "bg-gradient-to-br from-[#2874f0] to-[#1a4fb5] text-[#ffe500]" },
+  shopify: { mark: "S", className: "bg-gradient-to-br from-[#95bf47] to-[#5e8e3e]" },
+};
+
+function PlatformTile({ slug }: { slug: string }) {
+  const tile = PLATFORM_TILE[slug];
+  return (
+    <span
+      aria-hidden="true"
+      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl font-extrabold text-white shadow-[0_8px_18px_-8px_rgba(15,23,42,0.55)] ring-1 ring-white/20 sm:h-12 sm:w-12 ${
+        tile?.className ?? "bg-gradient-to-br from-gold-400 to-gold-600"
+      }`}
+    >
+      {tile ? tile.mark : <Store className="h-5 w-5" />}
+    </span>
+  );
+}
+
 /** The platforms the training covers, as plain informational labels — they don't choose a video. */
 export function DemoPlatformLabels() {
   const { platforms } = useDemoState();
@@ -158,16 +183,14 @@ export function DemoPlatformLabels() {
   if (platforms.length === 0) return null;
 
   return (
-    <ul aria-label="Platforms covered in the training" className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+    <ul aria-label="Platforms covered in the training" className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
       {platforms.map((p) => (
-        <li key={p.slug} className="flex cursor-default select-none items-start gap-3 rounded-2xl border border-border-soft bg-ink-elevated p-4">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gold-500/10 text-gold-500" aria-hidden="true">
-            <Store className="h-5 w-5" />
-          </span>
-          <span className="min-w-0">
-            <span className="block font-bold text-parchment">{p.name}</span>
-            {p.description && <span className="mt-1 block text-xs leading-relaxed text-parchment-muted sm:text-[13px]">{p.description}</span>}
-          </span>
+        <li
+          key={p.slug}
+          className="flex h-full min-w-0 cursor-default select-none items-center gap-3 rounded-2xl border border-border-soft bg-gradient-to-br from-white to-gold-100/40 px-3.5 py-3 shadow-[0_10px_30px_-22px_rgba(37,99,235,0.6)] sm:gap-3.5 sm:px-4 sm:py-3.5"
+        >
+          <PlatformTile slug={p.slug} />
+          <span className="min-w-0 truncate text-[15px] font-bold tracking-tight text-parchment sm:text-base">{p.name}</span>
         </li>
       ))}
     </ul>
