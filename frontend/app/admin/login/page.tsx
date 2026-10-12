@@ -4,6 +4,7 @@ import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { LogoMark } from "@/components/logo";
+import { PasswordInput } from "@/components/password-input";
 import { useAuth } from "@/contexts/auth-context";
 
 export default function AdminLoginPage() {
@@ -53,8 +54,7 @@ export default function AdminLoginPage() {
           </div>
           <div>
             <label className="label-field">Password</label>
-            <input
-              type="password"
+            <PasswordInput
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required

@@ -4,6 +4,7 @@ import { useState, FormEvent, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, LogIn } from "lucide-react";
+import { PasswordInput } from "@/components/password-input";
 import { useAuth } from "@/contexts/auth-context";
 import { postLoginPath } from "@/lib/routes";
 
@@ -51,8 +52,7 @@ function LoginForm() {
         </div>
         <div>
           <label className="label-field">Password</label>
-          <input
-            type="password"
+          <PasswordInput
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required

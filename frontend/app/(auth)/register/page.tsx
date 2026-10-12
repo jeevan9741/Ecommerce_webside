@@ -7,6 +7,7 @@ import { Loader2, Mail, UserPlus, CheckCircle2 } from "lucide-react";
 import { ApiError } from "@/lib/api";
 import { authService } from "@/services/authService";
 import { courseService } from "@/services/courseService";
+import { PasswordInput } from "@/components/password-input";
 import { useAuth } from "@/contexts/auth-context";
 import { postSignupPath } from "@/lib/routes";
 
@@ -373,8 +374,7 @@ export default function RegisterPage() {
         </div>
         <div>
           <label className="label-field">Password</label>
-          <input
-            type="password"
+          <PasswordInput
             required
             minLength={8}
             value={form.password}
