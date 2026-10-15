@@ -4,6 +4,7 @@ import { prisma } from "../config/prisma.js";
 import { getPartnerBalance } from "../services/commission.service.js";
 import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError, param } from "../utils/http.js";
+import { PAID_ACCESS } from "../services/package-access.service.js";
 
 const patchSchema = z.object({
   name: z.string().min(2).max(100).optional(),
@@ -26,7 +27,7 @@ export async function getMe(req: Request, res: Response) {
       createdAt: true,
       preferredLanguage: { select: { code: true, name: true, nativeName: true } },
       courseAccess: {
-        where: { revokedAt: null },
+        where: PAID_ACCESS,
         select: {
           unlockedAt: true,
           languageGranted: true,
@@ -90,7 +91,7 @@ export async function myOrders(req: Request, res: Response) {
 export async function dashboardSummary(req: Request, res: Response) {
   const { id } = currentUser(req);
   const [coursesOwned, ordersCount, balance, user, languages] = await Promise.all([
-    prisma.courseAccess.count({ where: { userId: id, revokedAt: null } }),
+    prisma.courseAccess.count({ where: { userId: id, ...PAID_ACCESS } }),
     prisma.order.count({ where: { userId: id } }),
     getPartnerBalance(id),
     prisma.user.findUnique({ where: { id }, include: { preferredLanguage: true } }),
@@ -122,7 +123,7 @@ export async function dashboardSummary(req: Request, res: Response) {
 export async function myCourses(req: Request, res: Response) {
   const { id } = currentUser(req);
   const access = await prisma.courseAccess.findMany({
-    where: { userId: id, revokedAt: null },
+    where: { userId: id, ...PAID_ACCESS },
     include: { course: true },
     orderBy: { unlockedAt: "desc" },
   });
@@ -133,11 +134,11 @@ export async function myCourses(req: Request, res: Response) {
 export async function myCourseAccess(req: Request, res: Response) {
   const { id: userId } = currentUser(req);
   const courseId = param(req, "courseId");
-  const access = await prisma.courseAccess.findUnique({
-    where: { userId_courseId: { userId, courseId } },
+  const access = await prisma.courseAccess.findFirst({
+    where: { userId, courseId, ...PAID_ACCESS },
     include: { course: true },
   });
-  if (!access || access.revokedAt) throw new HttpError(404, "Not found");
+  if (!access) throw new HttpError(404, "Not found");
   res.json({ access });
 }
 

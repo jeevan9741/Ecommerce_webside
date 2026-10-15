@@ -32,10 +32,13 @@ export function CoursePlayer({
   courseId,
   type,
   defaultLanguageCode,
+  hideWhenEmpty = false,
 }: {
   courseId: string;
   type: "EBOOK" | "VIDEO";
   defaultLanguageCode: string | null;
+  /** Render nothing (no spinner, no "coming soon") unless there's per-language content to show. */
+  hideWhenEmpty?: boolean;
 }) {
   const [languages, setLanguages] = useState<LanguageContent[] | null>(null);
   const [modules, setModules] = useState<ModuleContent[]>([]);
@@ -56,6 +59,7 @@ export function CoursePlayer({
   }, [courseId]);
 
   if (!languages) {
+    if (hideWhenEmpty) return null;
     return (
       <div className="mt-8 flex justify-center py-12">
         <Loader2 className="h-6 w-6 animate-spin text-gold-500" />
@@ -66,6 +70,7 @@ export function CoursePlayer({
   const hasCurriculum = type === "VIDEO" && modules.length > 0;
 
   if (languages.length === 0 && !hasCurriculum) {
+    if (hideWhenEmpty) return null;
     return (
       <div className="mt-8 card p-8 text-center text-sm text-parchment-muted">
         {type === "EBOOK"

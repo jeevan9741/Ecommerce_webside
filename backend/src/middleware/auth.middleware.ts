@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { prisma } from "../config/prisma.js";
 import { verifySessionToken, type SessionPayload } from "../utils/tokens.js";
 import { HttpError } from "../utils/http.js";
+import { PAID_ACCESS } from "../services/package-access.service.js";
 
 declare module "express-serve-static-core" {
   interface Request {
@@ -44,7 +45,7 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
 /**
  * Gates the student dashboard behind an actual purchase. Admins pass through so the admin
  * panel is unaffected; every other account needs at least one live (non-revoked) CourseAccess
- * row. The frontend redirects before it ever gets here — this is the copy that can't be
+ * row whose order is PAID. The frontend redirects before it ever gets here — this is the copy that can't be
  * bypassed by editing a cookie or calling the API directly.
  */
 export function requireCourseAccess(req: Request, res: Response, next: NextFunction) {
@@ -55,7 +56,7 @@ export function requireCourseAccess(req: Request, res: Response, next: NextFunct
     if (user.role === "ADMIN") return next();
 
     prisma.courseAccess
-      .count({ where: { userId: user.id, revokedAt: null } })
+      .count({ where: { userId: user.id, ...PAID_ACCESS } })
       .then((owned) => {
         if (owned === 0) {
           return next(

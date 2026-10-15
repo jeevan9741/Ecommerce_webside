@@ -1,10 +1,11 @@
 import { prisma } from "../config/prisma.js";
 import type { SessionPayload } from "../utils/tokens.js";
+import { PAID_ACCESS } from "./package-access.service.js";
 
 /**
  * Category access rules (see CourseCategory / CategoryPackage in the schema):
  * - Access is granted per TOP-LEVEL category and covers all of its subcategories.
- * - A student has it while they hold live (not revoked) CourseAccess to any package linked to it.
+ * - A student has it while they hold paid, live access (PAID_ACCESS) to any package linked to it.
  * - Inactive categories — or subcategories of an inactive category — are hidden from students.
  * - Admins can open everything.
  */
@@ -37,7 +38,7 @@ export function isLive(category: CategoryRef) {
 
 /** Package IDs the user currently owns (live access only). */
 export async function ownedPackageIds(userId: string) {
-  const rows = await prisma.courseAccess.findMany({ where: { userId, revokedAt: null }, select: { courseId: true } });
+  const rows = await prisma.courseAccess.findMany({ where: { userId, ...PAID_ACCESS }, select: { courseId: true } });
   return new Set(rows.map((r) => r.courseId));
 }
 
@@ -45,7 +46,7 @@ export async function ownedPackageIds(userId: string) {
 export async function hasCategoryAccess(user: SessionPayload, topCategoryId: string) {
   if (user.role === "ADMIN") return true;
   const linked = await prisma.categoryPackage.count({
-    where: { categoryId: topCategoryId, course: { access: { some: { userId: user.id, revokedAt: null } } } },
+    where: { categoryId: topCategoryId, course: { access: { some: { userId: user.id, ...PAID_ACCESS } } } },
   });
   return linked > 0;
 }

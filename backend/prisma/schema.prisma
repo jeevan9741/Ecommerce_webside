@@ -80,6 +80,11 @@ enum WithdrawalStatus {
   FAILED
 }
 
+enum LiveSessionStatus {
+  SCHEDULED
+  CANCELLED
+}
+
 enum OtpPurpose {
   HOME_ACCESS
   REGISTER
@@ -170,6 +175,8 @@ model Course {
   videos         CourseVideo[]
   /// Topic categories this package unlocks (see CategoryPackage).
   categories     CategoryPackage[]
+  ebooks         EBook[]
+  liveSessions   LiveSession[]
 
   @@index([type])
 }
@@ -261,6 +268,7 @@ model CourseCategory {
   videos     CourseVideo[]
   packages   CategoryPackage[]
   demoVideos DemoVideo[]
+  ebooks     EBook[]
 
   @@index([parentId, displayOrder])
 }
@@ -296,6 +304,62 @@ model VideoProgress {
 
   @@unique([userId, videoId])
   @@index([videoId])
+}
+
+/// A downloadable e-book for a package (e.g. "E-Books & Company Support"). The file lives in the
+/// private Blob store; only buyers of `courseId` (paid, not refunded) get short-lived signed links.
+model EBook {
+  id           String   @id @default(cuid())
+  /// The package whose buyers may download it.
+  courseId     String
+  /// Optional topic the e-book is grouped under (display only — access always comes from the package).
+  categoryId   String?
+  title        String
+  description  String?
+  /// Original filename, shown to admins and used as the download name.
+  fileName     String
+  storageKey   String   @unique
+  mimeType     String
+  sizeBytes    BigInt
+  displayOrder Int      @default(0)
+  isPublished  Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  course   Course          @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  category CourseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([courseId, displayOrder])
+}
+
+/// One live Zoom class of a package (e.g. day 3 of the 7-day training). Times are stored as UTC
+/// instants and shown in `timezone`. The join URL is only handed to buyers of `courseId`, and only
+/// inside the joining window — it never appears in schedule listings.
+model LiveSession {
+  id                     String            @id @default(cuid())
+  courseId               String
+  /// Day of the training (1-7).
+  dayNumber              Int
+  title                  String
+  description            String?
+  startsAt               DateTime
+  endsAt                 DateTime
+  /// IANA timezone the session was scheduled in, e.g. Asia/Kolkata.
+  timezone               String            @default("Asia/Kolkata")
+  joinUrl                String
+  /// How early before the start the Join button unlocks.
+  joinOpensMinutesBefore Int               @default(15)
+  /// Unpublished sessions are drafts, invisible to students.
+  isPublished            Boolean           @default(false)
+  status                 LiveSessionStatus @default(SCHEDULED)
+  cancelReason           String?
+  cancelledAt            DateTime?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
+
+  @@index([courseId, startsAt])
 }
 
 model Language {

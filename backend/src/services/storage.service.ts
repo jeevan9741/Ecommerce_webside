@@ -89,6 +89,13 @@ export async function getClientUploadToken(
   });
 }
 
+/** First `bytes` bytes of a private object (for checking a file's real format after upload). */
+export async function readObjectHead(key: string, bytes: number) {
+  const res = await fetch(await getDownloadUrl(key, 60), { headers: { Range: `bytes=0-${bytes - 1}` } });
+  if (!res.ok) throw new Error(`Blob read failed (${res.status})`);
+  return new Uint8Array(await res.arrayBuffer()).slice(0, bytes);
+}
+
 /** Metadata of a stored object, or null when it doesn't exist. */
 export async function statObject(key: string, store: BlobStore = "private") {
   try {

@@ -1,6 +1,7 @@
 "use client";
 
-import { use, useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Film, Loader2, Pencil, Play, Plus, Search, Trash2, UploadCloud, X } from "lucide-react";
 import { adminService } from "@/services/adminService";
 import { formatBytes, formatDuration, videoService, type AdminVideo, type VideoEdit } from "@/services/videoService";
@@ -10,6 +11,8 @@ import { Modal } from "@/components/admin/modal";
 import { ToastStack, useToasts } from "@/components/toast";
 import { DemoVideosPanel } from "@/components/admin/demo-videos-panel";
 import { CategoryManager } from "@/components/admin/category-manager";
+import { EBooksPanel } from "@/components/admin/ebooks-panel";
+import { LiveSessionsPanel } from "@/components/admin/live-sessions-panel";
 import { categoryService, type AdminCategory, type PackageOption } from "@/services/categoryService";
 import { StreamOnlyVideo } from "@/components/videos/stream-only-video";
 import {
@@ -32,19 +35,24 @@ interface CourseOption {
   id: string;
   title: string;
   isActive: boolean;
+  type?: string;
+  priceInPaise?: number;
 }
 
-type Tab = "course" | "categories" | "demo";
+type Tab = "course" | "categories" | "demo" | "ebooks" | "live";
 const TABS: [Tab, string][] = [
   ["course", "Course videos"],
   ["categories", "Categories"],
   ["demo", "Demo videos"],
+  ["ebooks", "E-Books"],
+  ["live", "Live Zoom Sessions"],
 ];
 
-export default function AdminVideosPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
-  const requested = use(searchParams).tab;
-  const initialTab: Tab = requested === "demo" || requested === "categories" ? requested : "course";
-  const [tab, setTab] = useState<Tab>(initialTab);
+export default function AdminVideosPage() {
+  // The tab lives in the URL (?tab=…): tab clicks update it with history.replaceState and sidebar
+  // links navigate to it — both update useSearchParams, so the panel and the sidebar always agree.
+  const requested = useSearchParams().get("tab");
+  const tab: Tab = TABS.some(([id]) => id === requested) ? (requested as Tab) : "course";
   const [courses, setCourses] = useState<CourseOption[]>([]);
   const [languages, setLanguages] = useState<AdminLanguage[]>([]);
   const [categories, setCategories] = useState<AdminCategory[] | null>(null);
@@ -79,34 +87,38 @@ export default function AdminVideosPage({ searchParams }: { searchParams: Promis
   }, []);
 
   function switchTab(next: Tab) {
-    setTab(next);
     // Keep the tab in the URL so reloads and links land on it.
     window.history.replaceState(null, "", next === "course" ? window.location.pathname : `?tab=${next}`);
   }
 
   return (
     <div>
-      <h1 className="font-display text-2xl font-semibold text-parchment">Video Management</h1>
+      <h1 className="font-display text-2xl font-semibold text-parchment">Course Content</h1>
       <p className="mt-1 text-sm text-parchment-muted">
         Course videos are private and filed into categories — buyers of a package that unlocks the category stream them
-        through short-lived signed links. Demo videos are free to watch on the homepage without logging in.
+        through short-lived signed links. Demo videos are free to watch on the homepage without logging in. E-books and live
+        Zoom sessions belong to a package and are only available to its paid buyers.
       </p>
 
-      <div role="tablist" className="mt-5 inline-flex rounded-xl border border-border-soft p-1">
+      <div className="mt-5 max-w-full overflow-x-auto">
+      <div role="tablist" className="inline-flex rounded-xl border border-border-soft p-1">
         {TABS.map(([id, label]) => (
           <button
             key={id}
             type="button"
             role="tab"
             aria-selected={tab === id}
+            // On narrow screens the tab bar scrolls; keep the active tab visible.
+            ref={tab === id ? (el) => el?.scrollIntoView({ block: "nearest", inline: "nearest" }) : undefined}
             onClick={() => switchTab(id)}
-            className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+            className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-semibold transition ${
               tab === id ? "bg-gold-500 text-white" : "text-parchment-muted hover:text-parchment"
             }`}
           >
             {label}
           </button>
         ))}
+      </div>
       </div>
 
       <div className="mt-6">
@@ -117,6 +129,8 @@ export default function AdminVideosPage({ searchParams }: { searchParams: Promis
         {tab === "demo" && (
           <DemoVideosPanel languages={languages} push={push} />
         )}
+        {tab === "ebooks" && <EBooksPanel courses={courses} categories={categories ?? []} push={push} />}
+        {tab === "live" && <LiveSessionsPanel courses={courses} push={push} />}
       </div>
       <ToastStack toasts={toasts} onDismiss={dismiss} />
     </div>

@@ -9,6 +9,7 @@ import { paymentSafetyProblem } from "../services/payment-safety.js";
 import { markRequestPaid, reconcileRequestPayment } from "../services/partner-card.service.js";
 import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError, param } from "../utils/http.js";
+import { ownsPaidPackage } from "../services/package-access.service.js";
 
 const LOG_PREFIX = "[create-order]";
 /** An unpaid order is reused for this long, so retries and second tabs share one Razorpay order. */
@@ -66,10 +67,9 @@ export async function createOrder(req: Request, res: Response) {
       }
     }
 
-    const existingAccess = await prisma.courseAccess.findUnique({
-      where: { userId_courseId: { userId: user.id, courseId } },
-    });
-    if (existingAccess && !existingAccess.revokedAt) {
+    // Same rule as everywhere else (paid, live access) — a stray access row without a PAID order
+    // must not block buying the package for real.
+    if (await ownsPaidPackage(user.id, courseId)) {
       log("user already has access", { userId: user.id, courseId });
       return res.status(409).json({ error: "You already have access to this course.", code: "ALREADY_PURCHASED" });
     }

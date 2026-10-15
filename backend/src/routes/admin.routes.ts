@@ -7,6 +7,8 @@ import * as content from "../controllers/admin-content.controller.js";
 import * as partnerCard from "../controllers/partner-card.controller.js";
 import * as video from "../controllers/video.controller.js";
 import * as category from "../controllers/category.controller.js";
+import * as ebook from "../controllers/ebook.controller.js";
+import * as liveSession from "../controllers/live-session.controller.js";
 
 const router = Router();
 
@@ -95,6 +97,22 @@ router.patch("/admin/categories/:id", asyncHandler(category.adminUpdateCategory)
 router.post("/admin/categories/:id/move", asyncHandler(category.adminMoveCategory));
 router.put("/admin/categories/:id/packages", asyncHandler(category.adminSetCategoryPackages));
 router.delete("/admin/categories/:id", asyncHandler(category.adminDeleteCategory));
+
+// E-books (files go browser → private Blob store via scoped client tokens, then are verified here)
+router.post("/admin/ebooks/upload-token", asyncHandler(ebook.createEBookUploadToken));
+router.post("/admin/ebooks/discard-upload", asyncHandler(ebook.adminDiscardEBookUpload));
+router.get("/admin/ebooks", asyncHandler(ebook.adminListEBooks));
+router.post("/admin/ebooks", asyncHandler(ebook.adminCreateEBook));
+router.patch("/admin/ebooks/:id", asyncHandler(ebook.adminUpdateEBook));
+router.delete("/admin/ebooks/:id", asyncHandler(ebook.adminDeleteEBook));
+
+// Live Zoom sessions
+router.get("/admin/live-sessions", asyncHandler(liveSession.adminListLiveSessions));
+router.post("/admin/live-sessions", asyncHandler(liveSession.adminCreateLiveSession));
+router.patch("/admin/live-sessions/:id", asyncHandler(liveSession.adminUpdateLiveSession));
+router.post("/admin/live-sessions/:id/cancel", asyncHandler(liveSession.adminCancelLiveSession));
+router.post("/admin/live-sessions/:id/restore", asyncHandler(liveSession.adminRestoreLiveSession));
+router.delete("/admin/live-sessions/:id", asyncHandler(liveSession.adminDeleteLiveSession));
 
 // Uploads (admin-only signed PUT URLs)
 router.post("/upload/presign", asyncHandler(course.presignUpload));

@@ -45,6 +45,22 @@ export async function serverApi<T>(path: string): Promise<T> {
  */
 export async function hasCourseAccess(user: SessionUser): Promise<boolean> {
   if (user.role === "ADMIN") return true;
-  const { ownedCourseIds } = await serverApi<{ ownedCourseIds: string[] }>("/courses");
+  const { ownedCourseIds } = await catalogue();
   return ownedCourseIds.length > 0;
+}
+
+type PackageType = "EBOOK" | "VIDEO" | "ZOOM" | "CENTRE";
+
+/** The catalogue with the viewer's paid packages — fetched once per request however many helpers ask. */
+const catalogue = cache(() => serverApi<{ courses: { id: string; type: PackageType }[]; ownedCourseIds: string[] }>("/courses"));
+
+/**
+ * Types of the packages this account has paid for (admins: all), so the dashboard only lists
+ * sections the student can open. Display only — every section's API re-checks the purchase.
+ */
+export async function ownedPackageTypes(user: SessionUser): Promise<Set<PackageType>> {
+  if (user.role === "ADMIN") return new Set(["EBOOK", "VIDEO", "ZOOM", "CENTRE"]);
+  const { courses, ownedCourseIds } = await catalogue();
+  const owned = new Set(ownedCourseIds);
+  return new Set(courses.filter((c) => owned.has(c.id)).map((c) => c.type));
 }

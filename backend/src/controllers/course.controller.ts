@@ -6,6 +6,7 @@ import { rateLimit } from "../utils/rate-limit.js";
 import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError, param } from "../utils/http.js";
 import { homepageDemoVideo } from "./video.controller.js";
+import { PAID_ACCESS } from "../services/package-access.service.js";
 
 /**
  * Public course catalogue — price and content only. Commission amounts and any
@@ -25,12 +26,13 @@ export async function listCourses(req: Request, res: Response) {
         shortDescription: true,
         description: true,
         priceInPaise: true,
-        metadata: true,
+        // No `metadata`: it can hold buyer-only details (e.g. a legacy Zoom meetingLink). Owners get
+        // it from /me/courses/:courseId.
         languageVideos: { select: { language: { select: { code: true, name: true, nativeName: true } } } },
       },
     }),
     req.user
-      ? prisma.courseAccess.findMany({ where: { userId: req.user.id, revokedAt: null }, select: { courseId: true } })
+      ? prisma.courseAccess.findMany({ where: { userId: req.user.id, ...PAID_ACCESS }, select: { courseId: true } })
       : Promise.resolve([]),
   ]);
 
@@ -47,10 +49,8 @@ export async function courseContent(req: Request, res: Response) {
   const user = currentUser(req);
   const courseId = param(req, "id");
 
-  const access = await prisma.courseAccess.findUnique({
-    where: { userId_courseId: { userId: user.id, courseId } },
-  });
-  if (!access || access.revokedAt) throw new HttpError(403, "You do not have access to this course");
+  const access = await prisma.courseAccess.findFirst({ where: { userId: user.id, courseId, ...PAID_ACCESS } });
+  if (!access) throw new HttpError(403, "You do not have access to this course");
 
   const course = await prisma.course.findUnique({
     where: { id: courseId },

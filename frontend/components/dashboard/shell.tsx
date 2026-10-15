@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import {
   LogOut,
@@ -23,6 +23,8 @@ import {
   HandCoins,
   BadgeCheck,
   Clapperboard,
+  BookDown,
+  CalendarClock,
 } from "lucide-react";
 import { LogoMark } from "@/components/logo";
 
@@ -42,6 +44,8 @@ const ICONS = {
   handCoins: HandCoins,
   badgeCheck: BadgeCheck,
   video: Clapperboard,
+  bookDown: BookDown,
+  calendarClock: CalendarClock,
 } as const;
 
 export type DashboardIconName = keyof typeof ICONS;
@@ -66,6 +70,7 @@ export function DashboardShell({
   homeHref?: string;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { logout } = useAuth();
   const [open, setOpen] = useState(false);
 
@@ -82,11 +87,15 @@ export function DashboardShell({
   // Highlight the most specific item containing the current page, so /dashboard/courses/[id]
   // lights up My Courses while /dashboard/referral/claim lights up only its own item.
   // Top-level items (/dashboard, /admin) only match exactly — they'd otherwise contain everything.
+  // Items with a query (/admin/videos?tab=ebooks) match when the page has those params, and being
+  // longer they win over the plain /admin/videos item.
+  const matches = (href: string) => {
+    const [path, query] = href.split("?");
+    if (query) return pathname === path && [...new URLSearchParams(query)].every(([k, v]) => searchParams.get(k) === v);
+    return pathname === path || (path.split("/").length > 2 && pathname.startsWith(`${path}/`));
+  };
   const activeHref = navItems
-    .filter(
-      ({ href }) =>
-        pathname === href || (href.split("/").length > 2 && pathname.startsWith(`${href}/`))
-    )
+    .filter(({ href }) => matches(href))
     .reduce<string | null>((best, { href }) => (!best || href.length > best.length ? href : best), null);
 
   const SidebarContent = (

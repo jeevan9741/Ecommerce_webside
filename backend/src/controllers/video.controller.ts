@@ -23,6 +23,7 @@ import {
   statObject,
   type BlobStore,
 } from "../services/storage.service.js";
+import { hasPaidPackage } from "../services/package-access.service.js";
 
 export const MAX_VIDEO_BYTES = 2 * 1024 ** 3; // 2 GB
 export const MAX_THUMBNAIL_BYTES = 5 * 1024 ** 2;
@@ -62,11 +63,9 @@ function streamTtlSeconds(durationSeconds: number | null) {
   return Math.min(6 * 60 * 60, Math.max(twoHours, (durationSeconds ?? 0) * 2));
 }
 
-/** Admins can open any course; everyone else needs live (purchased, not revoked) access. */
+/** Admins can open any course; everyone else needs paid, live access (see package-access.service). */
 async function canAccessCourse(user: SessionPayload, courseId: string) {
-  if (user.role === "ADMIN") return true;
-  const access = await prisma.courseAccess.findUnique({ where: { userId_courseId: { userId: user.id, courseId } } });
-  return Boolean(access && !access.revokedAt);
+  return hasPaidPackage(user, courseId);
 }
 
 /** Tells a signed-in non-buyer which package unlocks the content (the UI shows "Buy Course to Access"). */
