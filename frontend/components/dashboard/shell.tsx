@@ -91,10 +91,12 @@ export function DashboardShell({
 
   const SidebarContent = (
     <div className="flex h-full flex-col bg-gradient-to-b from-gold-600 to-gold-500">
-      <Link href={homeHref} className="px-6 py-6">
+      <Link href={homeHref} className="shrink-0 px-6 py-6">
         <LogoMark variant="white" />
       </Link>
-      <nav className="flex-1 space-y-1 px-3">
+      {/* The links scroll on their own so the account/Logout footer stays on screen in the
+          fixed-height mobile drawer, however many items there are. */}
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3">
         {navItems.map((item) => {
           const active = item.href === activeHref;
           const Icon = ICONS[item.icon];
@@ -113,7 +115,7 @@ export function DashboardShell({
           );
         })}
       </nav>
-      <div className="border-t border-white/15 p-4">
+      <div className="shrink-0 border-t border-white/15 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <p className="truncate text-sm font-medium text-white">{userLabel}</p>
         <p className="text-xs text-blue-100">{roleLabel}</p>
         <button
@@ -138,7 +140,7 @@ export function DashboardShell({
           onClick={() => setOpen(false)}
         />
         <aside
-          className={`absolute left-0 top-0 h-full w-72 max-w-[85vw] shadow-2xl transition-transform duration-300 ease-out ${
+          className={`absolute left-0 top-0 h-dvh w-72 max-w-[85vw] shadow-2xl transition-transform duration-300 ease-out ${
             open ? "translate-x-0" : "-translate-x-full"
           }`}
         >
