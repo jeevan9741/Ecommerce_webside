@@ -10,8 +10,10 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 import { createApp } from "../src/app.js";
 import { prisma } from "../src/config/prisma.js";
+import { env } from "../src/config/env.js";
 
 process.env.EMAIL_PROVIDER = "console";
 
@@ -31,6 +33,11 @@ async function makeUser() {
   userIds.push(user.id);
   emails.push(user.email);
   return { id: user.id, email: user.email, username: name };
+}
+
+/** GET /auth/session with this token: 200 while the session is good, 401 once it's revoked. */
+async function sessionStatus(token: string) {
+  return (await fetch(`${base}/api/auth/session`, { headers: { Authorization: `Bearer ${token}` } })).status;
 }
 
 async function post(path: string, body: unknown) {
@@ -135,4 +142,52 @@ test("five wrong guesses lock the code", async () => {
   const res = await post("/auth/reset-password", { email, code, password: "Another123" });
   assert.equal(res.status, 400);
   assert.match(res.body.error, /Too many incorrect attempts/);
+});
+
+test("a password reset signs out every session issued before it", async () => {
+  const { email } = await makeUser();
+  const before = (await post("/auth/login", { identifier: email, password: "OldPass123" })).body.token as string;
+  const otherDevice = (await post("/auth/login", { identifier: email, password: "OldPass123" })).body.token as string;
+  assert.equal(await sessionStatus(before), 200);
+
+  const code = await freshCode(email);
+  const reset = await post("/auth/reset-password", { email, code, password: "NewPass123" });
+  assert.equal(reset.status, 200);
+
+  assert.equal(await sessionStatus(before), 401, "the old session is revoked");
+  assert.equal(await sessionStatus(otherDevice), 401, "every other device too");
+  assert.equal(await sessionStatus(reset.body.token), 200, "the session the reset hands back works");
+  const relogin = (await post("/auth/login", { identifier: email, password: "NewPass123" })).body.token as string;
+  assert.equal(await sessionStatus(relogin), 200);
+});
+
+test("tokens from before fingerprints keep working until the password changes", async () => {
+  const { id, email } = await makeUser();
+  // Issued a while ago, after the account last changed (token times are whole seconds).
+  const now = Math.floor(Date.now() / 1000);
+  const u = await prisma.user.update({ where: { id }, data: { updatedAt: new Date((now - 60) * 1000) } });
+  const legacy = jwt.sign({ id, name: u.name, email, role: "USER", referralCode: u.referralCode, iat: now - 30 }, env.jwtSecret, { expiresIn: "7d" });
+  assert.equal(await sessionStatus(legacy), 200, "no mass sign-out when this ships");
+
+  const code = await freshCode(email);
+  assert.equal((await post("/auth/reset-password", { email, code, password: "NewPass123" })).status, 200);
+  assert.equal(await sessionStatus(legacy), 401, "a reset ends legacy sessions too");
+});
+
+test("a forged or tampered fingerprint is refused", async () => {
+  const { email } = await makeUser();
+  const token = (await post("/auth/login", { identifier: email, password: "OldPass123" })).body.token as string;
+  const claims = jwt.decode(token) as Record<string, unknown>;
+  const { iat: _iat, exp: _exp, ...rest } = claims;
+  const forged = jwt.sign({ ...rest, pv: "A".repeat(22) }, env.jwtSecret, { expiresIn: "7d" });
+  assert.equal(await sessionStatus(forged), 401);
+  const unsigned = token.slice(0, token.lastIndexOf(".") + 1) + "x".repeat(43);
+  assert.equal(await sessionStatus(unsigned), 401);
+});
+
+test("a deleted account's session stops working", async () => {
+  const { id, email } = await makeUser();
+  const token = (await post("/auth/login", { identifier: email, password: "OldPass123" })).body.token as string;
+  await prisma.user.delete({ where: { id } });
+  assert.equal(await sessionStatus(token), 401);
 });

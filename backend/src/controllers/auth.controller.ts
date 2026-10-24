@@ -44,7 +44,7 @@ export async function login(req: Request, res: Response) {
   if (!user.emailVerified) throw new HttpError(403, "Please verify your email address first.");
 
   const session = toSession(user);
-  res.json({ token: signSessionToken(session), user: session });
+  res.json({ token: signSessionToken(session, user.passwordHash), user: session });
 }
 
 /** Returns the current session from the bearer token, refreshed from the DB so role/name changes apply. */
@@ -112,7 +112,7 @@ export async function register(req: Request, res: Response) {
 
   // Signs the user straight in, same as the old post-registration signIn() call.
   const session = toSession(user);
-  res.json({ ok: true, token: signSessionToken(session), user: session });
+  res.json({ ok: true, token: signSessionToken(session, user.passwordHash), user: session });
 }
 
 /**
@@ -165,5 +165,5 @@ export async function resetPassword(req: Request, res: Response) {
   await prisma.auditLog.create({ data: { actorId: user.id, action: "PASSWORD_RESET", target: user.id } });
 
   const session = toSession(user);
-  res.json({ ok: true, token: signSessionToken(session), user: session });
+  res.json({ ok: true, token: signSessionToken(session, user.passwordHash), user: session });
 }

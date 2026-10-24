@@ -35,7 +35,7 @@ async function makeUser(name: string, role: "USER" | "ADMIN" = "USER") {
     data: { name, email: `${tag}-${name}@example.test`, username: `${tag}-${name}`, passwordHash: "x", referralCode: `${tag}-${name}`, role },
   });
   ids.users.push(u.id);
-  return signSessionToken({ id: u.id, name: u.name, email: u.email, role, referralCode: u.referralCode });
+  return signSessionToken({ id: u.id, name: u.name, email: u.email, role, referralCode: u.referralCode }, u.passwordHash);
 }
 
 async function makeCourse(type: "EBOOK" | "ZOOM", priceInPaise: number) {

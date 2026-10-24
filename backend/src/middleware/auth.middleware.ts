@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { prisma } from "../config/prisma.js";
-import { verifySessionToken, type SessionPayload } from "../utils/tokens.js";
+import { timingSafeEqual } from "node:crypto";
+import { decodeSessionToken, passwordFingerprint, type SessionPayload } from "../utils/tokens.js";
 import { HttpError } from "../utils/http.js";
 import { PAID_ACCESS } from "../services/package-access.service.js";
 
@@ -16,22 +17,43 @@ function readToken(req: Request): string | null {
   return null;
 }
 
+/**
+ * The session in a token, if it's still good: signed, unexpired, the account still exists, and the
+ * password hasn't changed since it was issued (so a password reset signs out every other device).
+ * Tokens from before password fingerprints carry none; they stay valid only while the account is
+ * unchanged since they were issued, which a reset also ends.
+ */
+async function authenticate(token: string | null): Promise<SessionPayload | null> {
+  const decoded = token ? decodeSessionToken(token) : null;
+  if (!decoded) return null;
+  const account = await prisma.user.findUnique({ where: { id: decoded.session.id }, select: { passwordHash: true, updatedAt: true } });
+  if (!account) return null;
+  if (decoded.pv) {
+    const expected = Buffer.from(passwordFingerprint(account.passwordHash));
+    const given = Buffer.from(decoded.pv);
+    return given.length === expected.length && timingSafeEqual(given, expected) ? decoded.session : null;
+  }
+  return Math.floor(account.updatedAt.getTime() / 1000) <= decoded.iat ? decoded.session : null;
+}
+
 /** Attaches req.user when a valid token is present; never rejects. */
 export function optionalAuth(req: Request, _res: Response, next: NextFunction) {
-  const token = readToken(req);
-  if (token) {
-    const user = verifySessionToken(token);
-    if (user) req.user = user;
-  }
-  next();
+  authenticate(readToken(req))
+    .then((user) => {
+      if (user) req.user = user;
+      next();
+    })
+    .catch(next);
 }
 
 export function requireUser(req: Request, _res: Response, next: NextFunction) {
-  const token = readToken(req);
-  const user = token ? verifySessionToken(token) : null;
-  if (!user) return next(new HttpError(401, "Sign in required"));
-  req.user = user;
-  next();
+  authenticate(readToken(req))
+    .then((user) => {
+      if (!user) return next(new HttpError(401, "Sign in required"));
+      req.user = user;
+      next();
+    })
+    .catch(next);
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {

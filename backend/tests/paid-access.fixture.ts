@@ -75,7 +75,7 @@ before(async () => {
       data: { name, email: `${tag}-${name}@example.test`, username: `${tag}-${name}`, passwordHash: "x", referralCode: `${tag}-${name}` },
     });
     ids.users.push(u.id);
-    tokens[name] = signSessionToken({ id: u.id, name, email: u.email, role: "USER", referralCode: u.referralCode });
+    tokens[name] = signSessionToken({ id: u.id, name, email: u.email, role: "USER", referralCode: u.referralCode }, u.passwordHash);
     const order = await prisma.order.create({
       data: { userId: u.id, courseId, amountInPaise: 69900, status: c.status, razorpayOrderId: `${tag}-${name}`, paidAt: c.status === "PAID" ? new Date() : null },
     });
@@ -88,6 +88,7 @@ before(async () => {
 after(async () => {
   await prisma.auditLog.deleteMany({ where: { actorId: { in: ids.users } } });
   await prisma.videoProgress.deleteMany({ where: { userId: { in: ids.users } } });
+  await prisma.courseCertificate.deleteMany({ where: { courseId: { in: ids.courses } } });
   await prisma.courseVideo.deleteMany({ where: { OR: [{ courseId: { in: ids.courses } }, { categoryId: { in: ids.categories } }] } });
   await prisma.courseAccess.deleteMany({ where: { userId: { in: ids.users } } });
   await prisma.order.deleteMany({ where: { userId: { in: ids.users } } });
