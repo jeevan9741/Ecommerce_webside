@@ -15,15 +15,27 @@ export const registerSchema = z.object({
   preferredLanguageCode: z.string().max(10).optional().nullable(),
 });
 
+// Password-reset codes (LOGIN_RESET) are sent and redeemed only through /auth/forgot-password
+// and /auth/reset-password, never through these generic email-verification endpoints.
 export const sendOtpSchema = z.object({
   email: z.string().email().toLowerCase(),
-  purpose: z.enum(["REGISTER", "LOGIN_RESET"]),
+  purpose: z.enum(["REGISTER"]),
 });
 
 export const verifyOtpSchema = z.object({
   email: z.string().email().toLowerCase(),
   code: z.string().length(6),
-  purpose: z.enum(["REGISTER", "LOGIN_RESET"]),
+  purpose: z.enum(["REGISTER"]),
+});
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().trim().email().toLowerCase(),
+});
+
+export const resetPasswordSchema = z.object({
+  email: z.string().trim().email().toLowerCase(),
+  code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code"),
+  password: z.string().min(8, "Password must be at least 8 characters").max(72, "Password must be 72 characters or fewer"),
 });
 
 export const createOrderSchema = z.object({

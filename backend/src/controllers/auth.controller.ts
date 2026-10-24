@@ -2,9 +2,12 @@ import type { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "../config/prisma.js";
-import { registerSchema } from "../utils/validation.js";
+import { forgotPasswordSchema, registerSchema, resetPasswordSchema } from "../utils/validation.js";
 import { generateReferralCode } from "../utils/crypto.js";
 import { HttpError } from "../utils/http.js";
+import { rateLimit } from "../utils/rate-limit.js";
+import { passwordResetEmailTemplate } from "../services/email.service.js";
+import { RESEND_COOLDOWN_MS, SEND_WINDOW_MS, consumeOtp, createAndSendOtp, otpSendBlocked } from "../services/otp.service.js";
 import { signSessionToken, verifyEmailVerificationToken, type SessionPayload } from "../utils/tokens.js";
 import { currentUser } from "../middleware/auth.middleware.js";
 
@@ -108,6 +111,59 @@ export async function register(req: Request, res: Response) {
   });
 
   // Signs the user straight in, same as the old post-registration signIn() call.
+  const session = toSession(user);
+  res.json({ ok: true, token: signSessionToken(session), user: session });
+}
+
+/**
+ * Step 1 of a password reset: emails a 6-digit code. Answers the same way whether or not the email
+ * has an account (and stays quiet when the resend cooldown applies), so it can't be used to find
+ * out who is registered. The page enforces the cooldown on its side.
+ */
+export async function forgotPassword(req: Request, res: Response) {
+  const parsed = forgotPasswordSchema.safeParse(req.body);
+  if (!parsed.success) throw new HttpError(400, "Please enter a valid email address.");
+  const { email } = parsed.data;
+
+  if (!rateLimit(`password-reset-ip:${req.ip ?? "unknown"}`, 20, SEND_WINDOW_MS)) {
+    throw new HttpError(429, "Too many requests. Please wait a few minutes and try again.");
+  }
+
+  const reply = { ok: true, retryAfterSeconds: RESEND_COOLDOWN_MS / 1000 };
+  const user = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  if (!user || (await otpSendBlocked(email, "LOGIN_RESET"))) {
+    res.json(reply);
+    return;
+  }
+
+  await createAndSendOtp(email, "LOGIN_RESET", {
+    subject: "Reset Your Password - E-Commerce Training Academy",
+    html: passwordResetEmailTemplate,
+  });
+  res.json(reply);
+}
+
+/** Step 2: checks the emailed code, sets the new password and signs the user in. */
+export async function resetPassword(req: Request, res: Response) {
+  const parsed = resetPasswordSchema.safeParse(req.body);
+  if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? "Invalid request");
+  const { email, code, password } = parsed.data;
+
+  if (!rateLimit(`password-reset-verify:${email}`, 8, 10 * 60 * 1000)) {
+    throw new HttpError(429, "Too many attempts. Please request a new code.");
+  }
+
+  await consumeOtp(email, "LOGIN_RESET", code);
+  const existing = await prisma.user.findUnique({ where: { email }, select: { id: true, emailVerified: true } });
+  if (!existing) throw new HttpError(400, "Code expired. Please request a new one.");
+
+  const user = await prisma.user.update({
+    where: { id: existing.id },
+    // The code proves they own the address, so it counts as verified too.
+    data: { passwordHash: await bcrypt.hash(password, 12), emailVerified: existing.emailVerified ?? new Date() },
+  });
+  await prisma.auditLog.create({ data: { actorId: user.id, action: "PASSWORD_RESET", target: user.id } });
+
   const session = toSession(user);
   res.json({ ok: true, token: signSessionToken(session), user: session });
 }

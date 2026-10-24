@@ -14,6 +14,7 @@ import referralRoutes from "./routes/referral.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import partnerCardRoutes from "./routes/partner-card.routes.js";
 import videoRoutes from "./routes/video.routes.js";
+import certificateRoutes from "./routes/certificate.routes.js";
 import learningRoutes from "./routes/learning.routes.js";
 
 export function createApp() {
@@ -57,7 +58,7 @@ export function createApp() {
     res.json({ ok: true, service: "ecommerce-academy-backend", commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? null });
   });
 
-  for (const router of [authRoutes, emailRoutes, userRoutes, courseRoutes, paymentRoutes, referralRoutes, partnerCardRoutes, videoRoutes, learningRoutes, adminRoutes]) {
+  for (const router of [authRoutes, emailRoutes, userRoutes, courseRoutes, paymentRoutes, referralRoutes, partnerCardRoutes, videoRoutes, certificateRoutes, learningRoutes, adminRoutes]) {
     app.use("/api", router);
   }
 

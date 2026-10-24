@@ -20,7 +20,7 @@ export interface RegisterInput {
   verificationToken: string;
 }
 
-type OtpPurpose = "REGISTER" | "LOGIN_RESET";
+type OtpPurpose = "REGISTER";
 
 export const authService = {
   login: (identifier: string, password: string) =>
@@ -36,6 +36,14 @@ export const authService = {
 
   verifyOtp: (email: string, code: string, purpose: OtpPurpose = "REGISTER") =>
     api.post<{ ok: true; verificationToken: string }>("/email/verify-otp", { email, code, purpose }),
+
+  /** Emails a password reset code. Replies the same whether or not the email has an account. */
+  forgotPassword: (email: string) =>
+    api.post<{ ok: true; retryAfterSeconds: number }>("/auth/forgot-password", { email }),
+
+  /** Sets a new password with the emailed code and signs the user in. */
+  resetPassword: (email: string, code: string, password: string) =>
+    api.post<{ ok: true; token: string; user: SessionUser }>("/auth/reset-password", { email, code, password }),
 
   /** Returns the verified email if a previously issued verification token is still valid. */
   verifiedStatus: (token: string) =>

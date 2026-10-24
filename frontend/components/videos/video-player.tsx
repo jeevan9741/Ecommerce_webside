@@ -22,6 +22,8 @@ export function VideoPlayer({ context, videoId }: { context: PlayerContext; vide
   const [completed, setCompleted] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastSave = useRef(0);
+  /** Where the current stretch of playback began: reset on play, on seek and after each save. */
+  const segmentStart = useRef<number | null>(null);
   const refreshing = useRef(false);
   const pendingSeek = useRef<number | null>(null);
   const playbackErrors = useRef<number[]>([]);
@@ -67,8 +69,10 @@ export function VideoPlayer({ context, videoId }: { context: PlayerContext; vide
       const body = {
         positionSeconds: el.currentTime,
         durationSeconds: Number.isFinite(el.duration) ? el.duration : undefined,
+        watchedFrom: segmentStart.current ?? el.currentTime,
         ...(opts.completed ? { completed: true } : {}),
       };
+      segmentStart.current = el.currentTime;
       if (opts.keepalive) {
         // The page is going away: fire-and-forget so the last position still lands.
         void videoService.saveProgress(videoId, body, true).catch(() => {});
@@ -177,8 +181,16 @@ export function VideoPlayer({ context, videoId }: { context: PlayerContext; vide
                   pendingSeek.current = null;
                 }
               }}
+              onPlay={(e) => {
+                segmentStart.current = e.currentTarget.currentTime;
+                save({ force: true });
+              }}
               onTimeUpdate={() => save()}
               onPause={() => save({ force: true })}
+              onSeeking={(e) => {
+                // A jump isn't watching: the next stretch starts at the target (currentTime already is it).
+                segmentStart.current = e.currentTarget.currentTime;
+              }}
               onSeeked={() => save({ force: true })}
               onEnded={() => save({ force: true, completed: true })}
               onError={() => {

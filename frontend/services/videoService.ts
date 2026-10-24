@@ -133,7 +133,7 @@ export const videoService = {
   courseVideos: (courseId: string) => api.get<{ videos: StudentVideo[] }>(`/me/courses/${courseId}/videos`),
   watch: (id: string, context: "course" | "category" = "course") => api.get<WatchPayload>(`/me/videos/${id}?context=${context}`),
   /** `keepalive` lets the final save survive the page being closed. */
-  saveProgress: (id: string, body: { positionSeconds: number; durationSeconds?: number; completed?: boolean }, keepalive = false) =>
+  saveProgress: (id: string, body: { positionSeconds: number; durationSeconds?: number; watchedFrom?: number; completed?: boolean }, keepalive = false) =>
     api.put<{ progress: VideoProgress }>(`/me/videos/${id}/progress`, body, keepalive ? { keepalive: true } : undefined),
 };
 

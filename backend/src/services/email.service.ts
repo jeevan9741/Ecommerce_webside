@@ -172,6 +172,21 @@ export function purchaseConfirmationTemplate(p: {
   `;
 }
 
+export function passwordResetEmailTemplate(code: string): string {
+  return `
+    <div style="font-family: Georgia, serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 12px;">
+      <img src="${EMAIL_LOGO_URL}" alt="E-Commerce Training Academy" width="80" height="80" style="display: block; width: 80px; height: 80px; margin: 0 auto 12px; border: 0;" />
+      <h1 style="color: #2563eb; font-size: 20px; margin-bottom: 8px; text-align: center;">E-Commerce Training Academy</h1>
+      <p style="font-size: 15px; line-height: 1.6;">Hello,</p>
+      <p style="font-size: 15px; line-height: 1.6;">Use this code to reset your password:</p>
+      <p style="font-size: 32px; letter-spacing: 8px; font-weight: bold; color: #2563eb; margin: 16px 0;">${code}</p>
+      <p style="font-size: 14px; line-height: 1.6;">This code will expire in 10 minutes.</p>
+      <p style="font-size: 13px; color: #475569;">If you didn't ask to reset your password, you can ignore this email — your password won't change.</p>
+      <p style="font-size: 14px; line-height: 1.6; margin-top: 16px;">Regards,<br />E-Commerce Training Academy</p>
+    </div>
+  `;
+}
+
 export function otpEmailTemplate(code: string): string {
   return `
     <div style="font-family: Georgia, serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 12px;">

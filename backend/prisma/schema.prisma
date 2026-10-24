@@ -136,6 +136,7 @@ model User {
   partnerCard        PartnerCard?
   videoProgress      VideoProgress[]
   auditLogs          AuditLog[]
+  courseCertificates CourseCertificate[]
 
   @@index([referralCode])
 }
@@ -175,6 +176,7 @@ model Course {
   videos         CourseVideo[]
   /// Topic categories this package unlocks (see CategoryPackage).
   categories     CategoryPackage[]
+  certificates   CourseCertificate[]
   ebooks         EBook[]
   liveSessions   LiveSession[]
 
@@ -294,6 +296,13 @@ model VideoProgress {
   positionSeconds    Int       @default(0)
   /// Furthest point reached, so seeking back doesn't lower the progress bar.
   maxPositionSeconds Int       @default(0)
+  /// Parts of the video actually played, as merged [start, end] second ranges. Only continuous
+  /// playback paced by real time is credited, so skipping ahead doesn't count as watching.
+  watchedRanges      Json      @default("[]")
+  /// When the player last reported; bounds how much playback the next report may credit.
+  lastReportAt       DateTime?
+  /// Set once 90% of the video has been watched (see watchedRanges). Rows completed under the
+  /// older position-based rule stay completed.
   completed          Boolean   @default(false)
   completedAt        DateTime?
   createdAt          DateTime  @default(now())
@@ -631,6 +640,34 @@ model Certificate {
   storageKey   String
   displayOrder Int      @default(0)
   createdAt    DateTime @default(now())
+}
+
+/// A course completion certificate. VIDEO packages issue automatically once every lesson of one
+/// language track is completed; other package types (Zoom, offline centre, e-book) are issued by
+/// an admin. Name, course title and completion date are frozen at issue, so the certificate never
+/// changes afterwards. (Not to be confused with Certificate: the academy's own showcase images.)
+model CourseCertificate {
+  id            String    @id @default(cuid())
+  /// Public certificate ID, e.g. ECA-2026-K7Q3XM.
+  certificateNo String    @unique
+  userId        String
+  courseId      String
+  studentName   String
+  courseTitle   String
+  completedAt   DateTime
+  issuedAt      DateTime  @default(now())
+  /// Lessons counted at issue (0 for admin-issued certificates).
+  lessonCount   Int       @default(0)
+  /// Admin who issued it; null when issued automatically on completion.
+  issuedById    String?
+  revokedAt     DateTime?
+  revokedReason String?
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, courseId])
+  @@index([courseId])
 }
 
 model JobPosting {

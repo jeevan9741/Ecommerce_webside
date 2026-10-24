@@ -23,6 +23,7 @@ import {
   statObject,
   type BlobStore,
 } from "../services/storage.service.js";
+import { addRange, COMPLETION_SHARE, coveredSeconds, creditedRange, parseRanges } from "../services/watch-progress.service.js";
 import { hasPaidPackage } from "../services/package-access.service.js";
 
 export const MAX_VIDEO_BYTES = 2 * 1024 ** 3; // 2 GB
@@ -700,10 +701,13 @@ export async function watchVideo(req: Request, res: Response) {
 const progressSchema = z.object({
   positionSeconds: z.number().min(0).max(24 * 60 * 60),
   durationSeconds: z.number().min(0).max(24 * 60 * 60).optional(),
+  /** Where the stretch of playback ending at positionSeconds began (since the last report or seek). */
+  watchedFrom: z.number().min(0).max(24 * 60 * 60).optional(),
+  /** Sent by older players on "ended"; ignored — completion comes from watched time only. */
   completed: z.boolean().optional(),
 });
 
-/** Called every few seconds while playing, and on pause/end. */
+/** Called every few seconds while playing, and on play/pause/seek/end. */
 export async function saveVideoProgress(req: Request, res: Response) {
   const user = currentUser(req);
   if (!rateLimit(`video-progress:${user.id}`, 120, 60 * 1000)) throw new HttpError(429, "Too many updates");
@@ -712,16 +716,22 @@ export async function saveVideoProgress(req: Request, res: Response) {
 
   const duration = video.durationSeconds ?? (body.durationSeconds ? Math.round(body.durationSeconds) : null);
   const position = Math.round(duration ? Math.min(body.positionSeconds, duration) : body.positionSeconds);
-  // Watching 95% counts as finished — credits and outros usually aren't watched.
-  const reachedEnd = duration ? position >= duration * 0.95 : false;
+  const now = new Date();
 
   const existing = await prisma.videoProgress.findUnique({ where: { userId_videoId: { userId: user.id, videoId: video.id } } });
-  const completed = existing?.completed || reachedEnd || body.completed === true;
+  // Older players don't send watchedFrom: then only forward playback from the last saved position counts.
+  const from = Math.min(body.watchedFrom ?? existing?.positionSeconds ?? position, position);
+  const credit = creditedRange({ from, to: position, previousReportAt: existing?.lastReportAt ?? null, now });
+  const ranges = credit ? addRange(parseRanges(existing?.watchedRanges), credit) : parseRanges(existing?.watchedRanges);
+  // Progress completed under the older rule stays completed.
+  const completed = existing?.completed || (duration ? coveredSeconds(ranges, duration) >= duration * COMPLETION_SHARE : false);
   const data = {
     positionSeconds: position,
     maxPositionSeconds: Math.max(existing?.maxPositionSeconds ?? 0, position),
+    watchedRanges: ranges,
+    lastReportAt: now,
     completed,
-    completedAt: completed ? existing?.completedAt ?? new Date() : null,
+    completedAt: completed ? existing?.completedAt ?? now : null,
   };
   const saved = await prisma.videoProgress.upsert({
     where: { userId_videoId: { userId: user.id, videoId: video.id } },

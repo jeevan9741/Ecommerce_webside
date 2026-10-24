@@ -1,69 +1,30 @@
-import crypto from "crypto";
 import type { Request, Response } from "express";
-import { prisma } from "../config/prisma.js";
 import { sendOtpSchema, verifyOtpSchema } from "../utils/validation.js";
-import { generateOtp, hashOtp } from "../utils/crypto.js";
-import { sendEmail, otpEmailTemplate } from "../services/email.service.js";
+import { otpEmailTemplate } from "../services/email.service.js";
+import { RESEND_COOLDOWN_MS, SEND_WINDOW_MS, consumeOtp, createAndSendOtp, otpSendBlocked } from "../services/otp.service.js";
 import { rateLimit } from "../utils/rate-limit.js";
 import { HttpError } from "../utils/http.js";
 import { signEmailVerificationToken, verifyEmailVerificationToken } from "../utils/tokens.js";
-
-const RESEND_COOLDOWN_MS = 60 * 1000;
-const MAX_SENDS_PER_WINDOW = 5;
-const SEND_WINDOW_MS = 10 * 60 * 1000;
-
-function hashesMatch(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
-}
 
 export async function sendOtp(req: Request, res: Response) {
   const parsed = sendOtpSchema.safeParse(req.body);
   if (!parsed.success) throw new HttpError(400, "Invalid request");
   const { email, purpose } = parsed.data;
 
-  // Cooldown and per-email quota are DB-backed so they hold across multiple server instances.
-  const recentSends = await prisma.emailOtp.findMany({
-    where: { email, purpose, createdAt: { gt: new Date(Date.now() - SEND_WINDOW_MS) } },
-    orderBy: { createdAt: "desc" },
-    select: { createdAt: true },
-  });
-
-  const lastSentAt = recentSends[0]?.createdAt;
-  if (lastSentAt) {
-    const elapsedMs = Date.now() - lastSentAt.getTime();
-    if (elapsedMs < RESEND_COOLDOWN_MS) {
-      const retryAfterSeconds = Math.ceil((RESEND_COOLDOWN_MS - elapsedMs) / 1000);
-      throw new HttpError(429, `Please wait ${retryAfterSeconds}s before requesting another code.`, { retryAfterSeconds });
-    }
+  const blocked = await otpSendBlocked(email, purpose);
+  if (blocked?.retryAfterSeconds) {
+    throw new HttpError(429, `Please wait ${blocked.retryAfterSeconds}s before requesting another code.`, {
+      retryAfterSeconds: blocked.retryAfterSeconds,
+    });
   }
-  if (recentSends.length >= MAX_SENDS_PER_WINDOW) {
-    throw new HttpError(429, "Too many requests. Please wait a few minutes and try again.");
-  }
+  if (blocked) throw new HttpError(429, "Too many requests. Please wait a few minutes and try again.");
 
   // Best-effort secondary guard; in-memory, so not relied on as the primary control.
   if (!rateLimit(`otp-ip:${req.ip ?? "unknown"}`, 20, SEND_WINDOW_MS)) {
     throw new HttpError(429, "Too many requests. Please wait a few minutes and try again.");
   }
 
-  const code = generateOtp();
-  const codeHash = hashOtp(code, email);
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-  // A resend must invalidate any still-outstanding code so only the newest one can verify.
-  await prisma.emailOtp.updateMany({ where: { email, purpose, consumedAt: null }, data: { consumedAt: new Date() } });
-  const otp = await prisma.emailOtp.create({ data: { email, purpose, codeHash, expiresAt } });
-
-  try {
-    await sendEmail({ to: email, subject: "Verify Your Email - E-Commerce Training Academy", html: otpEmailTemplate(code) });
-  } catch (err) {
-    // Safe to log: provider/config messages only — never the code, API key or recipient's code.
-    console.error("Failed to send verification email:", err instanceof Error ? err.message : err);
-    // The email never went out, so this attempt must not count toward the resend cooldown/quota.
-    await prisma.emailOtp.delete({ where: { id: otp.id } }).catch(() => undefined);
-    throw new HttpError(502, "We couldn't send the verification email right now. Please try again in a moment.");
-  }
-
+  await createAndSendOtp(email, purpose, { subject: "Verify Your Email - E-Commerce Training Academy", html: otpEmailTemplate });
   res.json({ ok: true, retryAfterSeconds: RESEND_COOLDOWN_MS / 1000 });
 }
 
@@ -76,20 +37,7 @@ export async function verifyOtp(req: Request, res: Response) {
     throw new HttpError(429, "Too many attempts. Please request a new code.");
   }
 
-  const otp = await prisma.emailOtp.findFirst({
-    where: { email, purpose, consumedAt: null },
-    orderBy: { createdAt: "desc" },
-  });
-
-  if (!otp || otp.expiresAt < new Date()) throw new HttpError(400, "Code expired. Please request a new one.");
-  if (otp.attempts >= 5) throw new HttpError(400, "Too many incorrect attempts. Please request a new code.");
-
-  if (!hashesMatch(hashOtp(code, email), otp.codeHash)) {
-    await prisma.emailOtp.update({ where: { id: otp.id }, data: { attempts: { increment: 1 } } });
-    throw new HttpError(400, "Incorrect code.");
-  }
-
-  await prisma.emailOtp.update({ where: { id: otp.id }, data: { consumedAt: new Date() } });
+  await consumeOtp(email, purpose, code);
 
   // Replaces the old httpOnly cookie: the client holds this and presents it to /auth/register.
   res.json({ ok: true, verificationToken: signEmailVerificationToken(email) });

@@ -23,6 +23,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         { href: "/dashboard/library", label: "Course Library", icon: "video" },
         ...(owned.has("EBOOK") ? [{ href: "/dashboard/ebooks", label: "E-Books", icon: "bookDown" } as const] : []),
         ...(owned.has("ZOOM") ? [{ href: "/dashboard/live-training", label: "Live Zoom Training", icon: "calendarClock" } as const] : []),
+        { href: "/dashboard/certificates", label: "My Certificates", icon: "award" },
         { href: "/dashboard/referral", label: "Referral & Earnings", icon: "users" },
         { href: "/dashboard/referral/claim", label: "Claim Partner Commission", icon: "handCoins" },
         { href: "/dashboard/activity", label: "Activity", icon: "receipt" },

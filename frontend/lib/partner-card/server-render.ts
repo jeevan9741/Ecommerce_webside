@@ -8,12 +8,12 @@ import { CARD_MM, renderCardBack, renderCardFront, type PartnerCardArt } from ".
 export const EXPORT_DPI = 300;
 
 const PUBLIC_DIR = path.join(process.cwd(), "public");
-const FONT_FILES = ["Poppins-Medium", "Poppins-SemiBold", "Poppins-Bold", "Poppins-ExtraBold", "KaushanScript-Regular"].map(
+export const FONT_FILES = ["Poppins-Medium", "Poppins-SemiBold", "Poppins-Bold", "Poppins-ExtraBold", "KaushanScript-Regular"].map(
   (name) => path.join(PUBLIC_DIR, "fonts", "card", `${name}.ttf`)
 );
 
 let logoDataUrl: Promise<string> | null = null;
-function loadLogo() {
+export function loadLogo() {
   logoDataUrl ??= readFile(path.join(PUBLIC_DIR, "brand", "card-logo.jpg")).then(
     (buf) => `data:image/jpeg;base64,${buf.toString("base64")}`
   );
@@ -35,7 +35,7 @@ function crc32(buf: Buffer) {
 }
 
 /** Inserts a pHYs chunk after IHDR so printing apps size the image at its true DPI. */
-function withDpi(png: Buffer, dpi: number) {
+export function withDpi(png: Buffer, dpi: number) {
   const ppm = Math.round(dpi / 0.0254);
   const data = Buffer.alloc(9);
   data.writeUInt32BE(ppm, 0);

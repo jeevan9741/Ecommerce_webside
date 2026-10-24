@@ -23,6 +23,7 @@ import {
   HandCoins,
   BadgeCheck,
   Clapperboard,
+  Award,
   BookDown,
   CalendarClock,
 } from "lucide-react";
@@ -44,6 +45,7 @@ const ICONS = {
   handCoins: HandCoins,
   badgeCheck: BadgeCheck,
   video: Clapperboard,
+  award: Award,
   bookDown: BookDown,
   calendarClock: CalendarClock,
 } as const;

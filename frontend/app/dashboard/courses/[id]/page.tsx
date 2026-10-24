@@ -4,6 +4,7 @@ import { ApiError } from "@/lib/api";
 import { serverApi } from "@/lib/session";
 import { CoursePlayer } from "@/components/dashboard/course-player";
 import { CourseVideoList } from "@/components/videos/course-video-list";
+import { CourseCertificatePanel } from "@/components/certificates/course-certificate-panel";
 import { EBookLibrary } from "@/components/learning/ebook-library";
 import { LiveSchedule } from "@/components/learning/live-schedule";
 
@@ -39,6 +40,8 @@ export default async function CourseContentPage({ params }: { params: Promise<{ 
     <div>
       <p className="eyebrow">{course.type.replace("_", " ")}</p>
       <h1 className="mt-2 font-display text-2xl font-semibold text-parchment">{course.title}</h1>
+
+      <CourseCertificatePanel courseId={course.id} />
 
       {course.type === "EBOOK" && (
         <section className="mt-8">

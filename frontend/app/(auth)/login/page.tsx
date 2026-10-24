@@ -51,7 +51,12 @@ function LoginForm() {
           />
         </div>
         <div>
-          <label className="label-field">Password</label>
+          <div className="flex items-baseline justify-between">
+            <label className="label-field">Password</label>
+            <Link href="/forgot-password" className="text-xs font-medium text-gold-500 hover:text-gold-400">
+              Forgot password?
+            </Link>
+          </div>
           <PasswordInput
             value={password}
             onChange={(e) => setPassword(e.target.value)}
