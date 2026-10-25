@@ -4,9 +4,9 @@
  * so the real ₹349 / ₹999 packages and customers are never touched. Needs the dev DATABASE_URL and
  * the EBook/LiveSession migration.
  *
- * The admin upload/replace/remove round-trip writes real files, so it runs ONLY against an isolated
- * Blob store: set TEST_BLOB_READ_WRITE_TOKEN to a token of a separate (test) store. It refuses to run
- * if that token belongs to the same store as BLOB_READ_WRITE_TOKEN, which is shared with production.
+ * Tests 3b and 8b use real Blob storage, so they run ONLY when blob-test-store has pinned this run to
+ * a positively identified, test-only store (TEST_BLOB_READ_WRITE_TOKEN + TEST_BLOB_STORE_ID); otherwise
+ * they skip, or fail if that configuration is refused. They never use the production store.
  */
 import "./local-db-guard.js"; // first: refuses to run against a non-local (production) database
 import { after, before, describe, test } from "node:test";
@@ -18,6 +18,7 @@ import { createApp } from "../src/app.js";
 import { prisma } from "../src/config/prisma.js";
 import { signSessionToken } from "../src/utils/tokens.js";
 import { getDownloadUrl, statObject, uploadBuffer } from "../src/services/storage.service.js";
+import { assertRealBlobAllowed, realBlobSkip } from "./blob-test-store.js";
 
 const run = randomBytes(4).toString("hex");
 const tag = `zz-test-${run}`;
@@ -202,7 +203,8 @@ describe("e-books", () => {
     }
   });
 
-  test("3b. signed links expire, and tampered or unsigned links are refused by the store", { skip: !process.env.BLOB_READ_WRITE_TOKEN && "needs BLOB_READ_WRITE_TOKEN" }, async () => {
+  test("3b. signed links expire, and tampered or unsigned links are refused by the store", { skip: realBlobSkip }, async () => {
+    assertRealBlobAllowed();
     // Read-only probes of a key that doesn't exist: a valid signature reaches the lookup (404),
     // anything else is refused before it (403).
     const key = `ebooks/${tag}-expiry-probe.pdf`;
@@ -312,15 +314,9 @@ describe("e-books", () => {
     assert.equal((await call("POST", "/admin/ebooks", tokens.admin, { title: "x", courseId: ebookCourse, languageId, storageKey: "course-videos/x.mp4", fileName: "x.pdf" })).status, 400);
   });
 
-  test("8b. admins upload, replace and remove e-books (Blob round-trip)", { skip: !process.env.TEST_BLOB_READ_WRITE_TOKEN && "needs an isolated store: set TEST_BLOB_READ_WRITE_TOKEN" }, async () => {
-    const storeOf = (token = "") => /^vercel_blob_rw_([A-Za-z0-9]+)_/.exec(token)?.[1] ?? null;
-    const testStore = storeOf(process.env.TEST_BLOB_READ_WRITE_TOKEN);
-    assert.ok(testStore, "TEST_BLOB_READ_WRITE_TOKEN isn't a Blob read-write token");
-    assert.notEqual(testStore, storeOf(process.env.BLOB_READ_WRITE_TOKEN), "refusing to write: the test token points at the main (production) store");
-    const mainToken = process.env.BLOB_READ_WRITE_TOKEN;
-    // Every storage call below (server-side upload, verification, deletion, signing) uses the test store.
-    process.env.BLOB_READ_WRITE_TOKEN = process.env.TEST_BLOB_READ_WRITE_TOKEN;
-    try {
+  test("8b. admins upload, replace and remove e-books (Blob round-trip)", { skip: realBlobSkip }, async () => {
+    assertRealBlobAllowed();
+    {
       const pdf = Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
       const k1 = `ebooks/${tag}-one.pdf`;
       const k2 = `ebooks/${tag}-two.pdf`;
@@ -354,8 +350,6 @@ describe("e-books", () => {
       assert.equal((await call("DELETE", `/admin/ebooks/${id}`, tokens.admin)).status, 200);
       assert.equal(await statObject(k2), null, "the removed e-book's file is deleted");
       assert.equal((await call("POST", `/me/ebooks/${id}/download`, tokens.buyer)).status, 404);
-    } finally {
-      process.env.BLOB_READ_WRITE_TOKEN = mainToken;
     }
   });
 });

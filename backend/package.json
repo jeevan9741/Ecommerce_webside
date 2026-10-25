@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --experimental-test-module-mocks --import tsx --import ./tests/blob-offline-mock.ts --test --test-concurrency=1 \"tests/*.test.ts\"",
+    "test": "node --experimental-test-module-mocks --import tsx --import ./tests/blob-test-store.ts --test --test-concurrency=1 \"tests/*.test.ts\"",
     "test:unit": "node --import tsx --test \"tests/learning-rules.test.ts\"",
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate deploy",

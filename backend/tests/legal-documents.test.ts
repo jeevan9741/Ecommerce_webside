@@ -1,8 +1,8 @@
 /**
  * Company legal documents: admin management, customer access to published PDFs only, and the
  * guards around both. Rows are inserted directly where no file is needed; the upload round-trip
- * writes real files, so it runs ONLY with TEST_BLOB_READ_WRITE_TOKEN for a separate (test) store and
- * refuses the main store, which is shared with production. Everything is prefixed "zz-test-".
+ * writes real files, so it runs ONLY when blob-test-store has pinned this run to a positively
+ * identified, test-only store — never the production one. Everything is prefixed "zz-test-".
  */
 import "./local-db-guard.js"; // first: refuses to run against a non-local (production) database
 import { after, before, test } from "node:test";
@@ -14,6 +14,7 @@ import { createApp } from "../src/app.js";
 import { prisma } from "../src/config/prisma.js";
 import { signSessionToken } from "../src/utils/tokens.js";
 import { statObject, uploadBuffer } from "../src/services/storage.service.js";
+import { assertRealBlobAllowed, realBlobSkip } from "./blob-test-store.js";
 
 const tag = `zz-test-${randomBytes(4).toString("hex")}`;
 let server: Server;
@@ -205,14 +206,9 @@ test("admins delete a document; customers lose it at once", async () => {
   assert.equal((await call("DELETE", `/admin/legal-documents/${doomed}`, tokens.admin)).status, 404);
 });
 
-test("upload, reject a fake PDF, replace and delete (Blob round-trip)", { skip: !process.env.TEST_BLOB_READ_WRITE_TOKEN && "needs an isolated store: set TEST_BLOB_READ_WRITE_TOKEN" }, async () => {
-  const storeOf = (token = "") => /^vercel_blob_rw_([A-Za-z0-9]+)_/.exec(token)?.[1] ?? null;
-  const testStore = storeOf(process.env.TEST_BLOB_READ_WRITE_TOKEN);
-  assert.ok(testStore, "TEST_BLOB_READ_WRITE_TOKEN isn't a Blob read-write token");
-  assert.notEqual(testStore, storeOf(process.env.BLOB_READ_WRITE_TOKEN), "refusing to write: the test token points at the main (production) store");
-  const mainToken = process.env.BLOB_READ_WRITE_TOKEN;
-  process.env.BLOB_READ_WRITE_TOKEN = process.env.TEST_BLOB_READ_WRITE_TOKEN;
-  try {
+test("upload, reject a fake PDF, replace and delete (Blob round-trip)", { skip: realBlobSkip }, async () => {
+  assertRealBlobAllowed();
+  {
     const pdf = Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
     const [k1, k2, fake] = ["one", "two", "fake"].map((n) => `legal-documents/${tag}-${n}.pdf`);
     await uploadBuffer(k1, pdf, "application/pdf");
@@ -238,7 +234,5 @@ test("upload, reject a fake PDF, replace and delete (Blob round-trip)", { skip: 
 
     assert.equal((await call("DELETE", `/admin/legal-documents/${id}`, tokens.admin)).status, 200);
     assert.equal(await statObject(k2), null, "the deleted document's file is removed");
-  } finally {
-    process.env.BLOB_READ_WRITE_TOKEN = mainToken;
   }
 });

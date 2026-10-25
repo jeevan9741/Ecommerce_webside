@@ -5,6 +5,8 @@
  * ALLOW_REMOTE_TEST_DATABASE to that database's host name.
  */
 import "dotenv/config";
+// Before the app loads: decides which Blob store (if any) this run may touch — see blob-test-store.
+import "./blob-test-store.js";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
