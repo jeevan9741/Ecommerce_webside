@@ -15,14 +15,19 @@ export function razorpayMode(keyId = env.razorpay.keyId): RazorpayMode {
   return "unknown";
 }
 
+const normaliseEndpoint = (id: string) => id.trim().toLowerCase().replace(/-pooler$/, "");
+
 /**
- * Neon endpoint IDs of the live database (the first label of its hostname, without "-pooler").
- * Override with PRODUCTION_DATABASE_ENDPOINTS (comma-separated) if the database moves.
+ * Neon endpoint IDs of databases holding real customer data: ep-rapid-fog is the live production
+ * database; ep-frosty-resonance is an older copy of it. PRODUCTION_DATABASE_ENDPOINTS (comma-separated)
+ * ADDS endpoints, e.g. when the database moves. It can't remove these two, so an empty, stale or
+ * mistyped value never switches the guard off for the live database.
  */
-const PRODUCTION_DATABASE_ENDPOINTS = (process.env.PRODUCTION_DATABASE_ENDPOINTS ?? "ep-frosty-resonance-arjo65c1")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
+const PRODUCTION_DATABASE_ENDPOINTS = new Set(
+  ["ep-rapid-fog-ar2sy1xy", "ep-frosty-resonance-arjo65c1", ...(process.env.PRODUCTION_DATABASE_ENDPOINTS ?? "").split(",")]
+    .map(normaliseEndpoint)
+    .filter(Boolean)
+);
 
 export function databaseHost(databaseUrl = env.databaseUrl) {
   try {
@@ -32,9 +37,24 @@ export function databaseHost(databaseUrl = env.databaseUrl) {
   }
 }
 
+/**
+ * Endpoint IDs a connection string can address: the first label of the hostname, and — Neon's
+ * fallback for clients without SNI — an `endpoint=` inside the `options` parameter.
+ */
+function databaseEndpoints(databaseUrl: string) {
+  const ids = [databaseHost(databaseUrl).split(".")[0]];
+  try {
+    const options = new URL(databaseUrl).searchParams.get("options") ?? "";
+    const m = /(?:^|\s)endpoint=([a-z0-9-]+)/i.exec(options);
+    if (m) ids.push(m[1]);
+  } catch {
+    // unparseable URL: nothing more to find
+  }
+  return ids.map(normaliseEndpoint).filter(Boolean);
+}
+
 export function isProductionDatabase(databaseUrl = env.databaseUrl) {
-  const endpoint = databaseHost(databaseUrl).split(".")[0].replace(/-pooler$/, "");
-  return PRODUCTION_DATABASE_ENDPOINTS.includes(endpoint);
+  return databaseEndpoints(databaseUrl).some((id) => PRODUCTION_DATABASE_ENDPOINTS.has(id));
 }
 
 /** Why payments must not be processed in this configuration, or null when they may. */
