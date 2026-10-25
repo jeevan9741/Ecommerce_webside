@@ -675,6 +675,39 @@ model CourseCertificate {
   @@index([courseId])
 }
 
+/// Kinds of company document shown in the customer dashboard. OTHER covers any further verified
+/// business/legal document; the title then says what it is.
+enum LegalDocumentType {
+  COMPANY_REGISTRATION
+  GST_REGISTRATION
+  COMPANY_PAN
+  MSME_UDYAM
+  TERMS_AND_CONDITIONS
+  PRIVACY_POLICY
+  OTHER
+}
+
+/// A company legal document (PDF) uploaded by an admin. Stored privately and served to customers
+/// only while published, through short-lived signed links. Unpublished by default: the owner
+/// decides when each file is shown.
+model LegalDocument {
+  id           String            @id @default(cuid())
+  title        String
+  type         LegalDocumentType
+  description  String?
+  /// Original filename, shown to admins and used as the download name.
+  fileName     String
+  storageKey   String            @unique
+  sizeBytes    BigInt
+  isPublished  Boolean           @default(false)
+  publishedAt  DateTime?
+  displayOrder Int               @default(0)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([isPublished, displayOrder])
+}
+
 model JobPosting {
   id           String   @id @default(cuid())
   title        String

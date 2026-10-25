@@ -26,6 +26,7 @@ import {
   Award,
   BookDown,
   CalendarClock,
+  FileCheck2,
 } from "lucide-react";
 import { LogoMark } from "@/components/logo";
 
@@ -48,6 +49,7 @@ const ICONS = {
   award: Award,
   bookDown: BookDown,
   calendarClock: CalendarClock,
+  fileCheck: FileCheck2,
 } as const;
 
 export type DashboardIconName = keyof typeof ICONS;
