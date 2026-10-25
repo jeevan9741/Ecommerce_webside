@@ -218,7 +218,6 @@ export function renderCertificate(c: CertificateArt, opts: CertificateRenderOpti
     website = "";
   }
 
-  // Student name: large faux-italic Poppins Bold, shrunk (then condensed) to fit the white centre.
   // Student name: large faux-italic Poppins Bold. It shrinks to fit the white centre; a name too
   // long for one line even at 60% splits into two balanced lines instead of being squeezed.
   const nameMax = 1640;
