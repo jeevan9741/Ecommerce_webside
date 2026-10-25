@@ -55,6 +55,7 @@ router.put("/admin/settings", asyncHandler(ops.saveSetting));
 router.get("/admin/courses", asyncHandler(course.listCourses));
 router.post("/admin/courses", asyncHandler(course.createCourse));
 router.patch("/admin/courses/:id", asyncHandler(course.updateCourse));
+router.get("/admin/courses/:id/enrolment-summary", asyncHandler(course.courseEnrolmentSummary));
 router.delete("/admin/courses/:id", asyncHandler(course.deactivateCourse));
 
 // Per-language course content
