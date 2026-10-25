@@ -209,7 +209,8 @@ describe("e-books", () => {
     // anything else is refused before it (403).
     const key = `ebooks/${tag}-expiry-probe.pdf`;
     const fresh = await getDownloadUrl(key, 300);
-    const short = await getDownloadUrl(key, 1);
+    // 2s, not 1s: the store rejects a link whose expiry has passed by the time signing completes.
+    const short = await getDownloadUrl(key, 2);
     assert.equal((await fetch(fresh)).status, 404, "a valid link passes the signature check");
     await new Promise((r) => setTimeout(r, 4000));
     assert.equal((await fetch(short)).status, 403, "an expired link is refused");
