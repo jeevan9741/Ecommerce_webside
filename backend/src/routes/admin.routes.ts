@@ -8,6 +8,7 @@ import * as partnerCard from "../controllers/partner-card.controller.js";
 import * as video from "../controllers/video.controller.js";
 import * as category from "../controllers/category.controller.js";
 import * as ebook from "../controllers/ebook.controller.js";
+import * as legalDocument from "../controllers/legal-document.controller.js";
 import * as liveSession from "../controllers/live-session.controller.js";
 
 const router = Router();
@@ -105,6 +106,14 @@ router.get("/admin/ebooks", asyncHandler(ebook.adminListEBooks));
 router.post("/admin/ebooks", asyncHandler(ebook.adminCreateEBook));
 router.patch("/admin/ebooks/:id", asyncHandler(ebook.adminUpdateEBook));
 router.delete("/admin/ebooks/:id", asyncHandler(ebook.adminDeleteEBook));
+
+router.post("/admin/legal-documents/upload-token", asyncHandler(legalDocument.createLegalDocumentUploadToken));
+router.post("/admin/legal-documents/discard-upload", asyncHandler(legalDocument.adminDiscardLegalDocumentUpload));
+router.get("/admin/legal-documents", asyncHandler(legalDocument.adminListLegalDocuments));
+router.post("/admin/legal-documents", asyncHandler(legalDocument.adminCreateLegalDocument));
+router.patch("/admin/legal-documents/:id", asyncHandler(legalDocument.adminUpdateLegalDocument));
+router.delete("/admin/legal-documents/:id", asyncHandler(legalDocument.adminDeleteLegalDocument));
+router.get("/admin/legal-documents/:id/preview", asyncHandler(legalDocument.adminPreviewLegalDocument));
 
 // Live Zoom sessions
 router.get("/admin/live-sessions", asyncHandler(liveSession.adminListLiveSessions));

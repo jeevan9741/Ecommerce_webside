@@ -24,6 +24,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         ...(owned.has("EBOOK") ? [{ href: "/dashboard/ebooks", label: "E-Books", icon: "bookDown" } as const] : []),
         ...(owned.has("ZOOM") ? [{ href: "/dashboard/live-training", label: "Live Zoom Training", icon: "calendarClock" } as const] : []),
         { href: "/dashboard/certificates", label: "My Certificates", icon: "award" },
+        { href: "/dashboard/legal-documents", label: "Company Legal Documents", icon: "fileCheck" },
         { href: "/dashboard/referral", label: "Referral & Earnings", icon: "users" },
         { href: "/dashboard/referral/claim", label: "Claim Partner Commission", icon: "handCoins" },
         { href: "/dashboard/activity", label: "Activity", icon: "receipt" },
