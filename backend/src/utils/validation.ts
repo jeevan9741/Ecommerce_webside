@@ -107,6 +107,30 @@ export const courseSchema = z.object({
   metadata: z.record(z.string(), z.any()).optional(),
 });
 
+/**
+ * PATCH body: omitted fields stay as they are. `isActive` has no default here — with the create
+ * schema's `.default(true)`, `.partial()` would re-activate a package on every edit that left it out.
+ * `metadata` is a patch merged onto the stored object (see mergeCourseMetadata).
+ */
+export const courseUpdateSchema = courseSchema.extend({ isActive: z.boolean() }).partial();
+
+const centreText = (max: number) => z.string().trim().max(max).nullable().optional();
+
+/**
+ * Details an admin configures for an offline centre (CENTRE) package, stored in Course.metadata and
+ * shown to buyers. Each key is optional (left unchanged); null or "" clears it.
+ */
+export const centreMetadataSchema = z
+  .object({
+    address: centreText(500),
+    mapUrl: z.union([z.url({ protocol: /^https?$/, message: "Map link must be an http(s) URL" }).max(1000), z.literal(""), z.null()]).optional(),
+    dates: centreText(300),
+    schedule: centreText(2000),
+    inclusions: centreText(1000),
+    notes: centreText(2000),
+  })
+  .strict();
+
 export const moduleSchema = z.object({
   title: z.string().min(1).max(150),
   displayOrder: z.number().int().optional(),

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../config/prisma.js";
 import {
   courseSchema,
+  courseUpdateSchema,
   courseLanguageVideoSchema,
   languageSchema,
   lessonSchema,
@@ -10,6 +11,8 @@ import {
 } from "../utils/validation.js";
 import { buildStorageKey, deleteObject, getDownloadUrl, getUploadUrl } from "../services/storage.service.js";
 import { HttpError, param } from "../utils/http.js";
+import { mergeCourseMetadata } from "../utils/course-metadata.js";
+import { currentUser } from "../middleware/auth.middleware.js";
 
 function cleanupBlob(key: string, label: string) {
   return deleteObject(key).catch((err) => console.error(`Failed to delete ${label} blob:`, err));
@@ -37,10 +40,46 @@ export async function createCourse(req: Request, res: Response) {
 }
 
 export async function updateCourse(req: Request, res: Response) {
-  const parsed = courseSchema.partial().safeParse(req.body);
-  if (!parsed.success) throw new HttpError(400, "Invalid request");
-  const course = await prisma.course.update({ where: { id: param(req, "id") }, data: parsed.data });
+  const admin = currentUser(req);
+  const parsed = courseUpdateSchema.safeParse(req.body);
+  if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? "Invalid request");
+  const id = param(req, "id");
+  const { metadata, ...fields } = parsed.data;
+
+  const { course, before } = await prisma.$transaction(async (tx) => {
+    const before = await tx.course.findUnique({ where: { id }, select: { type: true, metadata: true, priceInPaise: true, isActive: true } });
+    if (!before) throw new HttpError(404, "Course not found");
+    const data = metadata ? { ...fields, metadata: mergeCourseMetadata(before.metadata, metadata, fields.type ?? before.type) } : fields;
+    return { course: await tx.course.update({ where: { id }, data }), before };
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      actorId: admin.id,
+      action: "COURSE_UPDATED",
+      target: id,
+      metadata: {
+        fields: Object.keys(parsed.data),
+        ...(fields.priceInPaise !== undefined && fields.priceInPaise !== before.priceInPaise ? { priceFrom: before.priceInPaise, priceTo: fields.priceInPaise } : {}),
+        ...(fields.isActive !== undefined && fields.isActive !== before.isActive ? { isActive: fields.isActive } : {}),
+      },
+    },
+  });
   res.json({ course });
+}
+
+/** Read-only sales picture for one package: orders by status and live vs revoked access. */
+export async function courseEnrolmentSummary(req: Request, res: Response) {
+  const courseId = param(req, "id");
+  const [orders, activeAccess, revokedAccess] = await Promise.all([
+    prisma.order.groupBy({ by: ["status"], where: { courseId }, _count: { _all: true } }),
+    prisma.courseAccess.count({ where: { courseId, revokedAt: null } }),
+    prisma.courseAccess.count({ where: { courseId, revokedAt: { not: null } } }),
+  ]);
+  res.json({
+    orders: Object.fromEntries(orders.map((o) => [o.status, o._count._all])),
+    access: { active: activeAccess, revoked: revokedAccess },
+  });
 }
 
 /** Soft delete — keeps order history and access records intact. */

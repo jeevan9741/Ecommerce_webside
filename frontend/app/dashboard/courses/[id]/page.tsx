@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation";
-import { Calendar, MapPin, Utensils } from "lucide-react";
 import { ApiError } from "@/lib/api";
 import { serverApi } from "@/lib/session";
 import { CoursePlayer } from "@/components/dashboard/course-player";
@@ -7,6 +6,7 @@ import { CourseVideoList } from "@/components/videos/course-video-list";
 import { CourseCertificatePanel } from "@/components/certificates/course-certificate-panel";
 import { EBookLibrary } from "@/components/learning/ebook-library";
 import { LiveSchedule } from "@/components/learning/live-schedule";
+import { CentreDetails } from "@/components/learning/centre-details";
 
 interface CourseAccess {
   languageGranted: string | null;
@@ -16,12 +16,6 @@ interface CourseAccess {
     type: "EBOOK" | "VIDEO" | "ZOOM" | "CENTRE";
     metadata: unknown;
   };
-}
-
-interface CentreMeta {
-  address?: string;
-  dates?: string;
-  notes?: string;
 }
 
 export default async function CourseContentPage({ params }: { params: Promise<{ id: string }> }) {
@@ -64,41 +58,11 @@ export default async function CourseContentPage({ params }: { params: Promise<{ 
       )}
 
       {course.type === "CENTRE" && (
-        <CentreDetails meta={(course.metadata as CentreMeta) ?? {}} />
+        <CentreDetails metadata={course.metadata} />
       )}
 
       {/* Original course videos uploaded by the academy (any course type can have them). */}
       <CourseVideoList courseId={course.id} />
-    </div>
-  );
-}
-
-function CentreDetails({ meta }: { meta: CentreMeta }) {
-  return (
-    <div className="mt-8 space-y-4">
-      <div className="card p-6">
-        <div className="mb-2 flex items-center gap-2">
-          <MapPin className="h-5 w-5 text-gold-500" />
-          <h3 className="font-semibold text-parchment">Academy Centre Address</h3>
-        </div>
-        <p className="text-sm text-parchment-muted">{meta.address ?? "Rayadurgam, Andhra Pradesh, India"}</p>
-      </div>
-      <div className="card p-6">
-        <div className="mb-2 flex items-center gap-2">
-          <Calendar className="h-5 w-5 text-gold-500" />
-          <h3 className="font-semibold text-parchment">Your Batch Dates</h3>
-        </div>
-        <p className="text-sm text-parchment-muted">{meta.dates ?? "Dates will be confirmed by our team shortly."}</p>
-      </div>
-      <div className="card p-6">
-        <div className="mb-2 flex items-center gap-2">
-          <Utensils className="h-5 w-5 text-gold-500" />
-          <h3 className="font-semibold text-parchment">Room &amp; Food</h3>
-        </div>
-        <p className="text-sm text-parchment-muted">
-          Complimentary accommodation and meals are included for the full 3-day program.
-        </p>
-      </div>
     </div>
   );
 }
