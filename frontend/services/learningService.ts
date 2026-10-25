@@ -17,12 +17,15 @@ export interface StudentEBook {
   sizeBytes: number;
   course: { id: string; title: string };
   category: { name: string } | null;
+  /** Null on e-books uploaded before languages were recorded. */
+  language: { code: string; name: string } | null;
   updatedAt: string;
 }
 
 export interface AdminEBook extends StudentEBook {
   courseId: string;
   categoryId: string | null;
+  languageId: string | null;
   fileName: string;
   mimeType: string;
   displayOrder: number;
@@ -35,6 +38,7 @@ export interface EBookEdit {
   description?: string | null;
   courseId?: string;
   categoryId?: string | null;
+  languageId?: string;
   isPublished?: boolean;
   displayOrder?: number;
   /** A new upload replaces the file (send with fileName). */
@@ -109,7 +113,7 @@ export const learningService = {
     api.post<{ pathname: string; clientToken: string; access: "private" }>("/admin/ebooks/upload-token", body),
   discardEBookUpload: (key: string) => api.post<{ ok: true }>("/admin/ebooks/discard-upload", { key }),
   adminEBooks: (courseId?: string) => api.get<{ ebooks: AdminEBook[] }>(withCourse("/admin/ebooks", courseId)),
-  createEBook: (body: EBookEdit & { title: string; courseId: string; storageKey: string; fileName: string }) =>
+  createEBook: (body: EBookEdit & { title: string; courseId: string; languageId: string; storageKey: string; fileName: string }) =>
     api.post<{ ebook: AdminEBook }>("/admin/ebooks", body),
   updateEBook: (id: string, body: EBookEdit) => api.patch<{ ebook: AdminEBook }>(`/admin/ebooks/${id}`, body),
   removeEBook: (id: string) => api.delete<{ ok: true }>(`/admin/ebooks/${id}`),

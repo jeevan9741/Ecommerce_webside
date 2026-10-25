@@ -129,7 +129,7 @@ export default function AdminVideosPage() {
         {tab === "demo" && (
           <DemoVideosPanel languages={languages} push={push} />
         )}
-        {tab === "ebooks" && <EBooksPanel courses={courses} categories={categories ?? []} push={push} />}
+        {tab === "ebooks" && <EBooksPanel courses={courses} categories={categories ?? []} languages={languages} push={push} />}
         {tab === "live" && <LiveSessionsPanel courses={courses} push={push} />}
       </div>
       <ToastStack toasts={toasts} onDismiss={dismiss} />

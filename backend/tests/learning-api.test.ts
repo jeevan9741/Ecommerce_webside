@@ -29,6 +29,7 @@ const tokens = { buyer: "", refunded: "", stranger: "", admin: "", pending: "", 
 let ebookCourse = "";
 let zoomCourse = "";
 let otherCourse = "";
+let languageId = "";
 
 async function makeUser(name: string, role: "USER" | "ADMIN" = "USER") {
   const u = await prisma.user.create({
@@ -107,6 +108,7 @@ before(async () => {
   await new Promise((r) => server.once("listening", r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
+  languageId = (await prisma.language.create({ data: { code: `zz${run}`, name: "Test Hindi", nativeName: "हिन्दी" } })).id;
   ebookCourse = await makeCourse("EBOOK", 34900);
   zoomCourse = await makeCourse("ZOOM", 99900);
   otherCourse = await makeCourse("EBOOK", 11100);
@@ -139,6 +141,7 @@ after(async () => {
   await prisma.order.deleteMany({ where: { userId: { in: ids.users } } });
   await prisma.course.deleteMany({ where: { id: { in: ids.courses } } });
   await prisma.user.deleteMany({ where: { id: { in: ids.users } } });
+  await prisma.language.deleteMany({ where: { id: languageId } });
   await prisma.$disconnect();
   server.close();
 });
@@ -259,6 +262,43 @@ describe("e-books", () => {
     assert.equal((await call("PATCH", "/admin/ebooks/no-such-id", tokens.admin, { title: "x y" })).status, 404);
   });
 
+  test("3e. e-book language: required on upload, validated, saved and shown; access unchanged", async () => {
+    // Checked before the uploaded file is looked at (this run has no storage: reaching it would 500).
+    const upload = { title: "Hindi guide", courseId: ebookCourse, storageKey: `ebooks/${tag}-new.pdf`, fileName: "new.pdf" };
+    const missing = await call("POST", "/admin/ebooks", tokens.admin, upload);
+    assert.equal(missing.status, 400, missing.raw);
+    assert.match(missing.body.error, /Choose a language/);
+    const unknown = await call("POST", "/admin/ebooks", tokens.admin, { ...upload, languageId: "no-such-language" });
+    assert.equal(unknown.status, 400, unknown.raw);
+    assert.match(unknown.body.error, /language doesn't exist/);
+    assert.equal(await prisma.eBook.count({ where: { storageKey: upload.storageKey } }), 0, "nothing is saved");
+
+    // Set on an existing e-book (edit form), then shown to admins and buyers.
+    const set = await call("PATCH", `/admin/ebooks/${ebookId}`, tokens.admin, { languageId });
+    assert.equal(set.status, 200, set.raw);
+    assert.equal(set.body.ebook.languageId, languageId);
+    assert.deepEqual(set.body.ebook.language, { code: `zz${run}`, name: "Test Hindi" });
+    assert.equal((await prisma.eBook.findUniqueOrThrow({ where: { id: ebookId } })).languageId, languageId, "stored as the language's id");
+
+    for (const bad of [null, "", "no-such-language"]) {
+      assert.equal((await call("PATCH", `/admin/ebooks/${ebookId}`, tokens.admin, { languageId: bad })).status, 400, `languageId ${JSON.stringify(bad)} is refused`);
+    }
+    assert.equal((await prisma.eBook.findUniqueOrThrow({ where: { id: ebookId } })).languageId, languageId, "a refused edit changes nothing");
+
+    const adminList = (await call("GET", `/admin/ebooks?courseId=${ebookCourse}`, tokens.admin)).body.ebooks as { id: string; languageId: string | null }[];
+    assert.equal(adminList.find((e) => e.id === ebookId)?.languageId, languageId);
+    const mine = (await call("GET", "/me/ebooks", tokens.buyer)).body.ebooks as { id: string; language: { name: string } | null }[];
+    assert.equal(mine.find((e) => e.id === ebookId)?.language?.name, "Test Hindi", "buyers see the language");
+    assert.ok(!JSON.stringify(mine).includes(languageId), "students get the name, not internal ids");
+    const legacy = await call("GET", `/me/ebooks?courseId=${otherCourse}`, tokens.admin);
+    assert.equal(legacy.body.ebooks[0].language, null, "e-books from before languages still list, with no language");
+
+    // Language is display-only: downloads and paid access are exactly as before.
+    assert.equal((await call("POST", `/me/ebooks/${ebookId}/download`, tokens.buyer)).status, 200);
+    assert.equal((await call("POST", `/me/ebooks/${ebookId}/download`, tokens.stranger)).status, 403);
+    assert.equal((await call("POST", `/me/ebooks/${ebookId}/download`, tokens.refunded)).status, 403);
+  });
+
   test("8a. upload tokens enforce type, extension and size", async () => {
     const ok = await call("POST", "/admin/ebooks/upload-token", tokens.admin, { filename: "Guide.pdf", contentType: "application/pdf", sizeBytes: 1000 });
     if (process.env.BLOB_READ_WRITE_TOKEN) {
@@ -269,7 +309,7 @@ describe("e-books", () => {
     assert.equal((await call("POST", "/admin/ebooks/upload-token", tokens.admin, { filename: "a.exe", contentType: "application/x-msdownload", sizeBytes: 10 })).status, 400);
     assert.equal((await call("POST", "/admin/ebooks/upload-token", tokens.admin, { filename: "a.epub", contentType: "application/pdf", sizeBytes: 10 })).status, 400);
     assert.equal((await call("POST", "/admin/ebooks/upload-token", tokens.admin, { filename: "a.pdf", contentType: "application/pdf", sizeBytes: 101 * 1024 ** 2 })).status, 400);
-    assert.equal((await call("POST", "/admin/ebooks", tokens.admin, { title: "x", courseId: ebookCourse, storageKey: "course-videos/x.mp4", fileName: "x.pdf" })).status, 400);
+    assert.equal((await call("POST", "/admin/ebooks", tokens.admin, { title: "x", courseId: ebookCourse, languageId, storageKey: "course-videos/x.mp4", fileName: "x.pdf" })).status, 400);
   });
 
   test("8b. admins upload, replace and remove e-books (Blob round-trip)", { skip: !process.env.TEST_BLOB_READ_WRITE_TOKEN && "needs an isolated store: set TEST_BLOB_READ_WRITE_TOKEN" }, async () => {
@@ -289,18 +329,20 @@ describe("e-books", () => {
       await uploadBuffer(k2, pdf, "application/pdf");
       await uploadBuffer(fake, Buffer.from("<html>not a pdf</html>"), "application/pdf");
 
-      const bad = await call("POST", "/admin/ebooks", tokens.admin, { title: "Fake", courseId: ebookCourse, storageKey: fake, fileName: "fake.pdf" });
+      const bad = await call("POST", "/admin/ebooks", tokens.admin, { title: "Fake", courseId: ebookCourse, languageId, storageKey: fake, fileName: "fake.pdf" });
       assert.equal(bad.status, 400, bad.raw);
       assert.equal(await statObject(fake), null, "a rejected upload is deleted from storage");
 
-      const created = await call("POST", "/admin/ebooks", tokens.admin, { title: "Round trip", courseId: ebookCourse, storageKey: k1, fileName: "one.pdf" });
+      const created = await call("POST", "/admin/ebooks", tokens.admin, { title: "Round trip", courseId: ebookCourse, languageId, storageKey: k1, fileName: "one.pdf" });
       assert.equal(created.status, 201, created.raw);
       const id = created.body.ebook.id;
       assert.equal(created.body.ebook.format, "PDF");
+      assert.equal(created.body.ebook.languageId, languageId, "the chosen language is saved with the upload");
 
       const replaced = await call("PATCH", `/admin/ebooks/${id}`, tokens.admin, { storageKey: k2, fileName: "two.pdf" });
       assert.equal(replaced.status, 200, replaced.raw);
       assert.equal(replaced.body.ebook.fileName, "two.pdf");
+      assert.equal(replaced.body.ebook.languageId, languageId, "replacing the file keeps the language");
       assert.equal(await statObject(k1), null, "the replaced file is deleted");
 
       const dl = await call("POST", `/me/ebooks/${id}/download`, tokens.buyer);

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { put } from "@vercel/blob/client";
 import { Download, Eye, EyeOff, FileText, Loader2, Pencil, Plus, RefreshCw, Trash2, UploadCloud } from "lucide-react";
 import { Modal } from "@/components/admin/modal";
-import { UploadProgressPanel, errorText, useWarnBeforeUnload, type Push } from "@/components/admin/video-shared";
+import { LanguageSelect, UploadProgressPanel, errorText, useWarnBeforeUnload, type AdminLanguage, type Push } from "@/components/admin/video-shared";
 import type { UploadProgress } from "@/lib/video-upload";
 import { formatDate, formatInr } from "@/lib/format";
 import { formatBytes } from "@/services/videoService";
@@ -40,7 +40,17 @@ async function uploadEBookFile(file: File, contentType: string, onProgress: (p: 
 
 const packageLabel = (p: PackageOption) => `${p.title}${p.priceInPaise !== undefined ? ` — ${formatInr(p.priceInPaise)}` : ""}${p.isActive ? "" : " (inactive)"}`;
 
-export function EBooksPanel({ courses, categories, push }: { courses: PackageOption[]; categories: AdminCategory[]; push: Push }) {
+export function EBooksPanel({
+  courses,
+  categories,
+  languages,
+  push,
+}: {
+  courses: PackageOption[];
+  categories: AdminCategory[];
+  languages: AdminLanguage[];
+  push: Push;
+}) {
   const [ebooks, setEbooks] = useState<AdminEBook[] | null>(null);
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -155,7 +165,7 @@ export function EBooksPanel({ courses, categories, push }: { courses: PackageOpt
                     </p>
                     <p className="mt-0.5 text-xs text-parchment-muted [overflow-wrap:anywhere]">
                       {e.course.title}
-                      {e.category && <> · {e.category.name}</>} · {e.format} · {formatBytes(e.sizeBytes)} · {e.fileName} · updated {formatDate(e.updatedAt)}
+                      {e.category && <> · {e.category.name}</>} · {e.language ? e.language.name : <span className="text-danger">No language set</span>} · {e.format} · {formatBytes(e.sizeBytes)} · {e.fileName} · updated {formatDate(e.updatedAt)}
                     </p>
                   </div>
                 </div>
@@ -198,6 +208,7 @@ export function EBooksPanel({ courses, categories, push }: { courses: PackageOpt
           ebook={editing === "new" ? null : editing}
           courses={courses}
           categories={categories}
+          languages={languages}
           defaultCourse={filter || defaultCourse}
           onClose={() => setEditing(null)}
           onSaved={(message) => {
@@ -215,6 +226,7 @@ function EBookForm({
   ebook,
   courses,
   categories,
+  languages,
   defaultCourse,
   onClose,
   onSaved,
@@ -222,6 +234,7 @@ function EBookForm({
   ebook: AdminEBook | null;
   courses: PackageOption[];
   categories: AdminCategory[];
+  languages: AdminLanguage[];
   defaultCourse: string;
   onClose: () => void;
   onSaved: (message: string) => void;
@@ -230,6 +243,7 @@ function EBookForm({
   const [description, setDescription] = useState(ebook?.description ?? "");
   const [courseId, setCourseId] = useState(ebook?.courseId ?? defaultCourse);
   const [categoryId, setCategoryId] = useState(ebook?.categoryId ?? "");
+  const [languageId, setLanguageId] = useState(ebook?.languageId ?? "");
   const [isPublished, setIsPublished] = useState(ebook?.isPublished ?? true);
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -259,6 +273,7 @@ function EBookForm({
     setError(null);
     if (!ebook && !file) return setFileError("Choose the e-book file.");
     if (!courseId) return setError("Choose a package.");
+    if (!languageId) return setError("Choose the e-book's language.");
     let storageKey: string | null = null;
     try {
       if (file) {
@@ -268,7 +283,7 @@ function EBookForm({
         storageKey = await uploadEBookFile(file, check.contentType, setProgress);
       }
       setStage("saving");
-      const fields = { title: title.trim(), description: description.trim() || null, courseId, categoryId: categoryId || null, isPublished };
+      const fields = { title: title.trim(), description: description.trim() || null, courseId, categoryId: categoryId || null, languageId, isPublished };
       if (ebook) {
         await learningService.updateEBook(ebook.id, { ...fields, ...(storageKey && file ? { storageKey, fileName: file.name } : {}) });
         onSaved(storageKey ? "File replaced — students now get the new version." : "E-book updated.");
@@ -366,6 +381,7 @@ function EBookForm({
               ))}
             </select>
           </div>
+          <LanguageSelect id="ebook-language" languages={languages} value={languageId} onChange={setLanguageId} required disabled={busy} />
         </div>
         <label className="flex items-center gap-2 text-sm text-parchment">
           <input type="checkbox" checked={isPublished} onChange={(e) => setIsPublished(e.target.checked)} disabled={busy} />

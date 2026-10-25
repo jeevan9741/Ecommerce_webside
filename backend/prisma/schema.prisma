@@ -323,6 +323,9 @@ model EBook {
   courseId     String
   /// Optional topic the e-book is grouped under (display only — access always comes from the package).
   categoryId   String?
+  /// Language the e-book is written in (display only). Required for new uploads; null on e-books
+  /// uploaded before languages existed.
+  languageId   String?
   title        String
   description  String?
   /// Original filename, shown to admins and used as the download name.
@@ -337,6 +340,7 @@ model EBook {
 
   course   Course          @relation(fields: [courseId], references: [id], onDelete: Restrict)
   category CourseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  language Language?       @relation(fields: [languageId], references: [id], onDelete: SetNull)
 
   @@index([courseId, displayOrder])
 }
@@ -384,6 +388,7 @@ model Language {
   demoVideos       DemoVideo[]
   courseVideos     CourseLanguageVideo[]
   originalVideos   CourseVideo[]
+  ebooks           EBook[]
   preferredByUsers User[]                @relation("PreferredLanguage")
 
   @@index([isActive])

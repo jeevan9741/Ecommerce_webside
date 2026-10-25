@@ -262,6 +262,8 @@ export function LanguageSelect({
   label = "Language",
   emptyLabel,
   disabled,
+  required,
+  id,
 }: {
   languages: AdminLanguage[];
   value: string;
@@ -270,11 +272,13 @@ export function LanguageSelect({
   /** When set, an empty choice is allowed. */
   emptyLabel?: string;
   disabled?: boolean;
+  required?: boolean;
+  id?: string;
 }) {
   return (
     <label className="block">
       <span className="label-field">{label}</span>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="input-field" disabled={disabled}>
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className="input-field" disabled={disabled} required={required}>
         {emptyLabel !== undefined ? <option value="">{emptyLabel}</option> : <option value="" disabled>Choose a language…</option>}
         {languages.map((l) => (
           <option key={l.id} value={l.id}>

@@ -75,6 +75,11 @@ async function assertCategory(categoryId: string | null | undefined) {
   if (!(await prisma.courseCategory.count({ where: { id: categoryId } }))) throw new HttpError(400, "That category doesn't exist");
 }
 
+async function assertLanguage(languageId: string | undefined) {
+  if (!languageId) return;
+  if (!(await prisma.language.count({ where: { id: languageId } }))) throw new HttpError(400, "That language doesn't exist");
+}
+
 async function nextOrder(courseId: string) {
   const { _max } = await prisma.eBook.aggregate({ where: { courseId }, _max: { displayOrder: true } });
   return (_max.displayOrder ?? -1) + 1;
@@ -83,6 +88,7 @@ async function nextOrder(courseId: string) {
 const include = {
   course: { select: { id: true, title: true, priceInPaise: true } },
   category: { select: { id: true, name: true } },
+  language: { select: { id: true, code: true, name: true } },
 } as const;
 type EBookRow = Prisma.EBookGetPayload<{ include: typeof include }>;
 
@@ -100,6 +106,7 @@ function studentView(e: EBookRow) {
     sizeBytes: Number(e.sizeBytes),
     course: { id: e.course.id, title: e.course.title },
     category: e.category ? { name: e.category.name } : null,
+    language: e.language ? { code: e.language.code, name: e.language.name } : null,
     updatedAt: e.updatedAt,
   };
 }
@@ -109,6 +116,7 @@ function adminView(e: EBookRow) {
     ...studentView(e),
     courseId: e.courseId,
     categoryId: e.categoryId,
+    languageId: e.languageId,
     fileName: e.fileName,
     mimeType: e.mimeType,
     displayOrder: e.displayOrder,
@@ -153,6 +161,7 @@ const createSchema = z.object({
   description: nullableText(2000),
   courseId: z.string().min(1, "Choose a package"),
   categoryId: z.string().min(1).nullable().optional(),
+  languageId: z.string({ error: "Choose a language" }).min(1, "Choose a language"),
   isPublished: z.boolean().optional(),
   ...fileFields,
 });
@@ -162,6 +171,8 @@ const updateSchema = z.object({
   description: nullableText(2000),
   courseId: z.string().min(1).optional(),
   categoryId: z.string().min(1).nullable().optional(),
+  /** Can be changed, not cleared: every e-book should say what language it's in. */
+  languageId: z.string().min(1, "Choose a language").optional(),
   isPublished: z.boolean().optional(),
   displayOrder: z.number().int().min(0).max(100000).optional(),
   /** A new upload replaces the file. */
@@ -183,7 +194,7 @@ export async function adminListEBooks(req: Request, res: Response) {
 export async function adminCreateEBook(req: Request, res: Response) {
   const admin = currentUser(req);
   const body = parse(createSchema, req.body);
-  await Promise.all([assertCourse(body.courseId), assertCategory(body.categoryId)]);
+  await Promise.all([assertCourse(body.courseId), assertCategory(body.categoryId), assertLanguage(body.languageId)]);
   const file = await verifyEBookUpload(body.storageKey);
 
   const ebook = await prisma.eBook
@@ -193,6 +204,7 @@ export async function adminCreateEBook(req: Request, res: Response) {
         description: body.description ?? null,
         courseId: body.courseId,
         categoryId: body.categoryId ?? null,
+        languageId: body.languageId,
         fileName: body.fileName,
         storageKey: body.storageKey,
         mimeType: file.contentType,
@@ -207,7 +219,7 @@ export async function adminCreateEBook(req: Request, res: Response) {
       throw err;
     });
 
-  await prisma.auditLog.create({ data: { actorId: admin.id, action: "EBOOK_CREATED", target: ebook.id, metadata: { courseId: ebook.courseId, sizeBytes: file.size } } });
+  await prisma.auditLog.create({ data: { actorId: admin.id, action: "EBOOK_CREATED", target: ebook.id, metadata: { courseId: ebook.courseId, languageId: ebook.languageId, sizeBytes: file.size } } });
   res.status(201).json({ ebook: adminView(ebook) });
 }
 
@@ -218,6 +230,7 @@ export async function adminUpdateEBook(req: Request, res: Response) {
   if (!existing) throw new HttpError(404, "E-book not found");
   if (body.courseId !== undefined) await assertCourse(body.courseId);
   if (body.categoryId !== undefined) await assertCategory(body.categoryId);
+  await assertLanguage(body.languageId);
   const replacing = body.storageKey !== undefined && body.storageKey !== existing.storageKey;
   if (replacing && !body.fileName) throw new HttpError(400, "Missing file name for the replacement file");
   const file = replacing ? await verifyEBookUpload(body.storageKey!) : null;

@@ -111,6 +111,7 @@ function EBookCard({ ebook, showPackage }: { ebook: StudentEBook; showPackage: b
           <p className="mt-0.5 text-xs text-parchment-muted">
             {ebook.format} · {formatBytes(ebook.sizeBytes)}
             {ebook.category && <> · {ebook.category.name}</>}
+            {ebook.language && <> · {ebook.language.name}</>}
             {showPackage && <> · {ebook.course.title}</>}
           </p>
         </div>
