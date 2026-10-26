@@ -318,10 +318,18 @@ export async function listMyEBooks(req: Request, res: Response) {
     courseId ? [] : packagesById(withEBooks.filter((id) => !owns(id))),
     isAdmin ? null : ebookLanguageAccess(user.id, visibleCourses),
   ]);
+  // Entitlements are per user and change with every purchase/refund: never cache them anywhere.
+  res.setHeader("Cache-Control", "private, no-store");
   res.json({
     ebooks: ebooks.map((e) => ({ ...studentView(e), locked: languages ? !opensLanguage(languages.get(e.courseId), e.language?.code) : false })),
     packages,
     unlock,
+    // Per owned package: which languages this student's PAID orders cover. `allLanguages` is only
+    // ever true for the documented legacy rule (a pre-cutoff e-book order with no language), so the
+    // UI can say why every language is open. Admins see everything and get no entry.
+    languageAccess: languages
+      ? Object.fromEntries([...languages].map(([courseId, a]) => [courseId, { allLanguages: a.all, languages: [...a.codes].sort() }]))
+      : {},
   });
 }
 
@@ -336,18 +344,30 @@ export async function downloadEBook(req: Request, res: Response) {
   const ebook = await prisma.eBook.findUnique({ where: { id: param(req, "id") }, include });
   // Unknown, unpublished and not-yet-language-assigned IDs look the same, so IDs can't be probed.
   if (!ebook || (!isAdmin && (!ebook.isPublished || !ebook.language))) throw new HttpError(404, "E-book not found");
+  // Every decision is recorded, so who downloaded which language — or was refused — can be checked later.
+  const audit = (action: "EBOOK_DOWNLOAD_GRANTED" | "EBOOK_DOWNLOAD_DENIED", basis: string) =>
+    prisma.auditLog
+      .create({ data: { actorId: user.id, action, target: ebook.id, metadata: { courseId: ebook.courseId, language: ebook.language?.code ?? null, basis } } })
+      .catch((err) => console.error("[EBOOK] audit log failed", err instanceof Error ? err.message : err));
+  let basis = "admin";
   if (!isAdmin) {
     const access = (await ebookLanguageAccess(user.id, [ebook.courseId])).get(ebook.courseId);
     const pkg = { id: ebook.course.id, title: ebook.course.title, priceInPaise: ebook.course.priceInPaise };
-    if (!access) throw new HttpError(403, "Buy this package to download its e-books", { code: "NOT_PURCHASED", packages: [pkg] });
+    if (!access) {
+      await audit("EBOOK_DOWNLOAD_DENIED", "NOT_PURCHASED");
+      throw new HttpError(403, "Buy this package to download its e-books", { code: "NOT_PURCHASED", packages: [pkg] });
+    }
     if (!opensLanguage(access, ebook.language!.code)) {
+      await audit("EBOOK_DOWNLOAD_DENIED", "LANGUAGE_NOT_PURCHASED");
       throw new HttpError(403, `Your purchase doesn't include the ${ebook.language!.name} e-book`, {
         code: "LANGUAGE_NOT_PURCHASED",
         packages: [pkg],
         language: { code: ebook.language!.code, name: ebook.language!.name },
       });
     }
+    basis = access.all ? "legacy-all-languages" : "purchased-language";
   }
+  await audit("EBOOK_DOWNLOAD_GRANTED", basis);
   const url = await getDownloadUrl(ebook.storageKey, DOWNLOAD_TTL);
   res.setHeader("Cache-Control", "no-store");
   res.json({

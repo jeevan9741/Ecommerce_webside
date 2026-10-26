@@ -106,6 +106,8 @@ export async function courseContent(req: Request, res: Response) {
     }))
   );
 
+  // Signed, per-user links: never cache.
+  res.setHeader("Cache-Control", "private, no-store");
   res.json({
     course: { id: course.id, title: course.title, type: course.type, metadata: course.metadata },
     defaultLanguageCode: access.languageGranted,

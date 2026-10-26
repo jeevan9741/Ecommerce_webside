@@ -7,9 +7,11 @@ import { ApiError } from "@/lib/api";
 import { formatInr } from "@/lib/format";
 import { formatBytes } from "@/services/videoService";
 import { BuyCourseButton } from "@/components/buy-course-button";
-import { learningService, openAfter, type PackageSummary, type StudentEBook } from "@/services/learningService";
+import { learningService, openAfter, type LanguageAccess, type PackageSummary, type StudentEBook } from "@/services/learningService";
+import { adminLibraryNote, downloadFailure, ebookCardAction, legacyAllLanguagesNote } from "@/lib/ebook-card";
+import { useAuth } from "@/contexts/auth-context";
 
-type Data = { ebooks: StudentEBook[]; packages: PackageSummary[]; unlock: PackageSummary[] };
+type Data = { ebooks: StudentEBook[]; packages: PackageSummary[]; unlock: PackageSummary[]; languageAccess?: Record<string, LanguageAccess> };
 
 /**
  * The student's e-books with a Download button each. Downloads go through the API, which re-checks
@@ -18,6 +20,8 @@ type Data = { ebooks: StudentEBook[]; packages: PackageSummary[]; unlock: Packag
  * option to buy that language. `courseId` narrows it to one package (its course page).
  */
 export function EBookLibrary({ courseId }: { courseId?: string }) {
+  const { user } = useAuth();
+  const adminNote = adminLibraryNote(user?.role);
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,18 +60,32 @@ export function EBookLibrary({ courseId }: { courseId?: string }) {
   }
 
   if (data.ebooks.length > 0) {
-    // Available e-books first; the server's order is kept within each group.
-    const ebooks = [...data.ebooks.filter((e) => !e.locked), ...data.ebooks.filter((e) => e.locked)];
+    // Available e-books first; the server's order is kept within each group. Only an e-book the
+    // server explicitly marks unlocked is downloadable (and the server re-checks every download).
+    const ebooks = [...data.ebooks.filter((e) => e.locked === false), ...data.ebooks.filter((e) => e.locked !== false)];
+    const notes = data.packages
+      .map((p) => ({ id: p.id, title: p.title, note: legacyAllLanguagesNote(data.languageAccess?.[p.id]) }))
+      .filter((n) => n.note);
     return (
-      <div className="grid gap-4 md:grid-cols-2">
-        {ebooks.map((e) => (
-          <EBookCard
-            key={e.id}
-            ebook={e}
-            showPackage={!courseId && data.packages.length > 1}
-            pkg={data.packages.find((p) => p.id === e.course.id)}
-          />
+      <div className="space-y-4">
+        {adminNote && <p className="card p-4 text-sm text-parchment-muted">{adminNote}</p>}
+        {notes.map((n) => (
+          <p key={n.id} className="card p-4 text-sm text-parchment-muted">
+            {data.packages.length > 1 && <span className="font-medium text-parchment">{n.title}: </span>}
+            {n.note}
+          </p>
         ))}
+        <div className="grid gap-4 md:grid-cols-2">
+          {ebooks.map((e) => (
+            <EBookCard
+              key={e.id}
+              ebook={e}
+              showPackage={!courseId && data.packages.length > 1}
+              pkg={data.packages.find((p) => p.id === e.course.id)}
+              onAccessChanged={load}
+            />
+          ))}
+        </div>
       </div>
     );
   }
@@ -87,7 +105,17 @@ export function EBookLibrary({ courseId }: { courseId?: string }) {
   return <Locked packages={data.unlock} what="e-books" />;
 }
 
-function EBookCard({ ebook, showPackage, pkg }: { ebook: StudentEBook; showPackage: boolean; pkg?: PackageSummary }) {
+function EBookCard({
+  ebook,
+  showPackage,
+  pkg,
+  onAccessChanged,
+}: {
+  ebook: StudentEBook;
+  showPackage: boolean;
+  pkg?: PackageSummary;
+  onAccessChanged: () => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -97,27 +125,26 @@ function EBookCard({ ebook, showPackage, pkg }: { ebook: StudentEBook; showPacka
     try {
       await openAfter(async () => (await learningService.downloadEBook(ebook.id)).url);
     } catch (err) {
-      setError(
-        err instanceof ApiError && err.status === 403
-          ? "Your access to this e-book isn't active. Contact support if you think this is a mistake."
-          : err instanceof ApiError && err.status === 429
-            ? err.message
-            : "The download couldn't start. Please try again."
-      );
+      const failure = downloadFailure(err instanceof ApiError ? err.status : null, err instanceof ApiError ? err.data.code : null, err instanceof Error ? err.message : null);
+      setError(failure.message);
+      // The server refused it: refresh entitlements so the card shows its real (locked) state.
+      if (failure.reload) onAccessChanged();
     } finally {
       setBusy(false);
     }
   }
 
+  const action = ebookCardAction(ebook, pkg);
+  const canDownload = action.kind === "download";
   return (
     <div className="card flex h-full min-w-0 flex-col p-5">
       <div className="flex items-start gap-3">
         <div
           className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-md ${
-            ebook.locked ? "bg-parchment-muted/60" : "bg-gradient-to-br from-gold-400 to-gold-600"
+            canDownload ? "bg-gradient-to-br from-gold-400 to-gold-600" : "bg-parchment-muted/60"
           }`}
         >
-          {ebook.locked ? <Lock className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
+          {canDownload ? <FileText className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="font-semibold leading-snug text-parchment [overflow-wrap:anywhere]">{ebook.title}</h3>
@@ -131,8 +158,17 @@ function EBookCard({ ebook, showPackage, pkg }: { ebook: StudentEBook; showPacka
       </div>
       {ebook.description && <p className="mt-3 whitespace-pre-line text-sm text-parchment-muted">{ebook.description}</p>}
       <div className="mt-auto pt-4">
-        {ebook.locked ? (
-          <LockedLanguage ebook={ebook} pkg={pkg} />
+        {action.kind === "buy" && pkg ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-parchment-muted">Access not purchased — your package unlocks only the language you bought.</p>
+            <BuyCourseButton
+              course={{ id: pkg.id, slug: "", type: pkg.type, title: pkg.title, shortDescription: "", priceInPaise: pkg.priceInPaise, languages: [] }}
+              language={{ code: action.languageCode, name: action.languageName, nativeName: action.languageName }}
+              label={`Buy ${action.languageName} · ${formatInr(pkg.priceInPaise)}`}
+            />
+          </div>
+        ) : action.kind === "not-included" ? (
+          <p className="text-xs text-parchment-muted">The {action.languageName} e-book isn&apos;t included in your purchase.</p>
         ) : (
           <>
             <button type="button" onClick={download} disabled={busy} className="btn-gold btn-block !px-4 text-sm">
@@ -147,27 +183,6 @@ function EBookCard({ ebook, showPackage, pkg }: { ebook: StudentEBook; showPacka
           </>
         )}
       </div>
-    </div>
-  );
-}
-
-/**
- * A language the purchase doesn't include. E-book packages sell each language separately, so the
- * customer can buy it here (the server re-validates); other packages just say it isn't included.
- */
-function LockedLanguage({ ebook, pkg }: { ebook: StudentEBook; pkg?: PackageSummary }) {
-  const language = ebook.language!;
-  if (!pkg || pkg.type !== "EBOOK") {
-    return <p className="text-xs text-parchment-muted">The {language.name} e-book isn&apos;t included in your purchase.</p>;
-  }
-  return (
-    <div className="flex flex-col gap-2">
-      <p className="text-xs text-parchment-muted">Not included in your purchase — your package unlocks the language you bought.</p>
-      <BuyCourseButton
-        course={{ id: pkg.id, slug: "", type: pkg.type, title: pkg.title, shortDescription: "", priceInPaise: pkg.priceInPaise, languages: [] }}
-        language={{ code: language.code, name: language.name, nativeName: language.name }}
-        label={`Buy ${language.name} · ${formatInr(pkg.priceInPaise)}`}
-      />
     </div>
   );
 }

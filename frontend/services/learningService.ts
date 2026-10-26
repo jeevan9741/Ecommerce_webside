@@ -9,6 +9,12 @@ export interface PackageSummary {
   priceInPaise: number;
 }
 
+/** Which languages of a package the student's PAID orders cover (`allLanguages`: legacy rule only). */
+export interface LanguageAccess {
+  allLanguages: boolean;
+  languages: string[];
+}
+
 export interface StudentEBook {
   id: string;
   title: string;
@@ -102,7 +108,7 @@ const withCourse = (path: string, courseId?: string) => (courseId ? `${path}?cou
 export const learningService = {
   // Students
   myEBooks: (courseId?: string) =>
-    api.get<{ ebooks: StudentEBook[]; packages: PackageSummary[]; unlock: PackageSummary[] }>(withCourse("/me/ebooks", courseId)),
+    api.get<{ ebooks: StudentEBook[]; packages: PackageSummary[]; unlock: PackageSummary[]; languageAccess?: Record<string, LanguageAccess> }>(withCourse("/me/ebooks", courseId)),
   downloadEBook: (id: string) => api.post<{ url: string; fileName: string; expiresAt: string }>(`/me/ebooks/${id}/download`),
   myLiveSessions: (courseId?: string) =>
     api.get<{ sessions: StudentLiveSession[]; packages: PackageSummary[]; unlock: PackageSummary[]; serverTime: string }>(
