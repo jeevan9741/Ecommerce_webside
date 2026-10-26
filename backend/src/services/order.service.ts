@@ -246,18 +246,45 @@ export async function markOrderFailed(razorpayOrderId: string) {
   console.log("[PAYMENT] markOrderFailed", { razorpayOrderId, matchedCount: result.count });
 }
 
-/** Refund/cancellation handling — revokes access and reverses any credited commission. */
+/**
+ * Refund/cancellation handling — revokes access and reverses any credited commission. When the same
+ * customer still holds another PAID order for the package (an e-book package bought in several
+ * languages), the access row moves to that order instead of being revoked: only the refunded
+ * order's language is lost, because e-book languages come from PAID orders.
+ *
+ * Concurrency: every order of this customer + package is row-locked (in id order, so two refunds
+ * can't deadlock) before anything is read or changed. Two refunds for the same package — or a
+ * refund racing a payment — therefore run one after the other, and the second sees the first's
+ * result: the access row ends on a still-PAID order, or revoked when none is left.
+ */
 export async function reverseOrder(razorpayPaymentId: string, reason: string) {
   return prisma.$transaction(async (tx) => {
-    const order = await tx.order.findUnique({ where: { razorpayPaymentId } });
-    if (!order || order.status !== "PAID") return { ok: false as const };
+    const found = await tx.order.findUnique({ where: { razorpayPaymentId }, select: { id: true, userId: true, courseId: true } });
+    if (!found) return { ok: false as const };
+
+    await tx.$queryRaw`SELECT id FROM "Order" WHERE "userId" = ${found.userId} AND "courseId" = ${found.courseId} ORDER BY id FOR UPDATE`;
+    // Re-read under the lock: a concurrent refund of this same payment may have just committed.
+    const order = await tx.order.findUniqueOrThrow({ where: { id: found.id } });
+    if (order.status !== "PAID") return { ok: false as const };
 
     await tx.order.update({ where: { id: order.id }, data: { status: "REFUNDED" } });
 
-    await tx.courseAccess.updateMany({
-      where: { orderId: order.id },
-      data: { revokedAt: new Date() },
+    const stillPaid = await tx.order.findFirst({
+      where: { userId: order.userId, courseId: order.courseId, status: "PAID", id: { not: order.id } },
+      orderBy: { paidAt: "desc" },
+      select: { id: true, selectedLanguage: true },
     });
+    if (stillPaid) {
+      await tx.courseAccess.updateMany({
+        where: { orderId: order.id },
+        data: { orderId: stillPaid.id, languageGranted: stillPaid.selectedLanguage },
+      });
+    } else {
+      await tx.courseAccess.updateMany({
+        where: { orderId: order.id },
+        data: { revokedAt: new Date() },
+      });
+    }
 
     await tx.commissionLedger.updateMany({
       where: { orderId: order.id, status: "CREDITED" },

@@ -17,9 +17,11 @@ export interface StudentEBook {
   sizeBytes: number;
   course: { id: string; title: string };
   category: { name: string } | null;
-  /** Null on e-books uploaded before languages were recorded. */
+  /** Null on e-books uploaded before languages were recorded (only admins see those). */
   language: { code: string; name: string } | null;
   updatedAt: string;
+  /** Student library: the purchase doesn't include this e-book's language — no download. */
+  locked?: boolean;
 }
 
 export interface AdminEBook extends StudentEBook {

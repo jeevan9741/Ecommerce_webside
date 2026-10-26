@@ -6,14 +6,16 @@ import { AlertCircle, BookOpen, Download, FileText, Loader2, Lock, RotateCw } fr
 import { ApiError } from "@/lib/api";
 import { formatInr } from "@/lib/format";
 import { formatBytes } from "@/services/videoService";
+import { BuyCourseButton } from "@/components/buy-course-button";
 import { learningService, openAfter, type PackageSummary, type StudentEBook } from "@/services/learningService";
 
 type Data = { ebooks: StudentEBook[]; packages: PackageSummary[]; unlock: PackageSummary[] };
 
 /**
  * The student's e-books with a Download button each. Downloads go through the API, which re-checks
- * the purchase and returns a 5-minute signed link — nothing here is a permanent file URL.
- * `courseId` narrows it to one package (its course page).
+ * the purchase and the e-book's language and returns a 5-minute signed link — nothing here is a
+ * permanent file URL. E-books in languages the purchase doesn't include are shown locked, with an
+ * option to buy that language. `courseId` narrows it to one package (its course page).
  */
 export function EBookLibrary({ courseId }: { courseId?: string }) {
   const [data, setData] = useState<Data | null>(null);
@@ -54,10 +56,17 @@ export function EBookLibrary({ courseId }: { courseId?: string }) {
   }
 
   if (data.ebooks.length > 0) {
+    // Available e-books first; the server's order is kept within each group.
+    const ebooks = [...data.ebooks.filter((e) => !e.locked), ...data.ebooks.filter((e) => e.locked)];
     return (
       <div className="grid gap-4 md:grid-cols-2">
-        {data.ebooks.map((e) => (
-          <EBookCard key={e.id} ebook={e} showPackage={!courseId && data.packages.length > 1} />
+        {ebooks.map((e) => (
+          <EBookCard
+            key={e.id}
+            ebook={e}
+            showPackage={!courseId && data.packages.length > 1}
+            pkg={data.packages.find((p) => p.id === e.course.id)}
+          />
         ))}
       </div>
     );
@@ -78,7 +87,7 @@ export function EBookLibrary({ courseId }: { courseId?: string }) {
   return <Locked packages={data.unlock} what="e-books" />;
 }
 
-function EBookCard({ ebook, showPackage }: { ebook: StudentEBook; showPackage: boolean }) {
+function EBookCard({ ebook, showPackage, pkg }: { ebook: StudentEBook; showPackage: boolean; pkg?: PackageSummary }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -103,8 +112,12 @@ function EBookCard({ ebook, showPackage }: { ebook: StudentEBook; showPackage: b
   return (
     <div className="card flex h-full min-w-0 flex-col p-5">
       <div className="flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-gold-400 to-gold-600 text-white shadow-md">
-          <FileText className="h-5 w-5" />
+        <div
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white shadow-md ${
+            ebook.locked ? "bg-parchment-muted/60" : "bg-gradient-to-br from-gold-400 to-gold-600"
+          }`}
+        >
+          {ebook.locked ? <Lock className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="font-semibold leading-snug text-parchment [overflow-wrap:anywhere]">{ebook.title}</h3>
@@ -118,16 +131,43 @@ function EBookCard({ ebook, showPackage }: { ebook: StudentEBook; showPackage: b
       </div>
       {ebook.description && <p className="mt-3 whitespace-pre-line text-sm text-parchment-muted">{ebook.description}</p>}
       <div className="mt-auto pt-4">
-        <button type="button" onClick={download} disabled={busy} className="btn-gold btn-block !px-4 text-sm">
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          {busy ? "Preparing download…" : "Download E-Book"}
-        </button>
-        {error && (
-          <p role="alert" className="mt-2 text-xs text-danger">
-            {error}
-          </p>
+        {ebook.locked ? (
+          <LockedLanguage ebook={ebook} pkg={pkg} />
+        ) : (
+          <>
+            <button type="button" onClick={download} disabled={busy} className="btn-gold btn-block !px-4 text-sm">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {busy ? "Preparing download…" : "Download E-Book"}
+            </button>
+            {error && (
+              <p role="alert" className="mt-2 text-xs text-danger">
+                {error}
+              </p>
+            )}
+          </>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * A language the purchase doesn't include. E-book packages sell each language separately, so the
+ * customer can buy it here (the server re-validates); other packages just say it isn't included.
+ */
+function LockedLanguage({ ebook, pkg }: { ebook: StudentEBook; pkg?: PackageSummary }) {
+  const language = ebook.language!;
+  if (!pkg || pkg.type !== "EBOOK") {
+    return <p className="text-xs text-parchment-muted">The {language.name} e-book isn&apos;t included in your purchase.</p>;
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-parchment-muted">Not included in your purchase — your package unlocks the language you bought.</p>
+      <BuyCourseButton
+        course={{ id: pkg.id, slug: "", type: pkg.type, title: pkg.title, shortDescription: "", priceInPaise: pkg.priceInPaise, languages: [] }}
+        language={{ code: language.code, name: language.name, nativeName: language.name }}
+        label={`Buy ${language.name} · ${formatInr(pkg.priceInPaise)}`}
+      />
     </div>
   );
 }

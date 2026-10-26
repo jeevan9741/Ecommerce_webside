@@ -6,6 +6,7 @@ import {
   courseUpdateSchema,
   courseLanguageVideoSchema,
   languageSchema,
+  languageUpdateSchema,
   lessonSchema,
   moduleSchema,
 } from "../utils/validation.js";
@@ -255,9 +256,26 @@ export async function createLanguage(req: Request, res: Response) {
 }
 
 export async function updateLanguage(req: Request, res: Response) {
-  const parsed = languageSchema.partial().safeParse(req.body);
+  const parsed = languageUpdateSchema.safeParse(req.body);
   if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? "Invalid request");
-  const language = await prisma.language.update({ where: { id: param(req, "id") }, data: parsed.data });
+  const id = param(req, "id");
+  const existing = await prisma.language.findUnique({ where: { id } });
+  if (!existing) throw new HttpError(404, "Language not found");
+
+  // Orders record the language *code* their buyer paid for, and e-book access is matched on it, so
+  // renaming a code in use would silently lock those buyers out. Names can still be edited.
+  const { code } = parsed.data;
+  if (code !== undefined && code !== existing.code) {
+    const orders = await prisma.order.count({ where: { selectedLanguage: existing.code } });
+    if (orders > 0) {
+      throw new HttpError(409, `The code "${existing.code}" is recorded on ${orders} order${orders === 1 ? "" : "s"}, so it can't be changed. You can still edit the name.`, {
+        code: "LANGUAGE_CODE_IN_USE",
+      });
+    }
+    if (await prisma.language.findUnique({ where: { code } })) throw new HttpError(409, "A language with this code already exists.");
+  }
+
+  const language = await prisma.language.update({ where: { id }, data: parsed.data });
   res.json({ language });
 }
 

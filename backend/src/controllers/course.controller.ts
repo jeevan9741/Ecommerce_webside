@@ -6,7 +6,7 @@ import { rateLimit } from "../utils/rate-limit.js";
 import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError, param } from "../utils/http.js";
 import { homepageDemoVideo } from "./video.controller.js";
-import { PAID_ACCESS } from "../services/package-access.service.js";
+import { PAID_ACCESS, ebookLanguageAccess, opensLanguage } from "../services/package-access.service.js";
 
 /**
  * Public course catalogue — price and content only. Commission amounts and any
@@ -29,6 +29,11 @@ export async function listCourses(req: Request, res: Response) {
         // No `metadata`: it can hold buyer-only details (e.g. a legacy Zoom meetingLink). Owners get
         // it from /me/courses/:courseId.
         languageVideos: { select: { language: { select: { code: true, name: true, nativeName: true } } } },
+        // E-book packages are sold per e-book language: the buyer picks one of these at checkout.
+        ebooks: {
+          where: { isPublished: true, language: { isActive: true } },
+          select: { language: { select: { code: true, name: true, nativeName: true, displayOrder: true } } },
+        },
       },
     }),
     req.user
@@ -37,12 +42,23 @@ export async function listCourses(req: Request, res: Response) {
   ]);
 
   res.json({
-    courses: courses.map(({ languageVideos, ...course }) => ({
+    courses: courses.map(({ languageVideos, ebooks, ...course }) => ({
       ...course,
-      languages: languageVideos.map((lv) => lv.language),
+      languages: course.type === "EBOOK" ? ebookLanguages(ebooks) : languageVideos.map((lv) => lv.language),
     })),
     ownedCourseIds: access.map((a) => a.courseId),
   });
+}
+
+type EBookLanguage = { code: string; name: string; nativeName: string; displayOrder: number };
+
+/** Distinct e-book languages in display order. */
+function ebookLanguages(ebooks: { language: EBookLanguage | null }[]) {
+  const byCode = new Map<string, EBookLanguage>();
+  for (const { language } of ebooks) if (language) byCode.set(language.code, language);
+  return [...byCode.values()]
+    .sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name))
+    .map(({ code, name, nativeName }) => ({ code, name, nativeName }));
 }
 
 export async function courseContent(req: Request, res: Response) {
@@ -61,6 +77,9 @@ export async function courseContent(req: Request, res: Response) {
   });
   if (!course) throw new HttpError(404, "Course not found");
 
+  // Videos stay switchable between languages; a per-language e-book file follows the same rule as
+  // the e-book library — only languages covered by one of the student's PAID orders.
+  const ebookAccess = (await ebookLanguageAccess(user.id, [courseId])).get(courseId);
   const languages = await Promise.all(
     course.languageVideos.map(async (lv) => ({
       code: lv.language.code,
@@ -68,7 +87,7 @@ export async function courseContent(req: Request, res: Response) {
       nativeName: lv.language.nativeName,
       videoUrl: lv.videoUrl ? await getDownloadUrl(lv.videoUrl, 900) : null,
       subtitleUrl: lv.subtitleUrl ? await getDownloadUrl(lv.subtitleUrl, 900) : null,
-      ebookUrl: lv.ebookUrl ? await getDownloadUrl(lv.ebookUrl, 900) : null,
+      ebookUrl: lv.ebookUrl && opensLanguage(ebookAccess, lv.language.code) ? await getDownloadUrl(lv.ebookUrl, 900) : null,
     }))
   );
 

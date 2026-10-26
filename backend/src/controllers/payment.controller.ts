@@ -9,7 +9,7 @@ import { paymentSafetyProblem } from "../services/payment-safety.js";
 import { markRequestPaid, reconcileRequestPayment } from "../services/partner-card.service.js";
 import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError, param } from "../utils/http.js";
-import { ownsPaidPackage } from "../services/package-access.service.js";
+import { ebookLanguageAccess, ebookLanguagesOf, opensLanguage, ownsPaidPackage } from "../services/package-access.service.js";
 
 const LOG_PREFIX = "[create-order]";
 /** An unpaid order is reused for this long, so retries and second tabs share one Razorpay order. */
@@ -59,17 +59,31 @@ export async function createOrder(req: Request, res: Response) {
     }
     log("course found", { courseId: course.id, title: course.title, priceInPaise: course.priceInPaise });
 
-    if (course.languageVideos.length > 0) {
-      const validCodes = course.languageVideos.map((lv) => lv.language.code);
-      if (!selectedLanguage || !validCodes.includes(selectedLanguage)) {
-        log("invalid or missing language", { selectedLanguage, validCodes });
-        return res.status(400).json({ error: "Please select a valid language for this course.", code: "INVALID_LANGUAGE" });
-      }
+    // The order's language decides which e-books it unlocks, so it is validated here and never
+    // taken on trust. E-book packages sell one e-book language per order and always need one;
+    // other packages need one when they offer video or e-book languages. Anything else is dropped.
+    const ebookLanguages = (await ebookLanguagesOf(course.id)).map((l) => l.code);
+    const isEBookPackage = course.type === "EBOOK";
+    const validCodes = isEBookPackage ? ebookLanguages : [...new Set([...course.languageVideos.map((lv) => lv.language.code), ...ebookLanguages])];
+    if (isEBookPackage && validCodes.length === 0) {
+      log("e-book package has no published e-book languages", { courseId });
+      return res.status(409).json({ error: "These e-books aren't available yet. Please check back soon.", code: "NOT_AVAILABLE" });
     }
+    if (validCodes.length > 0 && (!selectedLanguage || !validCodes.includes(selectedLanguage))) {
+      log("invalid or missing language", { selectedLanguage, validCodes });
+      return res.status(400).json({ error: "Please select a valid language for this course.", code: "INVALID_LANGUAGE" });
+    }
+    const language = validCodes.length > 0 ? selectedLanguage! : null;
 
     // Same rule as everywhere else (paid, live access) — a stray access row without a PAID order
-    // must not block buying the package for real.
-    if (await ownsPaidPackage(user.id, courseId)) {
+    // must not block buying the package for real. E-book packages can be bought once per language.
+    if (isEBookPackage) {
+      const access = (await ebookLanguageAccess(user.id, [courseId])).get(courseId);
+      if (opensLanguage(access, language)) {
+        log("user already owns this e-book language", { userId: user.id, courseId, language });
+        return res.status(409).json({ error: "You already have this e-book language.", code: "ALREADY_PURCHASED" });
+      }
+    } else if (await ownsPaidPackage(user.id, courseId)) {
       log("user already has access", { userId: user.id, courseId });
       return res.status(409).json({ error: "You already have access to this course.", code: "ALREADY_PURCHASED" });
     }
@@ -103,7 +117,7 @@ export async function createOrder(req: Request, res: Response) {
         courseId,
         status: { in: ["CREATED", "FAILED"] },
         amountInPaise: course.priceInPaise,
-        selectedLanguage: selectedLanguage ?? null,
+        selectedLanguage: language,
         referrerUserId,
         createdAt: { gt: new Date(Date.now() - ORDER_REUSE_WINDOW_MS) },
       },
@@ -154,7 +168,7 @@ export async function createOrder(req: Request, res: Response) {
           courseId,
           amountInPaise: course.priceInPaise,
           razorpayOrderId: rpOrder.id,
-          selectedLanguage: selectedLanguage ?? null,
+          selectedLanguage: language,
           referralCodeUsed: referrerUserId ? referralCode!.toUpperCase() : null,
           referrerUserId,
         },

@@ -1,14 +1,16 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import { CheckCircle2, Loader2, Lock } from "lucide-react";
-import type { CoursePublic } from "@/components/course-card";
+import type { CourseLanguage, CoursePublic } from "@/components/course-card";
 import { PaymentModal } from "@/components/payment/PaymentModal";
 import { PAYMENT_METHODS, buildCheckoutConfig, type PaymentMethodId } from "@/components/payment/payment-methods";
 import { createCheckoutOrder, loadRazorpay, openCheckout, paymentPageUrl } from "@/lib/checkout";
 import { userService } from "@/services/userService";
+import { initialCheckoutLanguage } from "@/lib/checkout-language";
 
 function getCookie(name: string): string | null {
   const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
@@ -18,15 +20,23 @@ function getCookie(name: string): string | null {
 export function BuyCourseButton({
   course,
   alreadyPurchased = false,
+  language: presetLanguage,
+  label = "Enroll Now",
 }: {
   course: CoursePublic;
   alreadyPurchased?: boolean;
+  /** Buy this e-book language (e.g. a locked language in the library) — no picker is shown. */
+  language?: CourseLanguage;
+  label?: string;
 }) {
   const { user, status } = useAuth();
   const router = useRouter();
-  // The backend requires a language for multi-language courses. It only sets the course
-  // player's starting language — every language stays switchable after purchase.
-  const language = course.languages[0]?.code ?? "";
+  // E-book packages are sold per e-book language, and the purchase unlocks only that language, so
+  // the customer must pick one (the server validates it). For other packages the language only
+  // sets the course player's starting language — videos stay switchable after purchase.
+  const isEBook = course.type === "EBOOK";
+  const needsPicker = isEBook && !presetLanguage && course.languages.length > 1;
+  const [language, setLanguage] = useState(() => initialCheckoutLanguage(course, presetLanguage?.code));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -39,12 +49,22 @@ export function BuyCourseButton({
 
   if (alreadyPurchased) {
     return (
-      <button
-        onClick={() => router.push("/dashboard/courses")}
-        className="flex w-full items-center justify-center gap-2 rounded-full border border-emerald bg-emerald/10 px-6 py-4 text-base font-semibold text-emerald transition hover:bg-emerald/15"
-      >
-        <CheckCircle2 className="h-4 w-4" /> Go to Course
-      </button>
+      <div className="flex flex-col gap-2">
+        <button
+          onClick={() => router.push("/dashboard/courses")}
+          className="flex w-full items-center justify-center gap-2 rounded-full border border-emerald bg-emerald/10 px-6 py-4 text-base font-semibold text-emerald transition hover:bg-emerald/15"
+        >
+          <CheckCircle2 className="h-4 w-4" /> Go to Course
+        </button>
+        {isEBook && (
+          <p className="text-center text-xs text-parchment-muted">
+            Need another language?{" "}
+            <Link href="/dashboard/ebooks" className="text-gold-500 hover:underline">
+              Get it from My E-Books
+            </Link>
+          </p>
+        )}
+      </div>
     );
   }
 
@@ -126,6 +146,10 @@ export function BuyCourseButton({
   }
 
   function openPicker() {
+    if (isEBook && !language) {
+      setError("Choose your e-book language first.");
+      return;
+    }
     setError(null);
     setModalOpen(true);
     // Warm up checkout.js while the customer picks a method.
@@ -142,13 +166,34 @@ export function BuyCourseButton({
 
   return (
     <div className="flex flex-col gap-2">
+      {needsPicker && (
+        <label className="flex flex-col gap-1 text-left text-xs text-parchment-muted">
+          E-book language (your purchase includes this language only)
+          <select
+            className="input-field !py-2.5 text-sm"
+            value={language}
+            disabled={busy}
+            onChange={(e) => {
+              setLanguage(e.target.value);
+              setError(null);
+            }}
+          >
+            <option value="">Choose a language…</option>
+            {course.languages.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.nativeName && l.nativeName !== l.name ? `${l.name} · ${l.nativeName}` : l.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <button
         onClick={openPicker}
         onPointerEnter={() => void loadRazorpay().catch(() => undefined)}
         disabled={busy}
         className="btn-gold w-full bg-gradient-to-r from-gold-500 to-gold-600 py-4 text-base shadow-[0_12px_28px_-10px_rgba(37,99,235,0.65)] hover:-translate-y-0.5 hover:from-gold-hover hover:to-gold-500"
       >
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enroll Now"}
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : label}
       </button>
       {error && !modalOpen && <p className="text-xs text-danger">{error}</p>}
 

@@ -7,7 +7,7 @@ import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError, param } from "../utils/http.js";
 import { rateLimit } from "../utils/rate-limit.js";
 import { deleteObject, getClientUploadToken, getDownloadUrl, readObjectHead, statObject } from "../services/storage.service.js";
-import { hasPaidPackage, packagesById, paidPackageIds } from "../services/package-access.service.js";
+import { ebookLanguageAccess, opensLanguage, packagesById, paidPackageIds } from "../services/package-access.service.js";
 import {
   EBOOK_FORMATS,
   EBOOK_MIME_TYPES,
@@ -285,9 +285,11 @@ async function ebookPackageIds() {
 }
 
 /**
- * The student's e-books: published files of packages they've paid for. `packages` lists their
- * e-book packages (so an empty list can say "coming soon"); `unlock` lists what they could buy.
- * ?courseId= narrows to one package (and 403s when it isn't owned).
+ * The student's e-books: published files of packages they've paid for. Each is `locked` unless a
+ * PAID order of theirs covers its language (ebookLanguageAccess); e-books with no language yet are
+ * left out until an admin assigns one. `packages` lists their e-book packages (so an empty list can
+ * say "coming soon"); `unlock` lists what they could buy. ?courseId= narrows to one package (and
+ * 403s when it isn't owned). Admins see every published e-book, unlocked.
  */
 export async function listMyEBooks(req: Request, res: Response) {
   const user = currentUser(req);
@@ -302,30 +304,49 @@ export async function listMyEBooks(req: Request, res: Response) {
   }
 
   const visibleCourses = courseId ? [courseId] : isAdmin ? undefined : [...paid!];
-  const [ebooks, packages, unlock] = await Promise.all([
+  const [ebooks, packages, unlock, languages] = await Promise.all([
     prisma.eBook.findMany({
-      where: { isPublished: true, ...(visibleCourses ? { courseId: { in: visibleCourses } } : {}) },
+      where: {
+        isPublished: true,
+        ...(visibleCourses ? { courseId: { in: visibleCourses } } : {}),
+        ...(isAdmin ? {} : { languageId: { not: null } }),
+      },
       include,
       orderBy: [{ course: { priceInPaise: "asc" } }, { displayOrder: "asc" }, { createdAt: "asc" }],
     }),
     packagesById(courseId ? [courseId] : withEBooks.filter(owns)),
     courseId ? [] : packagesById(withEBooks.filter((id) => !owns(id))),
+    isAdmin ? null : ebookLanguageAccess(user.id, visibleCourses),
   ]);
-  res.json({ ebooks: ebooks.map(studentView), packages, unlock });
+  res.json({
+    ebooks: ebooks.map((e) => ({ ...studentView(e), locked: languages ? !opensLanguage(languages.get(e.courseId), e.language?.code) : false })),
+    packages,
+    unlock,
+  });
 }
 
-/** A 5-minute signed link to the file — only after the paid-package check passes. */
+/**
+ * A 5-minute signed link to the file — only for admins, or a student with paid access to the
+ * package AND a PAID order covering the e-book's language (see ebookLanguageAccess).
+ */
 export async function downloadEBook(req: Request, res: Response) {
   const user = currentUser(req);
+  const isAdmin = user.role === "ADMIN";
   if (!rateLimit(`ebook-download:${user.id}`, 30, 10 * 60 * 1000)) throw new HttpError(429, "Too many downloads. Please wait a few minutes.");
   const ebook = await prisma.eBook.findUnique({ where: { id: param(req, "id") }, include });
-  // Unknown and unpublished IDs look the same, so IDs can't be probed.
-  if (!ebook || (!ebook.isPublished && user.role !== "ADMIN")) throw new HttpError(404, "E-book not found");
-  if (!(await hasPaidPackage(user, ebook.courseId))) {
-    throw new HttpError(403, "Buy this package to download its e-books", {
-      code: "NOT_PURCHASED",
-      packages: [{ id: ebook.course.id, title: ebook.course.title, priceInPaise: ebook.course.priceInPaise }],
-    });
+  // Unknown, unpublished and not-yet-language-assigned IDs look the same, so IDs can't be probed.
+  if (!ebook || (!isAdmin && (!ebook.isPublished || !ebook.language))) throw new HttpError(404, "E-book not found");
+  if (!isAdmin) {
+    const access = (await ebookLanguageAccess(user.id, [ebook.courseId])).get(ebook.courseId);
+    const pkg = { id: ebook.course.id, title: ebook.course.title, priceInPaise: ebook.course.priceInPaise };
+    if (!access) throw new HttpError(403, "Buy this package to download its e-books", { code: "NOT_PURCHASED", packages: [pkg] });
+    if (!opensLanguage(access, ebook.language!.code)) {
+      throw new HttpError(403, `Your purchase doesn't include the ${ebook.language!.name} e-book`, {
+        code: "LANGUAGE_NOT_PURCHASED",
+        packages: [pkg],
+        language: { code: ebook.language!.code, name: ebook.language!.name },
+      });
+    }
   }
   const url = await getDownloadUrl(ebook.storageKey, DOWNLOAD_TTL);
   res.setHeader("Cache-Control", "no-store");

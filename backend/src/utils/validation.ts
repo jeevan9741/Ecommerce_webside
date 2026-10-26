@@ -156,6 +156,12 @@ export const languageSchema = z.object({
   displayOrder: z.number().int().default(0),
 });
 
+/**
+ * PATCH body: omitted fields stay as they are. Without this, `.partial()` keeps the create schema's
+ * defaults, so a name-only edit would re-activate a language and reset its display order.
+ */
+export const languageUpdateSchema = languageSchema.extend({ isActive: z.boolean(), displayOrder: z.number().int() }).partial();
+
 export const courseLanguageVideoSchema = z.object({
   videoUrl: z.string().min(1).optional().nullable(),
   subtitleUrl: z.string().min(1).optional().nullable(),

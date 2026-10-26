@@ -56,8 +56,10 @@ async function makeCourse(type: "EBOOK" | "ZOOM", priceInPaise: number) {
 async function purchase(userToken: string, courseId: string, kind: "PAID" | "REFUNDED" | "PENDING" | "UNREVOKED_CANCELLED") {
   const userId = JSON.parse(Buffer.from(userToken.split(".")[1], "base64url").toString()).id as string;
   const status = kind === "PENDING" ? "CREATED" : kind === "UNREVOKED_CANCELLED" ? "CANCELLED" : kind;
+  // E-book orders carry the language chosen at checkout (the test language), as checkout now requires.
+  const selectedLanguage = courseId === zoomCourse ? null : `zz${run}`;
   const order = await prisma.order.create({
-    data: { userId, courseId, amountInPaise: 100, status, razorpayOrderId: `${tag}-${randomBytes(4).toString("hex")}`, paidAt: kind === "PENDING" ? null : new Date() },
+    data: { userId, courseId, amountInPaise: 100, status, selectedLanguage, razorpayOrderId: `${tag}-${randomBytes(4).toString("hex")}`, paidAt: kind === "PENDING" ? null : new Date() },
   });
   if (kind === "PENDING") return;
   await prisma.courseAccess.create({ data: { userId, courseId, orderId: order.id, revokedAt: kind === "REFUNDED" ? new Date() : null } });
@@ -156,7 +158,7 @@ describe("e-books", () => {
     // Rows inserted directly (no Blob upload needed): signing a download link doesn't read the file.
     const mk = (courseId: string, title: string, isPublished = true) =>
       prisma.eBook.create({
-        data: { courseId, title, fileName: `${title}.pdf`, storageKey: `ebooks/${tag}-${title}.pdf`, mimeType: "application/pdf", sizeBytes: 1234n, isPublished },
+        data: { courseId, title, fileName: `${title}.pdf`, storageKey: `ebooks/${tag}-${title}.pdf`, mimeType: "application/pdf", sizeBytes: 1234n, isPublished, languageId },
       });
     ebookId = (await mk(ebookCourse, "guide")).id;
     otherEbookId = (await mk(otherCourse, "other")).id;
@@ -293,10 +295,15 @@ describe("e-books", () => {
     const mine = (await call("GET", "/me/ebooks", tokens.buyer)).body.ebooks as { id: string; language: { name: string } | null }[];
     assert.equal(mine.find((e) => e.id === ebookId)?.language?.name, "Test Hindi", "buyers see the language");
     assert.ok(!JSON.stringify(mine).includes(languageId), "students get the name, not internal ids");
+    // E-books from before languages existed: admins still see them, with no language.
+    const unassigned = await prisma.eBook.create({
+      data: { courseId: otherCourse, title: "unassigned", fileName: "u.pdf", storageKey: `ebooks/${tag}-unassigned.pdf`, mimeType: "application/pdf", sizeBytes: 1n },
+    });
     const legacy = await call("GET", `/me/ebooks?courseId=${otherCourse}`, tokens.admin);
-    assert.equal(legacy.body.ebooks[0].language, null, "e-books from before languages still list, with no language");
+    assert.equal(legacy.body.ebooks.find((e: { id: string }) => e.id === unassigned.id)?.language, null, "e-books from before languages still list for admins, with no language");
+    await prisma.eBook.delete({ where: { id: unassigned.id } });
 
-    // Language is display-only: downloads and paid access are exactly as before.
+    // The buyer's order is for this e-book's language, so downloads work as before.
     assert.equal((await call("POST", `/me/ebooks/${ebookId}/download`, tokens.buyer)).status, 200);
     assert.equal((await call("POST", `/me/ebooks/${ebookId}/download`, tokens.stranger)).status, 403);
     assert.equal((await call("POST", `/me/ebooks/${ebookId}/download`, tokens.refunded)).status, 403);
