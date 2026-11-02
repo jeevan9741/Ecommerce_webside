@@ -4,16 +4,17 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
-import { Menu, X, LogOut, UserRound } from "lucide-react";
+import { Menu, X, LogOut, UserRound, Handshake } from "lucide-react";
 import { LogoMark } from "@/components/logo";
 import { homeFor } from "@/lib/routes";
-import { franchisePublicEnabled, withLinkIf } from "@/lib/feature-flags";
+import { franchisePartnerEnabled, franchisePublicEnabled, withLinkIf } from "@/lib/feature-flags";
+import { signedInFranchiseLink, visitorFranchiseCta } from "@/lib/franchise-nav";
+import { api } from "@/lib/api";
 
 const HOME_LINK = { href: "/", label: "Home" };
 // Scrolls to the About section on the homepage (the Link handles the hash, even from another page).
 const ABOUT_LINK = { href: "/#about", label: "About" };
 const PORTAL_LINK = { href: "/dashboard", label: "My Portal" };
-const FRANCHISE_LINK = { href: "/franchise", label: "Franchise" };
 const ADMIN_LINK = { href: "/admin", label: "Admin" };
 
 export function Navbar() {
@@ -22,15 +23,34 @@ export function Navbar() {
   const pathname = usePathname();
   const isAuthenticated = status === "authenticated";
 
-  // Visitors see Home + About (+ Franchise when that feature is switched on). Signed-in users are
-  // redirected away from the landing page by the proxy, so they get their portal instead; the Admin link
-  // is only rendered for admin accounts.
-  const franchise = franchisePublicEnabled();
+  // Is this signed-in customer an active franchise partner? Asked only while the partner dashboard is
+  // switched on; the answer just picks a link — the dashboard and its API check access themselves.
+  const partnerOn = franchisePartnerEnabled();
+  const [partnerActive, setPartnerActive] = useState(false);
+  const askPartner = partnerOn && isAuthenticated && user?.role !== "ADMIN";
+  useEffect(() => {
+    if (!askPartner) return;
+    let live = true;
+    api.get<{ active: boolean }>("/franchise-partner/access").then(
+      (r) => live && setPartnerActive(r.active),
+      () => live && setPartnerActive(false)
+    );
+    return () => {
+      live = false;
+    };
+  }, [askPartner, user?.id]);
+
+  // Visitors see Home + About, with "Become a Franchise Partner" beside Login when the franchise pages are
+  // switched on. Signed-in users are redirected away from the landing page by the proxy, so they get their
+  // portal instead (plus a franchise link: the dashboard for active partners); the Admin link is only
+  // rendered for admin accounts.
+  const franchiseCta = visitorFranchiseCta(franchisePublicEnabled());
+  const franchiseLink = signedInFranchiseLink({ role: user?.role, publicOn: franchisePublicEnabled(), partnerOn, partnerActive: askPartner && partnerActive });
   const navLinks = !isAuthenticated
-    ? withLinkIf([HOME_LINK, ABOUT_LINK], FRANCHISE_LINK, franchise)
+    ? [HOME_LINK, ABOUT_LINK]
     : user?.role === "ADMIN"
       ? [PORTAL_LINK, ADMIN_LINK]
-      : withLinkIf([PORTAL_LINK], FRANCHISE_LINK, franchise);
+      : withLinkIf([PORTAL_LINK], franchiseLink!, Boolean(franchiseLink));
 
   // Lock background scroll while the drawer is open (links close it via their own onClick).
   useEffect(() => {
@@ -76,13 +96,25 @@ export function Navbar() {
               Logout
             </button>
           ) : status === "loading" ? null : (
-            <Link
-              href="/login"
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-7 py-2.5 text-base font-semibold text-gold-500 shadow transition hover:bg-blue-50 active:scale-[0.98]"
-            >
-              <UserRound className="h-4 w-4" />
-              Login
-            </Link>
+            <>
+              {franchiseCta && (
+                <Link
+                  href={franchiseCta.href}
+                  className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full border border-white/80 px-5 py-2.5 text-[15px] font-semibold text-white transition hover:bg-white/10 active:scale-[0.98]"
+                >
+                  <Handshake className="h-4 w-4" />
+                  <span className="hidden lg:inline">Become a Franchise Partner</span>
+                  <span className="lg:hidden">Franchise</span>
+                </Link>
+              )}
+              <Link
+                href="/login"
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-7 py-2.5 text-base font-semibold text-gold-500 shadow transition hover:bg-blue-50 active:scale-[0.98]"
+              >
+                <UserRound className="h-4 w-4" />
+                Login
+              </Link>
+            </>
           )}
         </div>
 
@@ -133,14 +165,26 @@ export function Navbar() {
                 Logout
               </button>
             ) : status === "loading" ? null : (
-              <Link
-                href="/login"
-                onClick={() => setOpen(false)}
-                className="flex w-full items-center justify-center gap-2 rounded-full bg-white px-6 py-3.5 text-base font-semibold text-gold-500"
-              >
-                <UserRound className="h-4 w-4" />
-                Login
-              </Link>
+              <div className="flex flex-col gap-3">
+                {franchiseCta && (
+                  <Link
+                    href={franchiseCta.href}
+                    onClick={() => setOpen(false)}
+                    className="flex w-full items-center justify-center gap-2 rounded-full border border-white/80 px-6 py-3.5 text-base font-semibold text-white"
+                  >
+                    <Handshake className="h-4 w-4" />
+                    {franchiseCta.label}
+                  </Link>
+                )}
+                <Link
+                  href="/login"
+                  onClick={() => setOpen(false)}
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-white px-6 py-3.5 text-base font-semibold text-gold-500"
+                >
+                  <UserRound className="h-4 w-4" />
+                  Login
+                </Link>
+              </div>
             )}
           </div>
         </div>

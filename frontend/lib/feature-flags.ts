@@ -9,5 +9,8 @@ export const isSwitchOn = (value: string | undefined) => (value ?? "").trim().to
 // The literal `process.env.NEXT_PUBLIC_…` reference is what Next.js inlines at build time.
 export const franchisePublicEnabled = (value: string | undefined = process.env.NEXT_PUBLIC_FRANCHISE_PUBLIC_ENABLED) => isSwitchOn(value);
 
+/** Franchise partner dashboard (/franchise-partner) and its navigation link. Independent of the public switch. */
+export const franchisePartnerEnabled = (value: string | undefined = process.env.NEXT_PUBLIC_FRANCHISE_PARTNER_ENABLED) => isSwitchOn(value);
+
 /** Adds a link only when its feature is switched on (used for navigation lists). */
 export const withLinkIf = <T>(links: T[], link: T, enabled: boolean): T[] => (enabled ? [...links, link] : links);

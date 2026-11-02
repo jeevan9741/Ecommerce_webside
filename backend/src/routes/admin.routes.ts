@@ -13,6 +13,7 @@ import * as liveSession from "../controllers/live-session.controller.js";
 import * as policy from "../controllers/policy.controller.js";
 import * as franchise from "../controllers/franchise.controller.js";
 import * as franchiseReview from "../controllers/franchise-review.controller.js";
+import * as franchisePartner from "../controllers/franchise-partner.controller.js";
 
 const router = Router();
 
@@ -56,6 +57,16 @@ router.get("/admin/franchise/applications", asyncHandler(franchiseReview.listFra
 router.get("/admin/franchise/applications/:id", asyncHandler(franchiseReview.getFranchiseApplication));
 router.post("/admin/franchise/applications/:id/transition", asyncHandler(franchiseReview.transitionFranchiseApplication));
 router.post("/admin/franchise/applications/:id/notes", asyncHandler(franchiseReview.addFranchiseApplicationNote));
+
+// Franchise partners (Phase 5F-1): suspension is immediate (one admin); reinstating and deactivating
+// need a second admin to approve the exact request.
+router.get("/admin/franchise/partners", asyncHandler(franchisePartner.adminListPartners));
+router.get("/admin/franchise/partners/:id", asyncHandler(franchisePartner.adminPartnerDetail));
+router.post("/admin/franchise/partners/:id/suspend", asyncHandler(franchisePartner.adminSuspendPartner));
+router.post("/admin/franchise/partners/:id/requests", asyncHandler(franchisePartner.adminRequestPartnerAction));
+router.post("/admin/franchise/partner-requests/:id/approve", asyncHandler(franchisePartner.adminApprovePartnerAction));
+router.post("/admin/franchise/partner-requests/:id/reject", asyncHandler(franchisePartner.adminRejectPartnerAction));
+router.post("/admin/franchise/partner-requests/:id/cancel", asyncHandler(franchisePartner.adminCancelPartnerAction));
 
 // People
 router.get("/admin/customers", asyncHandler(ops.listCustomers));

@@ -7,3 +7,6 @@ export const isSwitchOn = (value: string | undefined) => (value ?? "").trim().to
 
 /** Public and applicant franchise API (/api/franchise/*). Admin franchise routes are never gated by it. */
 export const franchisePublicEnabled = () => isSwitchOn(process.env.FRANCHISE_PUBLIC_ENABLED);
+
+/** Franchise partner dashboard API (/api/franchise-partner/*). Independent of the public switch. */
+export const franchisePartnerEnabled = () => isSwitchOn(process.env.FRANCHISE_PARTNER_ENABLED);
