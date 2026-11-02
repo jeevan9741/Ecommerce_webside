@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 import { z } from "zod";
-import type { FranchiseDocumentKind, Prisma } from "@prisma/client";
+import type { FranchiseApplicationStatus, FranchiseDocumentKind, Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
 import { HttpError } from "../utils/http.js";
 import { sha256Hex } from "../utils/canonical-json.js";
@@ -270,7 +270,8 @@ async function notify(applicationId: string, userId: string, to: string, applica
 
 // ---------- The applicant's own application ----------
 
-const STATUS_LABEL: Record<string, string> = {
+/** Applicant- and admin-facing names for each status (one list for both). */
+export const STATUS_LABEL: Record<FranchiseApplicationStatus, string> = {
   APPLICATION_SUBMITTED: "Application submitted",
   UNDER_REVIEW: "Under review",
   INTERVIEW_DISCUSSION: "Interview / discussion",

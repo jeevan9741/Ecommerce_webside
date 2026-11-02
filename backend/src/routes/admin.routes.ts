@@ -12,6 +12,7 @@ import * as legalDocument from "../controllers/legal-document.controller.js";
 import * as liveSession from "../controllers/live-session.controller.js";
 import * as policy from "../controllers/policy.controller.js";
 import * as franchise from "../controllers/franchise.controller.js";
+import * as franchiseReview from "../controllers/franchise-review.controller.js";
 
 const router = Router();
 
@@ -48,6 +49,13 @@ router.post("/admin/franchise/locations/districts", asyncHandler(franchise.addDi
 router.patch("/admin/franchise/locations/districts/:id", asyncHandler(franchise.editDistrict));
 router.post("/admin/franchise/locations/import/preview", asyncHandler(franchise.previewLocationImport));
 router.post("/admin/franchise/locations/import/apply", asyncHandler(franchise.applyLocationImport));
+
+// Franchise application review (Phase 5A). Static paths before /:id.
+router.get("/admin/franchise/applications/summary", asyncHandler(franchiseReview.franchiseApplicationSummary));
+router.get("/admin/franchise/applications", asyncHandler(franchiseReview.listFranchiseApplications));
+router.get("/admin/franchise/applications/:id", asyncHandler(franchiseReview.getFranchiseApplication));
+router.post("/admin/franchise/applications/:id/transition", asyncHandler(franchiseReview.transitionFranchiseApplication));
+router.post("/admin/franchise/applications/:id/notes", asyncHandler(franchiseReview.addFranchiseApplicationNote));
 
 // People
 router.get("/admin/customers", asyncHandler(ops.listCustomers));

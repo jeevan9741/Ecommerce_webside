@@ -23,6 +23,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         { href: "/admin/center-training", label: "Center Training", icon: "building" },
         { href: "/admin/languages", label: "Languages", icon: "languages" },
         { href: "/admin/withdrawals", label: "Withdrawals", icon: "wallet" },
+        { href: "/admin/franchise-applications", label: "Franchise Applications", icon: "fileCheck" },
         { href: "/admin/franchise-policies", label: "Franchise Policies", icon: "handCoins" },
         { href: "/admin/franchise-locations", label: "Franchise Locations", icon: "building" },
         { href: "/admin/referral-claims", label: "Referral Claims", icon: "fileText" },
