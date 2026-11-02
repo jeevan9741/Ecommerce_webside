@@ -16,6 +16,11 @@ router.post("/franchise-partner/invites/:id/resend", requireFranchisePartner, as
 router.post("/franchise-partner/invites/:id/cancel", requireFranchisePartner, asyncHandler(partner.partnerCancelInvite));
 router.get("/franchise-partner/students", requireFranchisePartner, asyncHandler(partner.partnerListStudents));
 router.get("/franchise-partner/students/:id", requireFranchisePartner, asyncHandler(partner.partnerStudentDetail));
+router.get("/franchise-partner/tickets", requireFranchisePartner, asyncHandler(partner.partnerTicketList));
+router.post("/franchise-partner/tickets", requireFranchisePartner, asyncHandler(partner.partnerTicketCreate));
+router.get("/franchise-partner/tickets/:id", requireFranchisePartner, asyncHandler(partner.partnerTicketGet));
+router.post("/franchise-partner/tickets/:id/messages", requireFranchisePartner, asyncHandler(partner.partnerTicketReply));
+router.post("/franchise-partner/tickets/:id/close", requireFranchisePartner, asyncHandler(partner.partnerTicketClose));
 
 // A student opening an invitation sent to them: their own signed-in account, behind the same switch.
 router.use("/franchise-invites", partnerFeatureGate);

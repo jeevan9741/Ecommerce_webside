@@ -18,6 +18,7 @@ export default async function FranchisePartnerLayout({ children }: { children: R
       navItems={[
         { href: "/franchise-partner", label: "Overview", icon: "layoutDashboard" },
         { href: "/franchise-partner/students", label: "Students", icon: "users" },
+        { href: "/franchise-partner/support", label: "Support", icon: "fileText" },
       ]}
     >
       {children}

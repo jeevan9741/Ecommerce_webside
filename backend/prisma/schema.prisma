@@ -141,6 +141,10 @@ model User {
   franchisePartner      FranchisePartner?
   franchiseStudentLinks FranchiseStudent[]     @relation("FranchiseStudentUser")
   franchiseInvitesAccepted FranchiseStudentInvite[] @relation("InviteAcceptedBy")
+  supportTicketsOpened  SupportTicket[]        @relation("TicketOpenedBy")
+  supportTicketsClosed  SupportTicket[]        @relation("TicketClosedBy")
+  supportTicketMessages SupportTicketMessage[] @relation("TicketMessageAuthor")
+  supportTicketEvents   SupportTicketEvent[]   @relation("TicketEventActor")
   policiesCreated       PolicyVersion[]        @relation("PolicyCreatedBy")
   policiesApproved      PolicyVersion[]        @relation("PolicyApprovedBy")
   approvalsRequested    AdminApprovalRequest[] @relation("ApprovalRequestedBy")
@@ -1607,6 +1611,7 @@ model FranchisePartner {
   renewals        FranchiseRenewal[]
   students        FranchiseStudent[]
   studentInvites  FranchiseStudentInvite[]
+  supportTickets  SupportTicket[]
   attributions    FranchiseOrderAttribution[]
   ledgerAccounts  LedgerAccount[]
   earningsLots    EarningsLot[]
@@ -2081,4 +2086,88 @@ model FranchiseStudentInvite {
 
   @@index([partnerId, status, createdAt])
   @@index([email])
+}
+
+enum SupportTicketCategory {
+  TECHNICAL
+  PAYMENT
+  STUDENT
+  COURSE
+  OTHER
+}
+
+enum SupportTicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+/// A support ticket raised by a franchise partner with ETA (Phase 5F-3). Partners see only their own;
+/// admins see all. The conversation (SupportTicketMessage) and status history (SupportTicketEvent) are
+/// append-only; status rules and immutability are enforced by the database (see the migration).
+model SupportTicket {
+  id            String                @id @default(cuid())
+  /// Human reference, e.g. FT-2026-000042.
+  ticketNo      String                @unique
+  partnerId     String
+  openedById    String
+  subject       String
+  category      SupportTicketCategory
+  status        SupportTicketStatus   @default(OPEN)
+  /// Who needs to act next: ETA, PARTNER or NONE (resolved/closed). CHECK in the migration.
+  awaiting      String                @default("ETA")
+  lastMessageAt DateTime              @default(now())
+  resolvedAt    DateTime?
+  closedAt      DateTime?
+  closedById    String?
+  /// Optimistic concurrency for status changes.
+  version       Int                   @default(0)
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  partner  FranchisePartner       @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  openedBy User                   @relation("TicketOpenedBy", fields: [openedById], references: [id], onDelete: Restrict)
+  closedBy User?                  @relation("TicketClosedBy", fields: [closedById], references: [id], onDelete: Restrict)
+  messages SupportTicketMessage[]
+  events   SupportTicketEvent[]
+
+  @@index([partnerId, status, lastMessageAt])
+  @@index([status, lastMessageAt])
+}
+
+/// One message in a ticket's conversation. Append-only: never edited or deleted. `internal` notes are
+/// written by admins and never shown to the partner.
+model SupportTicketMessage {
+  id         String   @id @default(cuid())
+  ticketId   String
+  authorId   String
+  /// PARTNER or ADMIN (CHECK in the migration).
+  authorRole String
+  body       String
+  internal   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+  author User          @relation("TicketMessageAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([ticketId, createdAt])
+}
+
+/// A ticket's status history. Append-only.
+model SupportTicketEvent {
+  id         String               @id @default(cuid())
+  ticketId   String
+  actorId    String
+  /// PARTNER or ADMIN (CHECK in the migration).
+  actorRole  String
+  fromStatus SupportTicketStatus?
+  toStatus   SupportTicketStatus
+  note       String?
+  createdAt  DateTime             @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Restrict)
+  actor  User          @relation("TicketEventActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([ticketId, createdAt])
 }

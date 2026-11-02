@@ -25,6 +25,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         { href: "/admin/withdrawals", label: "Withdrawals", icon: "wallet" },
         { href: "/admin/franchise-applications", label: "Franchise Applications", icon: "fileCheck" },
         { href: "/admin/franchise-partners", label: "Franchise Partners", icon: "users" },
+        { href: "/admin/franchise-tickets", label: "Franchise Tickets", icon: "fileText" },
         { href: "/admin/franchise-policies", label: "Franchise Policies", icon: "handCoins" },
         { href: "/admin/franchise-locations", label: "Franchise Locations", icon: "building" },
         { href: "/admin/referral-claims", label: "Referral Claims", icon: "fileText" },

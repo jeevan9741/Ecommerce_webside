@@ -4,6 +4,17 @@ import { HttpError, param } from "../utils/http.js";
 import { rateLimit } from "../utils/rate-limit.js";
 import { acceptInvite, cancelInvite, createInvite, listInvites, listStudents, previewInvite, resendInvite, studentDetail } from "../services/franchise-invite.service.js";
 import {
+  adminChangeStatus,
+  adminListTickets,
+  adminReply,
+  adminTicketDetail,
+  partnerClose,
+  partnerCreateTicket,
+  partnerListTickets,
+  partnerReply,
+  partnerTicketDetail,
+} from "../services/franchise-ticket.service.js";
+import {
   approvePartnerAction,
   closePartnerAction,
   listPartners,
@@ -68,6 +79,38 @@ export async function partnerStudentDetail(req: Request, res: Response) {
   res.json({ student: await studentDetail(ctxOf(req), currentUser(req).id, param(req, "id")) });
 }
 
+// ---------- Partner: support tickets (behind requireFranchisePartner; own tickets only) ----------
+
+const messageLimit = (key: string) => {
+  if (!rateLimit(`franchise-ticket-msg:${key}`, 30, 60 * 60 * 1000)) throw new HttpError(429, "Too many messages. Try again later.", { code: "RATE_LIMITED" });
+};
+export async function partnerTicketCreate(req: Request, res: Response) {
+  const ctx = ctxOf(req);
+  if (!rateLimit(`franchise-ticket-new:${ctx.partnerId}`, 10, 60 * 60 * 1000) || !rateLimit(`franchise-ticket-new-day:${ctx.partnerId}`, 30, 24 * 60 * 60 * 1000)) {
+    throw new HttpError(429, "Too many new tickets. Try again later.", { code: "RATE_LIMITED" });
+  }
+  noStore(res);
+  res.status(201).json({ ticket: await partnerCreateTicket(ctx, currentUser(req).id, req.body) });
+}
+export async function partnerTicketList(req: Request, res: Response) {
+  noStore(res);
+  res.json({ tickets: await partnerListTickets(ctxOf(req), req.query) });
+}
+export async function partnerTicketGet(req: Request, res: Response) {
+  noStore(res);
+  res.json({ ticket: await partnerTicketDetail(ctxOf(req), param(req, "id")) });
+}
+export async function partnerTicketReply(req: Request, res: Response) {
+  const ctx = ctxOf(req);
+  messageLimit(ctx.partnerId);
+  noStore(res);
+  res.status(201).json(await partnerReply(ctx, currentUser(req).id, param(req, "id"), req.body));
+}
+export async function partnerTicketClose(req: Request, res: Response) {
+  noStore(res);
+  res.json(await partnerClose(ctxOf(req), currentUser(req).id, param(req, "id"), req.body));
+}
+
 // ---------- Student: an invitation sent to them (signed in; their own account) ----------
 
 const tokenLimit = (req: Request) => {
@@ -89,6 +132,25 @@ export async function studentAcceptInvite(req: Request, res: Response) {
 }
 
 // ---------- Admin (under /admin, requireAdmin; the service re-checks the role in the database) ----------
+
+export async function adminTicketList(req: Request, res: Response) {
+  noStore(res);
+  res.json(await adminListTickets(currentUser(req).id, req.query));
+}
+export async function adminTicketGet(req: Request, res: Response) {
+  noStore(res);
+  res.json({ ticket: await adminTicketDetail(currentUser(req).id, param(req, "id")) });
+}
+export async function adminTicketReply(req: Request, res: Response) {
+  const admin = currentUser(req);
+  messageLimit(`admin:${admin.id}`);
+  noStore(res);
+  res.status(201).json(await adminReply(admin.id, param(req, "id"), req.body));
+}
+export async function adminTicketStatus(req: Request, res: Response) {
+  noStore(res);
+  res.json(await adminChangeStatus(currentUser(req).id, param(req, "id"), req.body));
+}
 
 export async function adminListPartners(req: Request, res: Response) {
   noStore(res);

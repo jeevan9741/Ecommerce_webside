@@ -68,6 +68,12 @@ router.post("/admin/franchise/partner-requests/:id/approve", asyncHandler(franch
 router.post("/admin/franchise/partner-requests/:id/reject", asyncHandler(franchisePartner.adminRejectPartnerAction));
 router.post("/admin/franchise/partner-requests/:id/cancel", asyncHandler(franchisePartner.adminCancelPartnerAction));
 
+// Franchise support tickets (Phase 5F-3): every franchise's tickets; replies, internal notes, status.
+router.get("/admin/franchise/tickets", asyncHandler(franchisePartner.adminTicketList));
+router.get("/admin/franchise/tickets/:id", asyncHandler(franchisePartner.adminTicketGet));
+router.post("/admin/franchise/tickets/:id/messages", asyncHandler(franchisePartner.adminTicketReply));
+router.post("/admin/franchise/tickets/:id/status", asyncHandler(franchisePartner.adminTicketStatus));
+
 // People
 router.get("/admin/customers", asyncHandler(ops.listCustomers));
 router.get("/admin/partners", asyncHandler(ops.listPartners));
