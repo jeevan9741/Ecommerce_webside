@@ -37,7 +37,8 @@ const domainOf = (v: unknown): PolicyDomain | undefined => {
   return v as PolicyDomain;
 };
 
-export function policySchema(_req: Request, res: Response) {
+export async function policySchema(req: Request, res: Response) {
+  await adminReader(req);
   res.json({ schemaVersion: POLICY_SCHEMA_VERSION, domains: POLICY_DOMAINS, fields: POLICY_FIELDS, startingValues: APPROVED_STARTING_VALUES, features: FEATURE_REQUIREMENTS });
 }
 

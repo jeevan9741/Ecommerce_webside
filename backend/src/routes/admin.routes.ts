@@ -26,7 +26,7 @@ router.get("/admin/analytics/sales", asyncHandler(ops.salesAnalytics));
 router.get("/admin/analytics/payouts", asyncHandler(ops.payoutAnalytics));
 
 // Franchise policies (two-admin governance). Static paths come before /:id.
-router.get("/admin/franchise/policies/schema", policy.policySchema);
+router.get("/admin/franchise/policies/schema", asyncHandler(policy.policySchema));
 router.get("/admin/franchise/policies/readiness", asyncHandler(policy.policyReadiness));
 router.get("/admin/franchise/policies/resolve", asyncHandler(policy.resolvePolicyAt));
 router.get("/admin/franchise/policies", asyncHandler(policy.listPolicyVersions));
