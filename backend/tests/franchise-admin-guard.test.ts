@@ -264,17 +264,41 @@ describe("L3: state activation counts districts inside its transaction", () => {
 });
 
 // ---------- B-4: a demotion racing an in-progress write, ordered by database locks (no timed sleeps) ----------
+//
+// Prerequisites for these two tests (local and CI):
+//   * PostgreSQL 9.6 or later (pg_blocking_pids).
+//   * track_activities = on (the default), so pg_stat_activity shows each backend's current query.
+//   * The test process and the app share one database role, or the role has pg_read_all_stats — otherwise
+//     pg_stat_activity hides other sessions' queries and the lock waits can't be observed.
+//   * At least four pooled database connections: the held transaction, the server's request transaction,
+//     the concurrent demotion, and the polling queries.
+//   * Query matching assumes the SQL text this code sends: the role check "SELECT … FOR SHARE"
+//     (services/franchise-admin-guard.ts), the state lock "… "IndiaState" … FOR UPDATE"
+//     (services/franchise-location.service.ts) and Prisma's generated `UPDATE "public"."User" …` for the
+//     demotion. If Prisma changes its generated SQL, adjust the patterns below.
+// Timing: every wait is bounded by WAIT_LIMIT_MS, and a held transaction lives at most HOLD_LIMIT_MS — both
+// well inside the backend's 20-second interactive-transaction timeout (config/prisma.ts), so a server request
+// waiting on a held lock can't expire mid-test. Each test releases everything it holds in `finally`, waits
+// for held transactions and in-flight requests to settle, and handles their rejections, so a failing test
+// leaves no open transaction, no stray rows (removed by `after`) and no unhandled error.
+
+const WAIT_LIMIT_MS = 5_000;
+const HOLD_LIMIT_MS = 15_000;
+
+type Held = { pid: Promise<number>; release: () => void; done: Promise<void> };
 
 /**
  * Opens a transaction, runs `work` (which takes the locks), reports the transaction's backend pid, and keeps
- * the transaction open — holding those locks — until `release()` is called.
+ * the transaction open — holding those locks — until `release()` is called. `done` never rejects: a failure
+ * is reported through `pid` (if the locks were never taken) and otherwise only ends the hold.
  */
-function holdOpen(work: (tx: Prisma.TransactionClient) => Promise<unknown>) {
+function holdOpen(work: (tx: Prisma.TransactionClient) => Promise<unknown>): Held {
   let release!: () => void;
   const gate = new Promise<void>((r) => (release = r));
   let ready!: (pid: number) => void;
   let failed!: (e: unknown) => void;
   const pid = new Promise<number>((res, rej) => ((ready = res), (failed = rej)));
+  pid.catch(() => {}); // observed by the test that awaits it; never an unhandled rejection
   const done = prisma
     .$transaction(
       async (tx) => {
@@ -283,13 +307,19 @@ function holdOpen(work: (tx: Prisma.TransactionClient) => Promise<unknown>) {
         ready(row.pid);
         await gate;
       },
-      { maxWait: 10_000, timeout: 30_000 }
+      { maxWait: WAIT_LIMIT_MS, timeout: HOLD_LIMIT_MS }
     )
-    .catch((e) => {
-      failed(e);
-      throw e;
-    });
+    .then(
+      () => undefined,
+      (e) => failed(e)
+    );
   return { pid, release, done };
+}
+
+/** Releases every held transaction, then waits for those and every in-flight request to finish (errors ignored). */
+async function settle(held: Held[], inFlight: Promise<unknown>[]) {
+  for (const h of held) h.release();
+  await Promise.allSettled([...held.map((h) => h.done), ...inFlight]);
 }
 
 /** Backends currently waiting on a lock held by `holderPid` (PostgreSQL's own lock-wait graph). */
@@ -298,10 +328,10 @@ async function waitersOf(holderPid: number) {
 }
 
 /**
- * Waits until the database reports the condition. The short pause between checks is only a polling
- * interval; the ordering the tests rely on comes from the observed lock waits, not from timing.
+ * Waits until the database reports the condition, for at most WAIT_LIMIT_MS. The short pause between checks
+ * is only a polling interval; the ordering the tests rely on comes from the observed lock waits, not timing.
  */
-async function waitFor(what: string, check: () => Promise<boolean>, limitMs = 15_000) {
+async function waitFor(what: string, check: () => Promise<boolean>, limitMs = WAIT_LIMIT_MS) {
   const deadline = Date.now() + limitMs;
   while (!(await check())) {
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
@@ -313,54 +343,71 @@ describe("B-4: an admin demoted while a write is in progress", () => {
   test("a demotion committed while the write waits on its in-transaction role check: the write is refused", async () => {
     const ex = await makeUser("race-demoted-first", "ADMIN");
     const name = `${tag} Race refused`;
-    // The demotion takes the admin's row lock and stays uncommitted.
-    const demotion = holdOpen((tx) => tx.user.update({ where: { id: ex.id }, data: { role: "USER" } }));
-    const demotionPid = await demotion.pid;
-    // The write's up-front check reads the committed role (still ADMIN) and passes; its in-transaction check
-    // (SELECT … FOR SHARE on the same row) must wait for the demotion.
-    const write = call("POST", `${L}/states`, ex, { name, code: num() });
-    await waitFor("the write to wait on the demotion's row lock", async () => (await waitersOf(demotionPid)).some((w) => /FOR SHARE/i.test(w.query)));
-    assert.equal(await prisma.indiaState.count({ where: { name } }), 0, "nothing written while waiting");
-    demotion.release();
-    await demotion.done;
-    const r = await write;
-    assert.equal(r.status, 403, `the write re-reads the committed demotion: ${r.text}`);
-    assert.equal(await prisma.indiaState.count({ where: { name } }), 0);
-    assert.equal(await prisma.auditLog.count({ where: { actorId: ex.id } }), 0);
+    const held: Held[] = [];
+    const inFlight: Promise<unknown>[] = [];
+    try {
+      // The demotion takes the admin's row lock and stays uncommitted.
+      const demotion = holdOpen((tx) => tx.user.update({ where: { id: ex.id }, data: { role: "USER" } }));
+      held.push(demotion);
+      const demotionPid = await demotion.pid;
+      // The write's up-front check reads the committed role (still ADMIN) and passes; its in-transaction check
+      // (SELECT … FOR SHARE on the same row) must wait for the demotion.
+      const write = call("POST", `${L}/states`, ex, { name, code: num() });
+      inFlight.push(write);
+      await waitFor("the write to wait on the demotion's row lock", async () => (await waitersOf(demotionPid)).some((w) => /FOR SHARE/i.test(w.query)));
+      assert.equal(await prisma.indiaState.count({ where: { name } }), 0, "nothing written while waiting");
+      demotion.release();
+      await demotion.done;
+      const r = await write;
+      assert.equal(r.status, 403, `the write re-reads the committed demotion: ${r.text}`);
+      assert.equal(await prisma.indiaState.count({ where: { name } }), 0);
+      assert.equal(await prisma.auditLog.count({ where: { actorId: ex.id } }), 0);
+    } finally {
+      await settle(held, inFlight);
+    }
   });
 
   test("a write that already holds its role check finishes first; the demotion waits for it, then applies", async () => {
     const ex = await makeUser("race-write-first", "ADMIN");
     const { stateId } = await newState(people.admA, 1);
-    // Hold the state row, so the activation stops right after its role check (which keeps the admin's row share-locked).
-    const stateHold = holdOpen((tx) => tx.$queryRaw`SELECT "id" FROM "IndiaState" WHERE "id" = ${stateId} FOR UPDATE`);
-    const holdPid = await stateHold.pid;
-    const activation = call("POST", `${L}/states/${stateId}/activate`, ex, { confirm: true, expectedDistricts: 1 });
-    let writerPid = 0;
-    await waitFor("the activation to wait on the state row", async () => {
-      const w = (await waitersOf(holdPid)).find((x) => /IndiaState/i.test(x.query) && /FOR UPDATE/i.test(x.query));
-      writerPid = w?.pid ?? 0;
-      return Boolean(w);
-    });
-    // Now demote the admin: the update must wait for the activation's share lock on the admin's row.
-    let demotedAt: "before-release" | "after-release" | null = null;
-    let released = false;
-    const demotion = prisma.user.update({ where: { id: ex.id }, data: { role: "USER" } }).then(() => {
-      demotedAt = released ? "after-release" : "before-release";
-    });
-    await waitFor("the demotion to wait on the activation's role lock", async () => (await waitersOf(writerPid)).some((w) => /UPDATE/i.test(w.query) && /"User"/.test(w.query)));
-    assert.equal(demotedAt, null, "the demotion can't apply while the activation holds the role lock");
-    released = true;
-    stateHold.release();
-    await stateHold.done;
-    const r = await activation;
-    await demotion;
-    assert.equal(demotedAt, "after-release");
-    assert.deepEqual([r.status, r.body.districtsEnabled], [200, 1], r.text);
-    const audit = await prisma.auditLog.findMany({ where: { action: "FRANCHISE_STATE_ACTIVATED", target: stateId } });
-    assert.deepEqual(audit.map((a) => a.actorId), [ex.id], "exactly one activation, by the admin who held the role at the time");
-    assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: ex.id } })).role, "USER");
-    const after = await call("POST", `${L}/states`, ex, { name: `${tag} After demotion`, code: num() });
-    assert.equal(after.status, 403, "the next write sees the demotion");
+    const held: Held[] = [];
+    const inFlight: Promise<unknown>[] = [];
+    try {
+      // Hold the state row, so the activation stops right after its role check (which keeps the admin's row share-locked).
+      const stateHold = holdOpen((tx) => tx.$queryRaw`SELECT "id" FROM "IndiaState" WHERE "id" = ${stateId} FOR UPDATE`);
+      held.push(stateHold);
+      const holdPid = await stateHold.pid;
+      const activation = call("POST", `${L}/states/${stateId}/activate`, ex, { confirm: true, expectedDistricts: 1 });
+      inFlight.push(activation);
+      let writerPid = 0;
+      await waitFor("the activation to wait on the state row", async () => {
+        const w = (await waitersOf(holdPid)).find((x) => /IndiaState/i.test(x.query) && /FOR UPDATE/i.test(x.query));
+        writerPid = w?.pid ?? 0;
+        return Boolean(w);
+      });
+      // Now demote the admin: the update must wait for the activation's share lock on the admin's row.
+      let demotedAt: "before-release" | "after-release" | null = null;
+      let released = false;
+      const demotion = prisma.user.update({ where: { id: ex.id }, data: { role: "USER" } }).then(() => {
+        demotedAt = released ? "after-release" : "before-release";
+      });
+      inFlight.push(demotion);
+      await waitFor("the demotion to wait on the activation's role lock", async () => (await waitersOf(writerPid)).some((w) => /UPDATE/i.test(w.query) && /"User"/.test(w.query)));
+      assert.equal(demotedAt, null, "the demotion can't apply while the activation holds the role lock");
+      released = true;
+      stateHold.release();
+      await stateHold.done;
+      const r = await activation;
+      await demotion;
+      assert.equal(demotedAt, "after-release");
+      assert.deepEqual([r.status, r.body.districtsEnabled], [200, 1], r.text);
+      const audit = await prisma.auditLog.findMany({ where: { action: "FRANCHISE_STATE_ACTIVATED", target: stateId } });
+      assert.deepEqual(audit.map((a) => a.actorId), [ex.id], "exactly one activation, by the admin who held the role at the time");
+      assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: ex.id } })).role, "USER");
+      const after = await call("POST", `${L}/states`, ex, { name: `${tag} After demotion`, code: num() });
+      assert.equal(after.status, 403, "the next write sees the demotion");
+    } finally {
+      await settle(held, inFlight);
+    }
   });
 });
