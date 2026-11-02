@@ -55,9 +55,10 @@ export async function getDownloadUrl(key: string, expiresInSeconds = 300) {
 }
 
 /** Server-side upload for small submissions (e.g. job application resumes)
- * where we don't want to hand out a presigned PUT URL to anonymous visitors. */
-export async function uploadBuffer(key: string, body: Buffer, contentType: string) {
-  await put(key, body, { access: "private", contentType, addRandomSuffix: false, allowOverwrite: true });
+ * where we don't want to hand out a presigned PUT URL to anonymous visitors.
+ * `allowOverwrite: false` makes the store refuse an existing key, for files that must never be replaced. */
+export async function uploadBuffer(key: string, body: Buffer, contentType: string, options: { allowOverwrite?: boolean } = {}) {
+  await put(key, body, { access: "private", contentType, addRandomSuffix: false, allowOverwrite: options.allowOverwrite ?? true });
 }
 
 export async function deleteObject(key: string, store: BlobStore = "private") {

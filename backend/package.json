@@ -12,6 +12,7 @@
     "test:unit": "node --import tsx --test \"tests/learning-rules.test.ts\"",
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate deploy",
+    "franchise:expire-approvals": "node dist/jobs/expire-policy-approvals.js",
     "db:seed": "tsx prisma/seed.ts"
   },
   "prisma": {

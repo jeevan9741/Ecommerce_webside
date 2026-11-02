@@ -27,6 +27,13 @@ export function storeIdOf(token: string | undefined | null): string | null {
   return /^vercel_blob_rw_([A-Za-z0-9]+)_\S+$/.exec((token ?? "").trim())?.[1] ?? null;
 }
 
+/**
+ * One form for every store ID before comparing: the Vercel dashboard shows `store_<id>`, tokens carry
+ * the bare `<id>`. Without this, a production ID written in dashboard form would never match a token
+ * and the isolation check would pass silently.
+ */
+export const normalizeStoreId = (id: string) => id.trim().replace(/^store_/, "");
+
 /** Enough of a store ID to tell stores apart in a message, never the whole thing. */
 export const describeStore = (storeId: string) => `${storeId.slice(0, 4)}…`;
 
@@ -52,11 +59,11 @@ export function resolveBlobTestMode(config: BlobTestConfig): BlobTestMode {
   const storeId = storeIdOf(testToken);
   if (!storeId) return { kind: "refused", reason: "TEST_BLOB_READ_WRITE_TOKEN isn't a Blob read-write token" };
 
-  const declared = config.testStoreId?.trim();
+  const declared = config.testStoreId ? normalizeStoreId(config.testStoreId) : "";
   if (!declared) return { kind: "refused", reason: "set TEST_BLOB_STORE_ID to the test store's ID to confirm which store the test token belongs to" };
   if (declared !== storeId) return { kind: "refused", reason: `TEST_BLOB_STORE_ID doesn't match the test token's store (${describeStore(storeId)})` };
 
-  const production = [...new Set(config.productionStoreIds.map((s) => s.trim()).filter(Boolean))];
+  const production = [...new Set(config.productionStoreIds.map(normalizeStoreId).filter(Boolean))];
   if (production.length === 0) {
     return {
       kind: "refused",

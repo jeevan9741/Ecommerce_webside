@@ -10,6 +10,8 @@ import * as category from "../controllers/category.controller.js";
 import * as ebook from "../controllers/ebook.controller.js";
 import * as legalDocument from "../controllers/legal-document.controller.js";
 import * as liveSession from "../controllers/live-session.controller.js";
+import * as policy from "../controllers/policy.controller.js";
+import * as franchise from "../controllers/franchise.controller.js";
 
 const router = Router();
 
@@ -20,6 +22,32 @@ router.use("/upload", requireAdmin);
 // Analytics
 router.get("/admin/analytics/sales", asyncHandler(ops.salesAnalytics));
 router.get("/admin/analytics/payouts", asyncHandler(ops.payoutAnalytics));
+
+// Franchise policies (two-admin governance). Static paths come before /:id.
+router.get("/admin/franchise/policies/schema", policy.policySchema);
+router.get("/admin/franchise/policies/readiness", asyncHandler(policy.policyReadiness));
+router.get("/admin/franchise/policies/resolve", asyncHandler(policy.resolvePolicyAt));
+router.get("/admin/franchise/policies", asyncHandler(policy.listPolicyVersions));
+router.post("/admin/franchise/policies", asyncHandler(policy.createPolicyDraft));
+router.get("/admin/franchise/policies/:id", asyncHandler(policy.getPolicyVersion));
+router.get("/admin/franchise/policies/:id/diff", asyncHandler(policy.getPolicyDiff));
+router.put("/admin/franchise/policies/:id", asyncHandler(policy.updatePolicyDraft));
+router.delete("/admin/franchise/policies/:id", asyncHandler(policy.discardPolicyDraft));
+router.post("/admin/franchise/policies/:id/submit", asyncHandler(policy.submitPolicy));
+router.get("/admin/franchise/approvals", asyncHandler(policy.listPolicyApprovals));
+router.post("/admin/franchise/approvals/:id/approve", asyncHandler(policy.approvePolicy));
+router.post("/admin/franchise/approvals/:id/reject", asyncHandler(policy.rejectPolicy));
+router.post("/admin/franchise/approvals/:id/cancel", asyncHandler(policy.cancelPolicySubmission));
+
+// Franchise states and districts. New ones start disabled; nothing is ever deleted (imports included).
+router.get("/admin/franchise/locations", asyncHandler(franchise.listAdminLocations));
+router.post("/admin/franchise/locations/states", asyncHandler(franchise.addState));
+router.patch("/admin/franchise/locations/states/:id", asyncHandler(franchise.editState));
+router.post("/admin/franchise/locations/states/:id/activate", asyncHandler(franchise.enableState));
+router.post("/admin/franchise/locations/districts", asyncHandler(franchise.addDistrict));
+router.patch("/admin/franchise/locations/districts/:id", asyncHandler(franchise.editDistrict));
+router.post("/admin/franchise/locations/import/preview", asyncHandler(franchise.previewLocationImport));
+router.post("/admin/franchise/locations/import/apply", asyncHandler(franchise.applyLocationImport));
 
 // People
 router.get("/admin/customers", asyncHandler(ops.listCustomers));

@@ -28,6 +28,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         { href: "/dashboard/referral", label: "Referral & Earnings", icon: "users" },
         { href: "/dashboard/referral/claim", label: "Claim Partner Commission", icon: "handCoins" },
         { href: "/dashboard/activity", label: "Activity", icon: "receipt" },
+        { href: "/franchise/application", label: "Franchise Application", icon: "building" },
       ]}
     >
       {children}

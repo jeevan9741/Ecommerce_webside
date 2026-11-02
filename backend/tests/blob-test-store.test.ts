@@ -34,6 +34,7 @@ test("a test store is used only when it is positively identified and isolated", 
     ["no production store to compare with", { ...ok, productionStoreIds: [] }, "refused", /can't confirm the test store is isolated/],
     ["the production token passed as the test token", { testToken: fakeToken(PROD), testStoreId: PROD, productionStoreIds: [PROD] }, "refused", /belongs to a production store/],
     ["a store listed in PRODUCTION_BLOB_STORE_IDS", { ...ok, productionStoreIds: [PROD, TEST] }, "refused", /belongs to a production store/],
+    ["a production store listed in dashboard form (store_<id>)", { ...ok, productionStoreIds: [PROD, `store_${TEST}`] }, "refused", /belongs to a production store/],
   ];
   for (const [label, config, kind, reason] of cases) {
     const mode = resolveBlobTestMode(config);

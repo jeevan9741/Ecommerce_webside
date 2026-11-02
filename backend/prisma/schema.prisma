@@ -125,18 +125,25 @@ model User {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  preferredLanguage  Language?           @relation("PreferredLanguage", fields: [preferredLanguageId], references: [id])
-  orders             Order[]             @relation("CustomerOrders")
-  referredOrders     Order[]             @relation("ReferrerOrders")
-  courseAccess       CourseAccess[]
-  commissions        CommissionLedger[]
-  payoutMethods      PayoutMethod[]
-  withdrawalRequests WithdrawalRequest[]
-  referralClaims     ReferralClaim[]
-  partnerCard        PartnerCard?
-  videoProgress      VideoProgress[]
-  auditLogs          AuditLog[]
-  courseCertificates CourseCertificate[]
+  preferredLanguage     Language?              @relation("PreferredLanguage", fields: [preferredLanguageId], references: [id])
+  orders                Order[]                @relation("CustomerOrders")
+  referredOrders        Order[]                @relation("ReferrerOrders")
+  courseAccess          CourseAccess[]
+  commissions           CommissionLedger[]
+  payoutMethods         PayoutMethod[]
+  withdrawalRequests    WithdrawalRequest[]
+  referralClaims        ReferralClaim[]
+  partnerCard           PartnerCard?
+  videoProgress         VideoProgress[]
+  auditLogs             AuditLog[]
+  courseCertificates    CourseCertificate[]
+  franchiseApplications FranchiseApplication[]
+  franchisePartner      FranchisePartner?
+  franchiseStudentLinks FranchiseStudent[]     @relation("FranchiseStudentUser")
+  policiesCreated       PolicyVersion[]        @relation("PolicyCreatedBy")
+  policiesApproved      PolicyVersion[]        @relation("PolicyApprovedBy")
+  approvalsRequested    AdminApprovalRequest[] @relation("ApprovalRequestedBy")
+  approvalsDecided      AdminApprovalRequest[] @relation("ApprovalDecidedBy")
 
   @@index([referralCode])
 }
@@ -454,11 +461,15 @@ model Order {
   createdAt         DateTime    @default(now())
   paidAt            DateTime?
 
-  user       User              @relation("CustomerOrders", fields: [userId], references: [id])
-  referrer   User?             @relation("ReferrerOrders", fields: [referrerUserId], references: [id])
-  course     Course            @relation(fields: [courseId], references: [id])
-  access     CourseAccess?
-  commission CommissionLedger?
+  user                 User                       @relation("CustomerOrders", fields: [userId], references: [id])
+  referrer             User?                      @relation("ReferrerOrders", fields: [referrerUserId], references: [id])
+  course               Course                     @relation(fields: [courseId], references: [id])
+  access               CourseAccess?
+  commission           CommissionLedger?
+  franchiseAttribution FranchiseOrderAttribution?
+  paymentFees          PaymentFeeRecord[]
+  refunds              OrderRefund[]
+  disputes             PaymentDispute[]
 
   @@index([userId])
   @@index([referrerUserId])
@@ -770,4 +781,1266 @@ model AuditLog {
 
   @@index([actorId])
   @@index([action])
+}
+
+// ======================================================================================
+// ETA National Franchise System — foundation (Phase 2R: schema only, nothing reads it yet)
+// ======================================================================================
+// All money is integer paise (Int for single payments, BigInt for ledger and settlement sums).
+// The migration adds what Prisma can't model, and the app must never work around it:
+//   * partial unique indexes (one open application per user, one PRIMARY allocation per district,
+//     one PUBLISHED policy per domain, one PAID fee payment per application, …)
+//   * CHECK constraints (amount signs, balanced totals, approver ≠ requester, hash formats)
+//   * triggers: append-only tables, immutable published policies, and a deferred check that every
+//     ledger journal balances (Σ debits = Σ credits, at least two entries) at commit.
+// Business values that are still PENDING (GST treatment, NDR formula, reserve release, settlement
+// time, referral overlap, TDS, recovery rules, provider, suspension payouts, invoice configuration,
+// e-sign provider, reservation/reassignment, renewal, attribution scope) are NOT defaulted here:
+// they live in PolicyVersion payloads that Super Admins publish later (two-admin approval).
+
+// ---------- Enums ----------
+
+/// The eight business statuses, in order; REJECTED is handled separately.
+enum FranchiseApplicationStatus {
+  APPLICATION_SUBMITTED
+  UNDER_REVIEW
+  INTERVIEW_DISCUSSION
+  APPROVED
+  PAYMENT_PENDING
+  AGREEMENT_PENDING
+  ACTIVE_FRANCHISE
+  REJECTED
+}
+
+enum FranchiseDocumentKind {
+  ID_PROOF
+  PHOTO
+  ADDRESS_PROOF
+  BUSINESS_PLAN
+  ADDITIONAL
+}
+
+enum FranchiseDocRequestStatus {
+  OPEN
+  FULFILLED
+  CANCELLED
+}
+
+enum FranchiseInterviewMode {
+  IN_PERSON
+  PHONE
+  VIDEO
+}
+
+enum FranchiseInterviewStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+/// CREATED → PAID | FAILED; SUPERSEDED when a newer quote replaced an unpaid order; DUPLICATE_PAID
+/// when a second captured payment arrives after one is already PAID (flagged for a manual refund).
+enum FranchisePaymentStatus {
+  CREATED
+  PAID
+  FAILED
+  SUPERSEDED
+  DUPLICATE_PAID
+}
+
+enum FranchiseTemplateStatus {
+  DRAFT
+  PUBLISHED
+  RETIRED
+}
+
+enum FranchisePartnerStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+  EXPIRED
+}
+
+enum FranchisePartnerEventType {
+  ACTIVATED
+  SUSPENDED
+  REINSTATED
+  DEACTIVATED
+  EXPIRED
+  RENEWED
+  ATTRIBUTION_PAUSED
+  ATTRIBUTION_RESUMED
+  PAYOUTS_PAUSED
+  PAYOUTS_RESUMED
+}
+
+enum DistrictAllocationRole {
+  PRIMARY
+}
+
+/// RESERVED, ALLOCATED and SUSPENDED hold the district (one PRIMARY at a time); RELEASED frees it.
+enum DistrictAllocationStatus {
+  RESERVED
+  ALLOCATED
+  SUSPENDED
+  RELEASED
+}
+
+enum PolicyDomain {
+  COMMERCIAL
+  REVENUE_SHARE
+  SETTLEMENT
+  TAX
+  GST_INVOICE
+  NOTIFICATION
+}
+
+/// DRAFT → PENDING_APPROVAL → PUBLISHED → SUPERSEDED (or REJECTED). Published payloads are immutable.
+enum PolicyStatus {
+  DRAFT
+  PENDING_APPROVAL
+  PUBLISHED
+  SUPERSEDED
+  REJECTED
+}
+
+enum AdminApprovalAction {
+  POLICY_PUBLISH
+  DISTRICT_REASSIGN
+  DISTRICT_RELEASE
+  BENEFICIARY_CHANGE
+  PARTNER_REINSTATE
+  PARTNER_DEACTIVATE
+  SETTLEMENT_BATCH_APPROVE
+  PAYOUT_PROVIDER_ACTIVATE
+  RESERVE_RELEASE_MANUAL
+  DEBT_WRITE_OFF
+  LEDGER_ADJUSTMENT
+}
+
+enum AdminApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  EXPIRED
+  EXECUTED
+}
+
+enum LedgerAccountType {
+  // Per franchise partner (partnerId set):
+  PARTNER_HELD
+  PARTNER_PAYABLE
+  PARTNER_RESERVE
+  PARTNER_DEBT
+  // Company-wide (partnerId null):
+  ETA_REVENUE
+  GST_PAYABLE
+  GATEWAY_FEES
+  GATEWAY_FEE_RECOVERY
+  TDS_PAYABLE
+  REFUND_CHARGEBACK_ADJUSTMENTS
+  RAZORPAY_CLEARING
+  SALES_CLEARING
+  PAYOUT_IN_TRANSIT
+  PAYOUT_FEES
+  BANK
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+enum LedgerJournalType {
+  ORDER_CAPTURE
+  REVENUE_SHARE
+  EARNINGS_MATURITY
+  RESERVE_RELEASE
+  TDS_DEDUCTION
+  REFUND
+  CHARGEBACK
+  CHARGEBACK_REVERSAL
+  PAYOUT_INITIATED
+  PAYOUT_PAID
+  PAYOUT_FAILED
+  PAYOUT_FEE
+  DEBT_RECOVERY
+  ADJUSTMENT
+}
+
+enum EarningsLotStatus {
+  HELD
+  MATURED
+  REVERSED
+}
+
+enum ReserveLotStatus {
+  HELD
+  RELEASED
+  CONSUMED
+}
+
+enum FranchiseAttributionStatus {
+  ACTIVE
+  ENDED
+}
+
+enum OrderRefundStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
+enum PaymentDisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  WON
+  LOST
+  CLOSED
+}
+
+enum SettlementBatchStatus {
+  SCHEDULED
+  CALCULATING
+  LOCKED
+  AWAITING_APPROVAL
+  PROCESSING
+  COMPLETED
+  COMPLETED_WITH_FAILURES
+  CANCELLED
+}
+
+enum SettlementLineStatus {
+  PENDING
+  READY
+  SKIPPED
+  PAYOUT_INITIATED
+  PAID
+  FAILED
+  REVERSED
+  UNKNOWN
+}
+
+enum SettlementSkipReason {
+  BELOW_MINIMUM
+  SUSPENDED
+  PAYOUTS_PAUSED
+  NO_VERIFIED_BENEFICIARY
+  NEGATIVE_BALANCE
+  PROVIDER_DISABLED
+  POLICY_PENDING
+}
+
+enum PayoutChannel {
+  BANK
+  UPI
+}
+
+enum FranchisePayoutStatus {
+  CREATED
+  INITIATED
+  PROCESSING
+  PAID
+  FAILED
+  REVERSED
+  UNKNOWN
+}
+
+enum BeneficiaryStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  FAILED
+  DISABLED
+}
+
+enum GstDocumentKind {
+  FRANCHISE_FEE
+}
+
+enum ESignStatus {
+  CREATED
+  SENT
+  SIGNED
+  DECLINED
+  EXPIRED
+  FAILED
+}
+
+/// Renewal terms are PENDING: PENDING_TERMS until a renewal policy exists.
+enum RenewalStatus {
+  PENDING_TERMS
+  OFFERED
+  ACCEPTED
+  DECLINED
+  LAPSED
+}
+
+// ---------- Governance and policy ----------
+
+/// Versioned business configuration. The payload is validated by the app per domain; values that
+/// are not yet decided are stored as explicit {"status":"PENDING"} markers, never as defaults.
+/// Published versions are immutable (trigger); one PUBLISHED version per domain (partial index);
+/// publication needs a second admin (CHECK approvedById ≠ createdById).
+model PolicyVersion {
+  id                String       @id @default(cuid())
+  domain            PolicyDomain
+  version           Int
+  payload           Json
+  payloadSha256     String
+  status            PolicyStatus @default(DRAFT)
+  effectiveFrom     DateTime?
+  createdById       String
+  approvalRequestId String?      @unique
+  approvedById      String?
+  submittedAt       DateTime?
+  publishedAt       DateTime?
+  supersededAt      DateTime?
+  createdAt         DateTime     @default(now())
+
+  createdBy       User                  @relation("PolicyCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy      User?                 @relation("PolicyApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
+  approvalRequest AdminApprovalRequest? @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict)
+
+  journals          LedgerJournal[]
+  feePayments       FranchisePayment[]
+  agreements        FranchiseAgreement[]
+  settlementBatches SettlementBatch[]
+  schedules         SettlementSchedule[]
+  tdsDeductions     TdsDeduction[]
+  gstInvoices       GstInvoice[]
+
+  @@unique([domain, version])
+  @@index([domain, status])
+}
+
+/// Two-admin control for sensitive actions: a request is approved by a different ADMIN and then
+/// executed exactly once. The payload hash pins what was approved.
+model AdminApprovalRequest {
+  id            String              @id @default(cuid())
+  action        AdminApprovalAction
+  targetType    String
+  targetId      String
+  payload       Json
+  payloadSha256 String
+  reason        String
+  status        AdminApprovalStatus @default(PENDING)
+  /// = action:targetType:targetId while PENDING or APPROVED — one open request per target.
+  openKey       String?             @unique
+  requestedById String
+  decidedById   String?
+  decisionNote  String?
+  decidedAt     DateTime?
+  executedAt    DateTime?
+  expiresAt     DateTime
+  createdAt     DateTime            @default(now())
+
+  requestedBy User  @relation("ApprovalRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  decidedBy   User? @relation("ApprovalDecidedBy", fields: [decidedById], references: [id], onDelete: Restrict)
+
+  policy PolicyVersion?
+
+  @@index([status, action])
+  @@index([targetType, targetId])
+}
+
+// ---------- Locations and district allocation ----------
+
+model IndiaState {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  code         String?  @unique
+  isActive     Boolean  @default(true)
+  displayOrder Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  districts    District[]
+  applications FranchiseApplication[]
+}
+
+model District {
+  id        String   @id @default(cuid())
+  stateId   String
+  name      String
+  /// Official code (e.g. Local Government Directory), when imported from an approved dataset.
+  code      String?  @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  state        IndiaState                @relation(fields: [stateId], references: [id], onDelete: Restrict)
+  applications FranchiseApplication[]
+  partners     FranchisePartner[]
+  allocations  DistrictAllocation[]
+  events       DistrictAllocationEvent[]
+
+  @@unique([stateId, name])
+}
+
+/// The district's primary franchise slot. A partial unique index allows only one PRIMARY row per
+/// district in RESERVED, ALLOCATED or SUSPENDED; changes also lock the District row. Reservation
+/// expiry and reassignment rules are PENDING (reservedUntil stays null until a policy sets it).
+model DistrictAllocation {
+  id                String                   @id @default(cuid())
+  districtId        String
+  role              DistrictAllocationRole   @default(PRIMARY)
+  status            DistrictAllocationStatus
+  applicationId     String?
+  partnerId         String?
+  reservedAt        DateTime?
+  reservedUntil     DateTime?
+  allocatedAt       DateTime?
+  suspendedAt       DateTime?
+  releasedAt        DateTime?
+  releaseReason     String?
+  createdById       String
+  approvalRequestId String?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  district    District                  @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  application FranchiseApplication?     @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  partner     FranchisePartner?         @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  events      DistrictAllocationEvent[]
+
+  @@index([districtId, status])
+  @@index([partnerId])
+  @@index([applicationId])
+}
+
+/// Append-only history of every allocation change.
+model DistrictAllocationEvent {
+  id                String                    @id @default(cuid())
+  allocationId      String
+  districtId        String
+  fromStatus        DistrictAllocationStatus?
+  toStatus          DistrictAllocationStatus
+  actorId           String?
+  approvalRequestId String?
+  reason            String?
+  createdAt         DateTime                  @default(now())
+
+  allocation DistrictAllocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  district   District           @relation(fields: [districtId], references: [id], onDelete: Restrict)
+
+  @@index([districtId, createdAt])
+  @@index([allocationId, createdAt])
+}
+
+// ---------- Applications ----------
+
+model FranchiseApplication {
+  id                    String                     @id @default(cuid())
+  /// Human reference, e.g. FA-2026-000123.
+  applicationNo         String                     @unique
+  userId                String
+  status                FranchiseApplicationStatus @default(APPLICATION_SUBMITTED)
+  applicantName         String
+  mobile                String
+  /// The account's OTP-verified email at submission.
+  email                 String
+  stateId               String
+  districtId            String
+  address               String
+  education             String?
+  businessExperience    String?
+  officeAvailable       Boolean?
+  /// Whole rupees (CHECK 0..1,000,000,000).
+  investmentCapacityInr Int?
+  businessPlanText      String?
+  /// Document requirements in force when the application was submitted.
+  requiredDocumentKinds FranchiseDocumentKind[]
+  /// The exact refund policy the applicant acknowledged when submitting.
+  refundPolicyVersion   Int
+  refundPolicyText      String
+  refundPolicySha256    String
+  rejectionReason       String?
+  rejectedAt            DateTime?
+  approvedAt            DateTime?
+  approvedById          String?
+  /// Optimistic concurrency: every transition updates WHERE status = from AND version = expected.
+  version               Int                        @default(0)
+  submittedAt           DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  user             User                                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  state            IndiaState                          @relation(fields: [stateId], references: [id], onDelete: Restrict)
+  district         District                            @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  documents        FranchiseApplicationDocument[]
+  documentRequests FranchiseDocumentRequest[]
+  history          FranchiseApplicationStatusHistory[]
+  notes            FranchiseApplicationNote[]
+  interviews       FranchiseInterview[]
+  payments         FranchisePayment[]
+  agreement        FranchiseAgreement?
+  partner          FranchisePartner?
+  notifications    FranchiseNotification[]
+  allocations      DistrictAllocation[]
+
+  @@index([userId])
+  @@index([status, submittedAt])
+  @@index([stateId, districtId, status])
+}
+
+/// Append-only: a replacement is a new row. Files live only in the private Blob store.
+model FranchiseApplicationDocument {
+  id                String                @id @default(cuid())
+  applicationId     String
+  kind              FranchiseDocumentKind
+  storageKey        String                @unique
+  originalName      String
+  mimeType          String
+  sizeBytes         Int
+  sha256            String
+  uploadedById      String
+  documentRequestId String?
+  createdAt         DateTime              @default(now())
+
+  application     FranchiseApplication      @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  documentRequest FranchiseDocumentRequest? @relation(fields: [documentRequestId], references: [id], onDelete: Restrict)
+
+  @@index([applicationId, kind])
+}
+
+model FranchiseDocumentRequest {
+  id            String                    @id @default(cuid())
+  applicationId String
+  /// Shown to the applicant.
+  message       String
+  kinds         FranchiseDocumentKind[]
+  status        FranchiseDocRequestStatus @default(OPEN)
+  requestedById String
+  createdAt     DateTime                  @default(now())
+  fulfilledAt   DateTime?
+  cancelledAt   DateTime?
+
+  application FranchiseApplication           @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  documents   FranchiseApplicationDocument[]
+
+  @@index([applicationId, status])
+}
+
+/// Append-only status history. applicantNote is shown to the applicant; internalNote never is.
+model FranchiseApplicationStatusHistory {
+  id            String                      @id @default(cuid())
+  applicationId String
+  fromStatus    FranchiseApplicationStatus?
+  toStatus      FranchiseApplicationStatus
+  actorId       String?
+  /// APPLICANT, ADMIN or SYSTEM.
+  actorType     String
+  applicantNote String?
+  internalNote  String?
+  createdAt     DateTime                    @default(now())
+
+  application FranchiseApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+
+  @@index([applicationId, createdAt])
+}
+
+model FranchiseApplicationNote {
+  id                 String   @id @default(cuid())
+  applicationId      String
+  authorId           String
+  body               String
+  visibleToApplicant Boolean  @default(false)
+  createdAt          DateTime @default(now())
+
+  application FranchiseApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+
+  @@index([applicationId, createdAt])
+}
+
+model FranchiseInterview {
+  id              String                   @id @default(cuid())
+  applicationId   String
+  scheduledAt     DateTime
+  mode            FranchiseInterviewMode
+  locationOrLink  String?
+  applicantNote   String?
+  internalOutcome String?
+  status          FranchiseInterviewStatus @default(SCHEDULED)
+  createdById     String
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  application FranchiseApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+
+  @@index([applicationId, scheduledAt])
+}
+
+model FranchiseNotification {
+  id              String   @id @default(cuid())
+  applicationId   String
+  recipientUserId String
+  kind            String
+  /// SENT or FAILED. No addresses or message bodies are stored.
+  status          String
+  error           String?
+  createdAt       DateTime @default(now())
+
+  application FranchiseApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+
+  @@index([applicationId, createdAt])
+}
+
+// ---------- Franchise fee, GST documents ----------
+
+/// One Razorpay order per row; amounts, the commercial policy version and the acknowledged refund
+/// policy are fixed when the order is created. PAID only after the signed webhook or a server-side
+/// fetch confirms a captured payment with the same order id, amount and currency.
+model FranchisePayment {
+  id                  String                 @id @default(cuid())
+  applicationId       String
+  status              FranchisePaymentStatus @default(CREATED)
+  baseAmountInPaise   Int
+  gstAmountInPaise    Int
+  /// = the Razorpay order amount (CHECK > 0 and = base + GST).
+  totalAmountInPaise  Int
+  currency            String                 @default("INR")
+  /// INCLUSIVE or EXCLUSIVE — from the published COMMERCIAL policy (PENDING until CA approval).
+  gstMode             String
+  gstRateBps          Int
+  policyVersionId     String
+  refundPolicyVersion Int
+  refundPolicyText    String
+  refundPolicySha256  String
+  razorpayOrderId     String                 @unique
+  razorpayPaymentId   String?                @unique
+  paidAt              DateTime?
+  failureReason       String?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  application   FranchiseApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  policyVersion PolicyVersion        @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  invoice       GstInvoice?
+
+  @@index([applicationId, status])
+}
+
+/// Gap-free number series per financial year (row-locked when a number is taken).
+model GstInvoiceSequence {
+  series        String
+  financialYear String
+  nextNumber    Int    @default(1)
+
+  @@id([series, financialYear])
+}
+
+/// Append-only GST invoice (configuration PENDING CA approval). Totals are checked in the database.
+model GstInvoice {
+  id                     String          @id @default(cuid())
+  kind                   GstDocumentKind
+  series                 String
+  financialYear          String
+  number                 Int
+  invoiceNo              String          @unique
+  franchisePaymentId     String?         @unique
+  policyVersionId        String
+  supplierGstin          String
+  supplierStateCode      String
+  recipientName          String
+  recipientGstin         String?
+  recipientStateCode     String
+  placeOfSupplyStateCode String
+  sacCode                String
+  taxableValueInPaise    Int
+  cgstInPaise            Int
+  sgstInPaise            Int
+  igstInPaise            Int
+  totalInPaise           Int
+  pdfStorageKey          String?         @unique
+  pdfSha256              String?
+  issuedAt               DateTime        @default(now())
+
+  franchisePayment FranchisePayment? @relation(fields: [franchisePaymentId], references: [id], onDelete: Restrict)
+  policyVersion    PolicyVersion     @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  creditNotes      GstCreditNote[]
+
+  @@unique([series, financialYear, number])
+}
+
+/// Append-only credit note against an invoice (never more than the invoice, per component).
+model GstCreditNote {
+  id                  String   @id @default(cuid())
+  invoiceId           String
+  series              String
+  financialYear       String
+  number              Int
+  creditNoteNo        String   @unique
+  reason              String
+  taxableValueInPaise Int
+  cgstInPaise         Int
+  sgstInPaise         Int
+  igstInPaise         Int
+  totalInPaise        Int
+  pdfStorageKey       String?  @unique
+  pdfSha256           String?
+  issuedById          String
+  issuedAt            DateTime @default(now())
+
+  invoice GstInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@unique([series, financialYear, number])
+}
+
+// ---------- Agreement, e-sign, renewal ----------
+
+/// Immutable once PUBLISHED.
+model FranchiseAgreementTemplate {
+  id            String                  @id @default(cuid())
+  version       Int                     @unique
+  title         String
+  body          String
+  status        FranchiseTemplateStatus @default(DRAFT)
+  createdById   String
+  publishedById String?
+  publishedAt   DateTime?
+  createdAt     DateTime                @default(now())
+
+  agreements FranchiseAgreement[]
+}
+
+/// The exact text generated for this applicant and its SHA-256. Acceptance records the hash of the
+/// text accepted (CHECK = contentSha256). A recorded acceptance is NOT a legally binding e-signature;
+/// e-sign (provider PENDING) is tracked in ESignRequest.
+model FranchiseAgreement {
+  id                    String    @id @default(cuid())
+  applicationId         String    @unique
+  templateId            String
+  templateVersion       Int
+  /// The published COMMERCIAL policy (fee, term) in force when the agreement was generated.
+  policyVersionId       String
+  termMonths            Int
+  renderedText          String
+  contentSha256         String
+  generatedAt           DateTime  @default(now())
+  acceptedAt            DateTime?
+  acceptedById          String?
+  acceptedContentSha256 String?
+  /// The name the applicant typed when accepting (a record, not a signature).
+  acceptedName          String?
+  ipHash                String?
+  userAgentHash         String?
+  pdfStorageKey         String?   @unique
+  pdfSha256             String?
+
+  application   FranchiseApplication       @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  template      FranchiseAgreementTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  policyVersion PolicyVersion              @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  eSignRequests ESignRequest[]
+  renewalsFrom  FranchiseRenewal[]         @relation("RenewalPreviousAgreement")
+  renewalsTo    FranchiseRenewal[]         @relation("RenewalNewAgreement")
+}
+
+/// One e-sign attempt with an external provider (provider PENDING). Provider document ids are unique.
+model ESignRequest {
+  id                 String      @id @default(cuid())
+  agreementId        String
+  provider           String
+  providerDocumentId String?
+  status             ESignStatus @default(CREATED)
+  documentSha256     String
+  signedPdfKey       String?     @unique
+  signedPdfSha256    String?
+  providerAuditTrail Json?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  completedAt        DateTime?
+
+  agreement FranchiseAgreement @relation(fields: [agreementId], references: [id], onDelete: Restrict)
+
+  @@unique([provider, providerDocumentId])
+  @@index([agreementId])
+}
+
+/// Renewal of an expiring agreement. Terms are PENDING: rows stay PENDING_TERMS until a policy exists.
+model FranchiseRenewal {
+  id                  String        @id @default(cuid())
+  partnerId           String
+  previousAgreementId String
+  newAgreementId      String?
+  status              RenewalStatus @default(PENDING_TERMS)
+  termMonths          Int?
+  dueAt               DateTime
+  offeredAt           DateTime?
+  respondedAt         DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  partner           FranchisePartner    @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  previousAgreement FranchiseAgreement  @relation("RenewalPreviousAgreement", fields: [previousAgreementId], references: [id], onDelete: Restrict)
+  newAgreement      FranchiseAgreement? @relation("RenewalNewAgreement", fields: [newAgreementId], references: [id], onDelete: Restrict)
+
+  @@index([partnerId, status])
+}
+
+// ---------- Partners ----------
+
+model FranchisePartner {
+  id                 String                 @id @default(cuid())
+  userId             String                 @unique
+  applicationId      String                 @unique
+  /// The unique Franchise ID, e.g. ETA-FR-0001.
+  franchiseCode      String                 @unique
+  districtId         String
+  status             FranchisePartnerStatus @default(ACTIVE)
+  agreementStartsAt  DateTime
+  agreementEndsAt    DateTime
+  /// Suspension stops new student attribution and pauses settlements; balances are kept.
+  attributionAllowed Boolean                @default(true)
+  payoutsPaused      Boolean                @default(false)
+  activatedAt        DateTime               @default(now())
+  suspendedAt        DateTime?
+  deactivatedAt      DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  user            User                        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  application     FranchiseApplication        @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  district        District                    @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  events          FranchisePartnerEvent[]
+  allocations     DistrictAllocation[]
+  renewals        FranchiseRenewal[]
+  students        FranchiseStudent[]
+  attributions    FranchiseOrderAttribution[]
+  ledgerAccounts  LedgerAccount[]
+  earningsLots    EarningsLot[]
+  reserveLots     ReserveLot[]
+  taxProfile      PartnerTaxProfile?
+  tdsDeductions   TdsDeduction[]
+  tdsCertificates TdsCertificate[]
+  beneficiaries   PayoutBeneficiary[]
+  settlementLines SettlementLine[]
+  payouts         FranchisePayout[]
+
+  @@index([districtId, status])
+  @@index([status])
+}
+
+/// Append-only audit of every partner lifecycle change.
+model FranchisePartnerEvent {
+  id                String                    @id @default(cuid())
+  partnerId         String
+  type              FranchisePartnerEventType
+  fromStatus        FranchisePartnerStatus?
+  toStatus          FranchisePartnerStatus?
+  actorId           String?
+  approvalRequestId String?
+  reason            String?
+  createdAt         DateTime                  @default(now())
+
+  partner FranchisePartner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+
+  @@index([partnerId, createdAt])
+}
+
+// ---------- Student and order attribution ----------
+
+/// Which partner a student belongs to (scope and transfer rules PENDING). A transfer ends one row
+/// and starts another; only one ACTIVE row per student (partial unique index).
+model FranchiseStudent {
+  id            String                     @id @default(cuid())
+  partnerId     String
+  studentUserId String
+  status        FranchiseAttributionStatus @default(ACTIVE)
+  source        String
+  startsAt      DateTime                   @default(now())
+  endsAt        DateTime?
+  endReason     String?
+  createdById   String
+  createdAt     DateTime                   @default(now())
+
+  partner      FranchisePartner            @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  student      User                        @relation("FranchiseStudentUser", fields: [studentUserId], references: [id], onDelete: Restrict)
+  attributions FranchiseOrderAttribution[]
+
+  @@index([partnerId, status])
+  @@index([studentUserId])
+}
+
+/// Links an existing course Order to a franchise partner WITHOUT changing the Order table.
+/// One attribution per order (unique) — the referral-overlap policy (PENDING) decides when it applies.
+model FranchiseOrderAttribution {
+  id              String   @id @default(cuid())
+  orderId         String   @unique
+  partnerId       String
+  studentLinkId   String?
+  policyVersionId String?
+  source          String
+  createdAt       DateTime @default(now())
+
+  order       Order             @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  partner     FranchisePartner  @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  studentLink FranchiseStudent? @relation(fields: [studentLinkId], references: [id], onDelete: Restrict)
+  earnings    EarningsLot[]
+
+  @@index([partnerId, createdAt])
+}
+
+// ---------- Payment facts: gateway fees, refunds, disputes ----------
+
+/// Razorpay's fee and GST on the fee for one captured payment (course order or franchise fee).
+model PaymentFeeRecord {
+  id                String   @id @default(cuid())
+  razorpayPaymentId String   @unique
+  orderId           String?
+  feeInPaise        Int
+  feeTaxInPaise     Int
+  source            String
+  fetchedAt         DateTime @default(now())
+
+  order Order? @relation(fields: [orderId], references: [id], onDelete: Restrict)
+}
+
+/// Refunds, including partial ones (the Order table only knows full refunds).
+model OrderRefund {
+  id                String            @id @default(cuid())
+  razorpayRefundId  String            @unique
+  razorpayPaymentId String
+  orderId           String
+  amountInPaise     Int
+  status            OrderRefundStatus @default(PENDING)
+  processedAt       DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+}
+
+model PaymentDispute {
+  id                String               @id @default(cuid())
+  razorpayDisputeId String               @unique
+  razorpayPaymentId String
+  orderId           String?
+  amountInPaise     Int
+  phase             String
+  status            PaymentDisputeStatus @default(OPEN)
+  reasonCode        String?
+  respondBy         DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  order Order? @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+}
+
+// ---------- Double-entry ledger ----------
+
+/// Partner account types carry a partnerId; company accounts don't (CHECK). One account per
+/// (type, partner) and one per company type (partial unique index). Company accounts are seeded.
+model LedgerAccount {
+  id        String            @id @default(cuid())
+  type      LedgerAccountType
+  partnerId String?
+  createdAt DateTime          @default(now())
+
+  partner FranchisePartner? @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  entries LedgerEntry[]
+
+  @@unique([type, partnerId])
+}
+
+/// Append-only. The idempotency key (e.g. "order:<id>:share:<policy>") makes every financial event
+/// post at most once; the policy version and the exact calculation inputs are kept with it.
+model LedgerJournal {
+  id              String            @id @default(cuid())
+  idempotencyKey  String            @unique
+  type            LedgerJournalType
+  policyVersionId String?
+  inputs          Json
+  inputsSha256    String
+  sourceType      String
+  sourceId        String
+  description     String?
+  postedById      String?
+  postedAt        DateTime          @default(now())
+
+  policyVersion PolicyVersion? @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  entries       LedgerEntry[]
+
+  @@index([sourceType, sourceId])
+  @@index([type, postedAt])
+}
+
+/// Append-only. Amounts are positive; direction says debit or credit. A deferred trigger checks at
+/// commit that each journal has ≥ 2 entries and Σ debits = Σ credits.
+model LedgerEntry {
+  id            String          @id @default(cuid())
+  journalId     String
+  accountId     String
+  direction     LedgerDirection
+  amountInPaise BigInt
+  createdAt     DateTime        @default(now())
+
+  journal LedgerJournal @relation(fields: [journalId], references: [id], onDelete: Restrict)
+  account LedgerAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([journalId])
+  @@index([accountId, createdAt])
+}
+
+/// A partner share from one attributed order, held until maturesAt (hold period from policy).
+model EarningsLot {
+  id               String            @id @default(cuid())
+  partnerId        String
+  attributionId    String
+  sourceJournalId  String            @unique
+  amountInPaise    BigInt
+  remainingInPaise BigInt
+  status           EarningsLotStatus @default(HELD)
+  capturedAt       DateTime
+  maturesAt        DateTime
+  maturedJournalId String?           @unique
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  partner     FranchisePartner          @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  attribution FranchiseOrderAttribution @relation(fields: [attributionId], references: [id], onDelete: Restrict)
+  reserveLot  ReserveLot?
+
+  @@index([partnerId, status, maturesAt])
+}
+
+/// The rolling reserve taken from one matured lot. Belongs to the partner. releasableAt stays null
+/// until a reserve-release policy is published (PENDING); never released beyond what remains.
+model ReserveLot {
+  id               String           @id @default(cuid())
+  partnerId        String
+  earningsLotId    String           @unique
+  createdJournalId String           @unique
+  amountInPaise    BigInt
+  remainingInPaise BigInt
+  releasedInPaise  BigInt           @default(0)
+  status           ReserveLotStatus @default(HELD)
+  releasableAt     DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  partner     FranchisePartner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  earningsLot EarningsLot      @relation(fields: [earningsLotId], references: [id], onDelete: Restrict)
+
+  @@index([partnerId, status])
+}
+
+// ---------- Tax ----------
+
+/// PAN is stored encrypted (app-level) with a masked copy for display; collection rules PENDING.
+model PartnerTaxProfile {
+  id           String   @id @default(cuid())
+  partnerId    String   @unique
+  panEncrypted String?
+  panMasked    String?
+  panVerified  Boolean  @default(false)
+  gstin        String?
+  gstVerified  Boolean  @default(false)
+  updatedById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  partner FranchisePartner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+}
+
+/// Append-only TDS record per deduction journal. The provision reference is text from the CA-approved
+/// TAX policy (Income-tax Act, 2025 for transactions from 1 April 2026) — nothing is hard-coded.
+model TdsDeduction {
+  id                 String   @id @default(cuid())
+  partnerId          String
+  journalId          String   @unique
+  policyVersionId    String
+  baseInPaise        BigInt
+  rateBps            Int
+  amountInPaise      BigInt
+  provisionReference String
+  financialYear      String
+  quarter            Int
+  createdAt          DateTime @default(now())
+
+  partner       FranchisePartner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  policyVersion PolicyVersion    @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+
+  @@index([partnerId, financialYear, quarter])
+}
+
+model TdsCertificate {
+  id             String   @id @default(cuid())
+  partnerId      String
+  financialYear  String
+  quarter        Int
+  certificateRef String
+  challanRef     String?
+  storageKey     String?  @unique
+  recordedById   String
+  createdAt      DateTime @default(now())
+
+  partner FranchisePartner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+
+  @@unique([partnerId, financialYear, quarter])
+}
+
+// ---------- Beneficiaries, settlement, payouts (provider-neutral; payouts OFF) ----------
+
+/// Bank or UPI destination. Details are encrypted (app-level); verification by the provider.
+/// One active primary beneficiary per partner (partial unique index). Changes need two admins.
+model PayoutBeneficiary {
+  id                    String            @id @default(cuid())
+  partnerId             String
+  channel               PayoutChannel
+  encryptedDetails      String
+  maskedIdentifier      String
+  holderName            String
+  status                BeneficiaryStatus @default(PENDING_VERIFICATION)
+  provider              String?
+  providerBeneficiaryId String?
+  verifiedAt            DateTime?
+  cooldownUntil         DateTime?
+  isPrimary             Boolean           @default(false)
+  approvalRequestId     String?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  partner         FranchisePartner  @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  payouts         FranchisePayout[]
+  settlementLines SettlementLine[]
+
+  @@unique([provider, providerBeneficiaryId])
+  @@index([partnerId, status])
+}
+
+/// The schedule of one published SETTLEMENT policy. The execution time is PENDING (null) and the
+/// schedule cannot be enabled until it is set (CHECK).
+model SettlementSchedule {
+  id                   String   @id @default(cuid())
+  policyVersionId      String   @unique
+  /// ISO day of week, 1 = Monday … 5 = Friday … 7 = Sunday.
+  dayOfWeek            Int
+  /// Minutes after midnight in `timezone`; null while PENDING.
+  executionMinuteOfDay Int?
+  timezone             String
+  enabled              Boolean  @default(false)
+  createdAt            DateTime @default(now())
+
+  policyVersion PolicyVersion     @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  batches       SettlementBatch[]
+}
+
+/// One batch per settlement period (periodKey = the settlement date in IST, unique).
+model SettlementBatch {
+  id                  String                @id @default(cuid())
+  periodKey           String                @unique
+  scheduleId          String
+  policyVersionId     String
+  status              SettlementBatchStatus @default(SCHEDULED)
+  snapshotSha256      String?
+  lineCount           Int                   @default(0)
+  totalPayoutInPaise  BigInt                @default(0)
+  approvalRequestId   String?               @unique
+  createdAt           DateTime              @default(now())
+  lockedAt            DateTime?
+  processingStartedAt DateTime?
+  completedAt         DateTime?
+
+  schedule      SettlementSchedule @relation(fields: [scheduleId], references: [id], onDelete: Restrict)
+  policyVersion PolicyVersion      @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+  lines         SettlementLine[]
+}
+
+/// One line per partner per batch. Inputs are snapshotted (with a hash) when the batch locks.
+model SettlementLine {
+  id                     String                @id @default(cuid())
+  batchId                String
+  partnerId              String
+  beneficiaryId          String?
+  status                 SettlementLineStatus  @default(PENDING)
+  skipReason             SettlementSkipReason?
+  inputs                 Json
+  inputsSha256           String
+  maturedInPaise         BigInt                @default(0)
+  reserveInPaise         BigInt                @default(0)
+  tdsInPaise             BigInt                @default(0)
+  previousPayoutsInPaise BigInt                @default(0)
+  debtInPaise            BigInt                @default(0)
+  payableInPaise         BigInt                @default(0)
+  payoutAmountInPaise    BigInt                @default(0)
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+
+  batch       SettlementBatch    @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  partner     FranchisePartner   @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  beneficiary PayoutBeneficiary? @relation(fields: [beneficiaryId], references: [id], onDelete: Restrict)
+  payout      FranchisePayout?
+
+  @@unique([batchId, partnerId])
+  @@index([partnerId, status])
+}
+
+/// The provider call for one settlement line. idempotencyKey = the line id; PAID only from a
+/// verified webhook or the provider's status API, never from the create response.
+model FranchisePayout {
+  id               String                @id @default(cuid())
+  lineId           String                @unique
+  partnerId        String
+  beneficiaryId    String
+  provider         String
+  channel          PayoutChannel
+  amountInPaise    BigInt
+  idempotencyKey   String                @unique
+  status           FranchisePayoutStatus @default(CREATED)
+  providerPayoutId String?
+  utr              String?
+  failureReason    String?
+  initJournalId    String?               @unique
+  finalJournalId   String?               @unique
+  initiatedAt      DateTime?
+  finalizedAt      DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  line        SettlementLine         @relation(fields: [lineId], references: [id], onDelete: Restrict)
+  partner     FranchisePartner       @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  beneficiary PayoutBeneficiary      @relation(fields: [beneficiaryId], references: [id], onDelete: Restrict)
+  events      FranchisePayoutEvent[]
+
+  @@unique([provider, providerPayoutId])
+  @@index([status, initiatedAt])
+}
+
+/// Append-only provider events; (provider, providerEventId) unique so redeliveries apply once.
+model FranchisePayoutEvent {
+  id                String   @id @default(cuid())
+  payoutId          String?
+  provider          String
+  providerEventId   String?
+  eventType         String?
+  providerStatus    String?
+  signatureVerified Boolean
+  applied           Boolean  @default(false)
+  note              String?
+  payload           Json?
+  receivedAt        DateTime @default(now())
+
+  payout FranchisePayout? @relation(fields: [payoutId], references: [id], onDelete: Restrict)
+
+  @@unique([provider, providerEventId])
+  @@index([payoutId, receivedAt])
+}
+
+/// Append-only record of every use of the financial-maintenance bypass, written by the database itself
+/// (never by the app). Rows can't be updated or deleted — not even during maintenance.
+model FinancialMaintenanceLog {
+  id            String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  occurredAt    DateTime @default(now())
+  tableName     String
+  operation     String
+  rowId         String?
+  reason        String
+  dbRole        String
+  transactionId String
+
+  @@index([occurredAt])
 }
