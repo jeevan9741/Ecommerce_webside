@@ -1,5 +1,6 @@
 import type { PolicyDomain, PolicyVersion, Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
+import { requireAdminInTx, requireAdminRead } from "./franchise-admin-guard.js";
 import { HttpError } from "../utils/http.js";
 import { canonicalSha256, reparse } from "../utils/canonical-json.js";
 import {
@@ -136,6 +137,7 @@ export async function policyDiff(id: string, against?: string) {
 // ---------- Drafts ----------
 
 export async function createDraft(input: { domain: unknown; actorId: string; from?: "STARTING_VALUES" | "CURRENT" | "VERSION"; versionId?: string; payload?: unknown }) {
+  await requireAdminRead(input.actorId);
   const domain = assertDomain(input.domain);
   let source: unknown = input.payload;
   if (source === undefined) {
@@ -154,6 +156,7 @@ export async function createDraft(input: { domain: unknown; actorId: string; fro
   const payload = assertValid(domain, source);
   const payloadSha256 = canonicalSha256(payload);
   return guarded(() => prisma.$transaction(async (tx) => {
+    await requireAdminInTx(tx, input.actorId);
     await lockDomain(tx, domain);
     const last = await tx.policyVersion.aggregate({ where: { domain }, _max: { version: true } });
     const created = await tx.policyVersion.create({
@@ -166,6 +169,7 @@ export async function createDraft(input: { domain: unknown; actorId: string; fro
 
 /** Saves a draft. `expectedSha` is the hash the editor loaded: a stale editor can't overwrite newer work. */
 export async function updateDraft(input: { id: string; actorId: string; payload: unknown; expectedSha: string }) {
+  await requireAdminRead(input.actorId);
   const current = await prisma.policyVersion.findUnique({ where: { id: input.id } });
   if (!current) throw new HttpError(404, "Not found");
   if (current.status !== "DRAFT") throw new HttpError(409, `This version is ${current.status.toLowerCase().replace("_", " ")} and can no longer be edited.`, { code: "NOT_DRAFT" });
@@ -173,6 +177,7 @@ export async function updateDraft(input: { id: string; actorId: string; payload:
   const payload = assertValid(current.domain, input.payload);
   const payloadSha256 = canonicalSha256(payload);
   return guarded(() => prisma.$transaction(async (tx) => {
+    await requireAdminInTx(tx, input.actorId);
     const { count } = await tx.policyVersion.updateMany({
       where: { id: input.id, status: "DRAFT", payloadSha256: input.expectedSha },
       data: { payload: payload as Prisma.InputJsonValue, payloadSha256 },
@@ -185,10 +190,12 @@ export async function updateDraft(input: { id: string; actorId: string; payload:
 }
 
 export async function discardDraft(input: { id: string; actorId: string; expectedSha: string }) {
+  await requireAdminRead(input.actorId);
   const current = await prisma.policyVersion.findUnique({ where: { id: input.id } });
   if (!current) throw new HttpError(404, "Not found");
   if (current.createdById !== input.actorId) throw new HttpError(403, "Only the admin who created this draft can discard it.", { code: "NOT_DRAFT_OWNER" });
   return guarded(() => prisma.$transaction(async (tx) => {
+    await requireAdminInTx(tx, input.actorId);
     const { count } = await tx.policyVersion.deleteMany({ where: { id: input.id, status: "DRAFT", payloadSha256: input.expectedSha } });
     if (count !== 1) throw new HttpError(409, "This draft changed or was already submitted.", { code: "STALE" });
     await audit(tx, input.actorId, "POLICY_DRAFT_DISCARDED", current);
@@ -199,6 +206,7 @@ export async function discardDraft(input: { id: string; actorId: string; expecte
 // ---------- Submission and decisions ----------
 
 export async function submitForApproval(input: { id: string; actorId: string; expectedSha: string; reason: string; effectiveFrom?: string | null; now?: Date }) {
+  await requireAdminRead(input.actorId);
   const now = input.now ?? new Date();
   const reason = (input.reason ?? "").trim();
   if (reason.length < 5) throw new HttpError(400, "Explain the change for the approving admin (at least 5 characters).", { code: "REASON_REQUIRED" });
@@ -218,6 +226,7 @@ export async function submitForApproval(input: { id: string; actorId: string; ex
   if (canonicalSha256(payload) !== current.payloadSha256) throw new HttpError(409, "Stored payload hash mismatch.", { code: "HASH_MISMATCH" });
 
   return guarded(() => prisma.$transaction(async (tx) => {
+    await requireAdminInTx(tx, input.actorId);
     await tx.$queryRaw`SELECT "id" FROM "PolicyVersion" WHERE "id" = ${input.id} FOR UPDATE`;
     const fresh = await tx.policyVersion.findUniqueOrThrow({ where: { id: input.id } });
     if (fresh.status !== "DRAFT") throw new HttpError(409, "This version was already submitted.", { code: "NOT_DRAFT" });

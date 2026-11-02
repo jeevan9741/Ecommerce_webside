@@ -1,6 +1,7 @@
 import { prisma } from "../config/prisma.js";
 import { HttpError } from "../utils/http.js";
 import { sha256Hex } from "../utils/canonical-json.js";
+import { requireAdminInTx, requireAdminRead } from "./franchise-admin-guard.js";
 
 /**
  * States/UTs and districts for the franchise programme. Locations are never deleted (applications and
@@ -34,7 +35,8 @@ export async function publicLocations() {
 }
 
 /** Admin list: every state and district with allocation and application counts. */
-export async function adminLocations() {
+export async function adminLocations(actorId: string) {
+  await requireAdminRead(actorId);
   const [states, held, applications] = await Promise.all([
     prisma.indiaState.findMany({
       orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
@@ -53,9 +55,6 @@ export async function adminLocations() {
     districts: s.districts.map((d) => ({ ...d, held: held.has(d.id), openApplications: open.get(d.id) ?? 0 })),
   }));
 }
-
-const audit = (actorId: string, action: string, target: string, metadata: Record<string, string | number | boolean | null>) =>
-  prisma.auditLog.create({ data: { actorId, action, target, metadata } });
 
 const cleanName = (v: unknown, what: string) => {
   const s = typeof v === "string" ? v.trim().replace(/\s+/g, " ") : "";
@@ -76,11 +75,16 @@ const conflict = (err: unknown): never => {
 };
 
 export async function createState(actorId: string, body: { name?: unknown; code?: unknown; displayOrder?: unknown }) {
-  const state = await prisma.indiaState
-    .create({ data: { name: cleanName(body.name, "State name"), code: cleanCode(body.code), isActive: false, displayOrder: Number.isInteger(body.displayOrder) ? (body.displayOrder as number) : 0 } })
+  await requireAdminRead(actorId);
+  const data = { name: cleanName(body.name, "State name"), code: cleanCode(body.code), isActive: false, displayOrder: Number.isInteger(body.displayOrder) ? (body.displayOrder as number) : 0 };
+  return prisma
+    .$transaction(async (tx) => {
+      await requireAdminInTx(tx, actorId);
+      const state = await tx.indiaState.create({ data });
+      await tx.auditLog.create({ data: { actorId, action: "FRANCHISE_STATE_CREATED", target: state.id, metadata: { code: state.code } } });
+      return state;
+    })
     .catch(conflict);
-  await audit(actorId, "FRANCHISE_STATE_CREATED", state.id, { code: state.code });
-  return state;
 }
 
 /**
@@ -98,6 +102,7 @@ function activationRequested(body: { isActive?: unknown; confirm?: unknown }, cu
 }
 
 export async function updateState(actorId: string, id: string, body: { name?: unknown; code?: unknown; isActive?: unknown; displayOrder?: unknown; confirm?: unknown }) {
+  await requireAdminRead(actorId);
   const current = await prisma.indiaState.findUnique({ where: { id }, select: { isActive: true } });
   if (!current) throw new HttpError(404, "State not found");
   const enabling = activationRequested(body, current.isActive);
@@ -109,6 +114,7 @@ export async function updateState(actorId: string, id: string, body: { name?: un
   // Guarded on the state read above, so a concurrent change can't turn an unconfirmed edit into an enable.
   return prisma
     .$transaction(async (tx) => {
+      await requireAdminInTx(tx, actorId);
       const { count } = await tx.indiaState.updateMany({ where: { id, isActive: current.isActive }, data });
       if (count !== 1) throw new HttpError(409, "This state changed — reload and try again.", { code: "STALE" });
       const state = await tx.indiaState.findUniqueOrThrow({ where: { id } });
@@ -121,14 +127,22 @@ export async function updateState(actorId: string, id: string, body: { name?: un
 }
 
 export async function createDistrict(actorId: string, body: { stateId?: unknown; name?: unknown; code?: unknown }) {
+  await requireAdminRead(actorId);
   const stateId = typeof body.stateId === "string" ? body.stateId : "";
   if (!(await prisma.indiaState.findUnique({ where: { id: stateId } }))) throw new HttpError(404, "State not found");
-  const district = await prisma.district.create({ data: { stateId, name: cleanName(body.name, "District name"), code: cleanCode(body.code), isActive: false } }).catch(conflict);
-  await audit(actorId, "FRANCHISE_DISTRICT_CREATED", district.id, { stateId, code: district.code });
-  return district;
+  const data = { stateId, name: cleanName(body.name, "District name"), code: cleanCode(body.code), isActive: false };
+  return prisma
+    .$transaction(async (tx) => {
+      await requireAdminInTx(tx, actorId);
+      const district = await tx.district.create({ data });
+      await tx.auditLog.create({ data: { actorId, action: "FRANCHISE_DISTRICT_CREATED", target: district.id, metadata: { stateId, code: district.code } } });
+      return district;
+    })
+    .catch(conflict);
 }
 
 export async function updateDistrict(actorId: string, id: string, body: { name?: unknown; code?: unknown; isActive?: unknown; confirm?: unknown }) {
+  await requireAdminRead(actorId);
   const current = await prisma.district.findUnique({ where: { id }, select: { isActive: true } });
   if (!current) throw new HttpError(404, "District not found");
   const enabling = activationRequested(body, current.isActive);
@@ -138,6 +152,7 @@ export async function updateDistrict(actorId: string, id: string, body: { name?:
   if (typeof body.isActive === "boolean") data.isActive = body.isActive;
   return prisma
     .$transaction(async (tx) => {
+      await requireAdminInTx(tx, actorId);
       const { count } = await tx.district.updateMany({ where: { id, isActive: current.isActive }, data });
       if (count !== 1) throw new HttpError(409, "This district changed — reload and try again.", { code: "STALE" });
       const district = await tx.district.findUniqueOrThrow({ where: { id } });
@@ -152,19 +167,25 @@ export async function updateDistrict(actorId: string, id: string, body: { name?:
 /**
  * Enables a state and every disabled district in it, after the admin has verified them against the
  * official list. Needs explicit confirmation and the exact number of districts the admin reviewed.
+ * The count is taken inside the transaction with the state row locked: a district added meanwhile waits
+ * for this to finish (its foreign key needs the state row) and stays disabled, and only the districts
+ * counted here are enabled — a concurrent change makes the whole activation refuse instead.
  */
 export async function activateState(actorId: string, id: string, body: { confirm?: unknown; expectedDistricts?: unknown }) {
+  await requireAdminRead(actorId);
   if (body.confirm !== true) throw new HttpError(400, "Confirm that this state and its districts were verified against the official LGD list.", { code: "CONFIRMATION_REQUIRED" });
-  const state = await prisma.indiaState.findUnique({ where: { id }, include: { districts: { select: { id: true, isActive: true } } } });
-  if (!state) throw new HttpError(404, "State not found");
-  const toEnable = state.districts.filter((d) => !d.isActive).length;
-  if (body.expectedDistricts !== toEnable) throw new HttpError(409, "The district list changed — review it again.", { code: "STALE", toEnable });
-  await prisma.$transaction([
-    prisma.indiaState.update({ where: { id }, data: { isActive: true } }),
-    prisma.district.updateMany({ where: { stateId: id, isActive: false }, data: { isActive: true } }),
-    prisma.auditLog.create({ data: { actorId, action: "FRANCHISE_STATE_ACTIVATED", target: id, metadata: { code: state.code, districtsEnabled: toEnable } } }),
-  ]);
-  return { id, districtsEnabled: toEnable };
+  return prisma.$transaction(async (tx) => {
+    await requireAdminInTx(tx, actorId);
+    const locked = await tx.$queryRaw<{ id: string; code: string | null }[]>`SELECT "id", "code" FROM "IndiaState" WHERE "id" = ${id} FOR UPDATE`;
+    if (!locked.length) throw new HttpError(404, "State not found");
+    const pending = await tx.district.findMany({ where: { stateId: id, isActive: false }, select: { id: true } });
+    if (body.expectedDistricts !== pending.length) throw new HttpError(409, "The district list changed — review it again.", { code: "STALE", toEnable: pending.length });
+    await tx.indiaState.update({ where: { id }, data: { isActive: true } });
+    const { count } = await tx.district.updateMany({ where: { id: { in: pending.map((d) => d.id) }, stateId: id, isActive: false }, data: { isActive: true } });
+    if (count !== pending.length) throw new HttpError(409, "The district list changed — review it again.", { code: "STALE" });
+    await tx.auditLog.create({ data: { actorId, action: "FRANCHISE_STATE_ACTIVATED", target: id, metadata: { code: locked[0].code, districtsEnabled: count } } });
+    return { id, districtsEnabled: count };
+  });
 }
 
 // ---------- CSV import (official LGD extract): preview, then apply the exact file reviewed ----------
@@ -324,6 +345,7 @@ export async function previewImport(csv: unknown, source?: unknown) {
  * code; never deletes or disables anything not in the file (reported as `notInFile` instead).
  */
 export async function applyImport(actorId: string, input: { csv: unknown; expectedSha256: unknown; source: unknown; confirm?: unknown }) {
+  await requireAdminRead(actorId);
   if (input.confirm !== true) throw new HttpError(400, "Confirm the import after reviewing the preview.", { code: "CONFIRMATION_REQUIRED" });
   const preview = await previewImport(input.csv, input.source);
   if (preview.fileSha256 !== input.expectedSha256) throw new HttpError(409, "The file differs from the one you previewed.", { code: "STALE" });
@@ -335,6 +357,7 @@ export async function applyImport(actorId: string, input: { csv: unknown; expect
   const rows = table.map((c) => c.map((x) => x.trim().replace(/\s+/g, " ")));
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('eta-location-import'))`;
+    await requireAdminInTx(tx, actorId);
     const stateIds = new Map<string, string>();
     for (const [stateCode, stateName] of new Map(rows.map((r) => [r[0], r[1]]))) {
       const existing = (await tx.indiaState.findUnique({ where: { code: stateCode } })) ?? (await tx.indiaState.findUnique({ where: { name: stateName } }));

@@ -14,6 +14,7 @@ import {
   updateDistrict,
   updateState,
 } from "../services/franchise-location.service.js";
+import { requireAdminRead } from "../services/franchise-admin-guard.js";
 
 // ---------- Public ----------
 
@@ -49,10 +50,10 @@ export async function myFranchiseDocumentUrl(req: Request, res: Response) {
   res.json(await myDocumentUrl(user.id, param(req, "id")));
 }
 
-// ---------- Admin locations (under /admin, behind requireAdmin) ----------
+// ---------- Admin locations (under /admin, behind requireAdmin; the service re-checks the role in the database) ----------
 
-export async function listAdminLocations(_req: Request, res: Response) {
-  res.json({ states: await adminLocations() });
+export async function listAdminLocations(req: Request, res: Response) {
+  res.json({ states: await adminLocations(currentUser(req).id) });
 }
 export async function addState(req: Request, res: Response) {
   res.status(201).json(await createState(currentUser(req).id, req.body ?? {}));
@@ -70,6 +71,7 @@ export async function editDistrict(req: Request, res: Response) {
   res.json(await updateDistrict(currentUser(req).id, param(req, "id"), req.body ?? {}));
 }
 export async function previewLocationImport(req: Request, res: Response) {
+  await requireAdminRead(currentUser(req).id);
   res.json(await previewImport(req.body?.csv, req.body?.source));
 }
 export async function applyLocationImport(req: Request, res: Response) {

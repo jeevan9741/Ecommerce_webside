@@ -18,9 +18,12 @@ import {
   submitForApproval,
   updateDraft,
 } from "../services/policy.service.js";
+import { requireAdminRead } from "../services/franchise-admin-guard.js";
 
 // Every route here sits under /admin and therefore behind requireAdmin; the service re-checks roles
-// from the database for every decision.
+// from the database for every decision, and every read below re-checks the caller is still an ADMIN.
+
+const adminReader = (req: Request) => requireAdminRead(currentUser(req).id);
 
 const sha = z.string().regex(/^[0-9a-f]{64}$/, "Expected a SHA-256 hex hash");
 const parse = <T extends z.ZodType>(schema: T, body: unknown): z.infer<T> => {
@@ -39,15 +42,18 @@ export function policySchema(_req: Request, res: Response) {
 }
 
 export async function listPolicyVersions(req: Request, res: Response) {
+  await adminReader(req);
   res.json({ policies: await listPolicies(domainOf(req.query.domain)) });
 }
 
-export async function policyReadiness(_req: Request, res: Response) {
+export async function policyReadiness(req: Request, res: Response) {
+  await adminReader(req);
   res.setHeader("Cache-Control", "no-store");
   res.json(await readiness());
 }
 
 export async function resolvePolicyAt(req: Request, res: Response) {
+  await adminReader(req);
   const domain = domainOf(req.query.domain);
   if (!domain) throw new HttpError(400, "domain is required", { code: "INVALID_REQUEST" });
   const at = req.query.at ? new Date(String(req.query.at)) : new Date();
@@ -56,10 +62,12 @@ export async function resolvePolicyAt(req: Request, res: Response) {
 }
 
 export async function getPolicyVersion(req: Request, res: Response) {
+  await adminReader(req);
   res.json({ policy: await getPolicy(param(req, "id")) });
 }
 
 export async function getPolicyDiff(req: Request, res: Response) {
+  await adminReader(req);
   const against = typeof req.query.against === "string" && req.query.against ? req.query.against : undefined;
   res.json(await policyDiff(param(req, "id"), against));
 }
@@ -91,6 +99,7 @@ export async function submitPolicy(req: Request, res: Response) {
 }
 
 export async function listPolicyApprovals(req: Request, res: Response) {
+  await adminReader(req);
   const status = typeof req.query.status === "string" ? req.query.status : undefined;
   if (status && !["PENDING", "APPROVED", "REJECTED", "CANCELLED", "EXPIRED", "EXECUTED"].includes(status)) throw new HttpError(400, "Unknown status", { code: "INVALID_REQUEST" });
   res.json({ approvals: await listApprovals(status) });

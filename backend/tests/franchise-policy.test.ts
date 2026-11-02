@@ -421,24 +421,28 @@ describe("database safeguards reached through the API", () => {
     policy: policyId ? (await policyRow(policyId)).status : null,
   });
 
-  test("an admin demoted after login can't draft: the database refuses (409 DB_GUARD) and nothing is written", async () => {
+  test("an admin demoted after login can't draft: refused (403) before the database, which would refuse too; nothing is written", async () => {
     const d = await makeUser("demoted-drafter", "ADMIN");
     await prisma.user.update({ where: { id: d.id }, data: { role: "USER" } }); // the session token still says ADMIN
     const before = await snapshot();
     const r = await call("POST", P, d, { domain: "NOTIFICATION" });
-    assert.deepEqual([r.status, r.body.code], [409, "DB_GUARD"], JSON.stringify(r.body));
-    assert.match(r.body.detail, /only an ADMIN/);
+    assert.equal(r.status, 403, JSON.stringify(r.body)); // the service re-reads the role from the database first
     assert.equal(await prisma.policyVersion.count({ where: { createdById: d.id } }), 0);
     assert.deepEqual(await snapshot(), before);
+    // The database backstop still refuses the same draft if the service check were ever bypassed.
+    await assert.rejects(
+      prisma.policyVersion.create({ data: { domain: "NOTIFICATION", version: 9101, payload: { channels: ["EMAIL"] }, payloadSha256: canonicalSha256({ channels: ["EMAIL"] }), createdById: d.id } }),
+      /only an ADMIN/
+    );
   });
 
-  test("a creator demoted after drafting can't submit: the database refuses and the draft is untouched", async () => {
+  test("a creator demoted after drafting can't submit: refused (403) and the draft is untouched", async () => {
     const c = await makeUser("demoted-submitter", "ADMIN");
     const p = await draft(c, "TAX");
     await prisma.user.update({ where: { id: c.id }, data: { role: "USER" } });
     const before = await snapshot(p.id);
     const r = await call("POST", `${P}/${p.id}/submit`, c, { expectedSha: p.payloadSha256, reason: "submitted after demotion" });
-    assert.deepEqual([r.status, r.body.code], [409, "DB_GUARD"], JSON.stringify(r.body));
+    assert.equal(r.status, 403, JSON.stringify(r.body));
     assert.deepEqual(await snapshot(p.id), before);
     assert.equal(before.policy, "DRAFT");
     assert.equal(await prisma.adminApprovalRequest.count({ where: { targetId: p.id } }), 0);
