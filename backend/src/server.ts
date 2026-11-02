@@ -3,9 +3,12 @@ import { prisma } from "./config/prisma.js";
 import { createApp } from "./app.js";
 import { checkEmailOnStartup } from "./services/email.service.js";
 import { checkPaymentModeOnStartup } from "./services/payment-safety.js";
+import { checkBlobStoreOnStartup } from "./services/blob-safety.js";
 
-// Before listening: production exits here if it's configured with Razorpay TEST keys.
+// Before listening: exits here on Razorpay TEST keys in production, LIVE keys against a non-production
+// database, or a production Blob store in a non-production environment.
 checkPaymentModeOnStartup();
+checkBlobStoreOnStartup();
 
 const app = createApp();
 

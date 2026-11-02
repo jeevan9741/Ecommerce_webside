@@ -113,3 +113,56 @@ test("outside production, TEST keys + live database start but disable checkout, 
   assert.equal(r.exitCode, 0);
   assert.match(r.output, /WARNING: .*PRODUCTION database/);
 });
+
+// ---------- R-1: LIVE keys only against the production database ----------
+
+const SECRET_LIVE_KEY = "rzp_live_SECRETVALUE9137"; // the suffix must never appear in any output
+const LOCAL_DB = "postgresql://postgres@127.0.0.1:55432/eca_dev";
+
+test("R-1: LIVE keys against a non-production database stop the server at startup, in every NODE_ENV", () => {
+  for (const nodeEnv of ["development", "staging", "production", "test"]) {
+    for (const databaseUrl of [DEV_BRANCH, LOCAL_DB]) {
+      const r = guard({ databaseUrl, keyId: SECRET_LIVE_KEY, nodeEnv, startup: true });
+      assert.deepEqual([r.isProd, r.blocked, r.exitCode], [false, true, 1], `${nodeEnv} ${databaseUrl.split("@")[1]}`);
+      assert.match(r.output, /FATAL: RAZORPAY_KEY_ID is a LIVE key/);
+      assert.doesNotMatch(r.output, /SECRETVALUE9137/, "the key value is never printed");
+    }
+  }
+});
+
+test("R-1: an unparseable or unknown DATABASE_URL counts as non-production (fail closed)", () => {
+  for (const databaseUrl of ["not a url", "postgresql://", url("ep-unknown-endpoint-1-pooler.c-4.us-west-2.aws.neon.tech")]) {
+    const r = guard({ databaseUrl, keyId: SECRET_LIVE_KEY, startup: true });
+    assert.deepEqual([r.isProd, r.blocked, r.exitCode], [false, true, 1], databaseUrl);
+  }
+});
+
+test("R-1: a key that is neither rzp_test_ nor rzp_live_ is refused against a non-production database", () => {
+  for (const keyId of ["key_SECRETVALUE9137", "RZP_LIVE_SECRETVALUE9137", " rzp_live_SECRETVALUE9137"]) {
+    const r = guard({ databaseUrl: DEV_BRANCH, keyId, startup: true });
+    assert.deepEqual([r.blocked, r.exitCode], [true, 1], JSON.stringify(keyId));
+    assert.match(r.output, /neither a test \(rzp_test_\) nor a live \(rzp_live_\) key/);
+    assert.doesNotMatch(r.output, /SECRETVALUE9137/);
+  }
+});
+
+test("R-1: production behaviour is unchanged — LIVE (and unrecognised) keys against the production database start normally", () => {
+  for (const keyId of [LIVE_KEY, "key_unrecognised"]) {
+    const r = guard({ databaseUrl: LIVE_POOLED, keyId, nodeEnv: "production", startup: true });
+    assert.deepEqual([r.isProd, r.blocked, r.exitCode], [true, false, 0], keyId);
+  }
+});
+
+test("R-1: a newly listed production endpoint (PRODUCTION_DATABASE_ENDPOINTS) allows LIVE keys there", () => {
+  const moved = url("ep-new-home-123-pooler.c-4.us-west-2.aws.neon.tech");
+  assert.equal(guard({ databaseUrl: moved, keyId: LIVE_KEY, nodeEnv: "production" }).blocked, true, "before it's listed");
+  const r = guard({ databaseUrl: moved, keyId: LIVE_KEY, nodeEnv: "production", override: "ep-new-home-123", startup: true });
+  assert.deepEqual([r.isProd, r.blocked, r.exitCode], [true, false, 0]);
+});
+
+test("R-1: local development is unaffected — TEST keys or no keys against a development database start normally", () => {
+  for (const keyId of [TEST_KEY, ""]) {
+    const r = guard({ databaseUrl: LOCAL_DB, keyId, startup: true });
+    assert.deepEqual([r.blocked, r.exitCode], [false, 0], JSON.stringify(keyId));
+  }
+});

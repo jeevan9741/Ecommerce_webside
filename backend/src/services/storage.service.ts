@@ -1,10 +1,13 @@
 import { BlobNotFoundError, put, del, head, issueSignedToken, presignUrl } from "@vercel/blob";
 import { generateClientTokenFromReadWriteToken } from "@vercel/blob/client";
+import { assertBlobStoreAllowed } from "./blob-safety.js";
 
 /**
  * Two stores: the main one is private (course content, signed links only). Demo videos can go to a
  * separate public store when BLOB_PUBLIC_READ_WRITE_TOKEN is set — Vercel fixes a store's access
  * mode at creation, so public files can't live in the private store.
+ * Every function that reaches Vercel first runs assertBlobStoreAllowed (blob-safety.ts): a non-production
+ * process configured with a production store is refused before any request is made.
  */
 export type BlobStore = "private" | "public";
 
@@ -18,6 +21,7 @@ function tokenFor(store: BlobStore) {
 
 /** Admin content-upload flow: client PUTs directly to Blob storage using this URL. */
 export async function getUploadUrl(key: string, contentType: string, expiresInSeconds = 300) {
+  assertBlobStoreAllowed();
   const validUntil = Date.now() + expiresInSeconds * 1000;
   const token = await issueSignedToken({
     pathname: key,
@@ -39,6 +43,7 @@ export async function getUploadUrl(key: string, contentType: string, expiresInSe
 
 /** Paid-content access flow: short-lived GET URL, only issued after CourseAccess is verified. */
 export async function getDownloadUrl(key: string, expiresInSeconds = 300) {
+  assertBlobStoreAllowed();
   const validUntil = Date.now() + expiresInSeconds * 1000;
   const token = await issueSignedToken({
     pathname: key,
@@ -58,10 +63,12 @@ export async function getDownloadUrl(key: string, expiresInSeconds = 300) {
  * where we don't want to hand out a presigned PUT URL to anonymous visitors.
  * `allowOverwrite: false` makes the store refuse an existing key, for files that must never be replaced. */
 export async function uploadBuffer(key: string, body: Buffer, contentType: string, options: { allowOverwrite?: boolean } = {}) {
+  assertBlobStoreAllowed();
   await put(key, body, { access: "private", contentType, addRandomSuffix: false, allowOverwrite: options.allowOverwrite ?? true });
 }
 
 export async function deleteObject(key: string, store: BlobStore = "private") {
+  assertBlobStoreAllowed();
   await del(key, { token: tokenFor(store) });
 }
 
@@ -79,6 +86,7 @@ export async function getClientUploadToken(
   pathname: string,
   opts: { allowedContentTypes: string[]; maximumSizeInBytes: number; validForSeconds: number; store?: BlobStore }
 ) {
+  assertBlobStoreAllowed();
   return generateClientTokenFromReadWriteToken({
     token: tokenFor(opts.store ?? "private"),
     pathname,
@@ -99,6 +107,7 @@ export async function readObjectHead(key: string, bytes: number) {
 
 /** Metadata of a stored object, or null when it doesn't exist. */
 export async function statObject(key: string, store: BlobStore = "private") {
+  assertBlobStoreAllowed();
   try {
     const blob = await head(key, { token: tokenFor(store) });
     return { size: blob.size, contentType: blob.contentType, pathname: blob.pathname, url: blob.url };

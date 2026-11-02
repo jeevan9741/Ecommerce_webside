@@ -57,9 +57,28 @@ export function isProductionDatabase(databaseUrl = env.databaseUrl) {
   return databaseEndpoints(databaseUrl).some((id) => PRODUCTION_DATABASE_ENDPOINTS.has(id));
 }
 
+/**
+ * The reverse mistake: LIVE keys anywhere but the production database (a developer machine or staging
+ * would take real money into a database nobody reconciles). A key that is neither rzp_test_ nor
+ * rzp_live_ can't be shown to be a test key, so it is treated the same way (fail closed). An unparseable
+ * or unknown DATABASE_URL counts as non-production. The message names the condition, never the key.
+ */
+export function liveCredentialProblem(mode: RazorpayMode = razorpayMode(), productionDatabase: boolean = isProductionDatabase()): string | null {
+  if (productionDatabase) return null;
+  if (mode === "live") {
+    return "RAZORPAY_KEY_ID is a LIVE key (rzp_live_) but DATABASE_URL is not a known production database — live keys are only allowed against production (add its endpoint to PRODUCTION_DATABASE_ENDPOINTS if the production database moved).";
+  }
+  if (mode === "unknown") {
+    return "RAZORPAY_KEY_ID is neither a test (rzp_test_) nor a live (rzp_live_) key and DATABASE_URL is not a known production database — refused in case it is live.";
+  }
+  return null;
+}
+
 /** Why payments must not be processed in this configuration, or null when they may. */
 export function paymentSafetyProblem(): string | null {
   const mode = razorpayMode();
+  const live = liveCredentialProblem(mode);
+  if (live) return live;
   if (env.isProduction && mode === "test") {
     return "RAZORPAY_KEY_ID is a TEST key (rzp_test_) in production — test payments cost nothing and would unlock real courses.";
   }
@@ -70,8 +89,9 @@ export function paymentSafetyProblem(): string | null {
 }
 
 /**
- * Startup report + hard stop. Production refuses to start with test keys; any environment logs
- * which mode it's in and warns loudly (payments are then refused) for test keys + production DB.
+ * Startup report + hard stop. Production refuses to start with test keys; every environment refuses
+ * to start with live (or unrecognised) keys against a non-production database; outside production,
+ * test keys + production DB start with a loud warning (payments are then refused).
  */
 export function checkPaymentModeOnStartup() {
   const mode = razorpayMode();
@@ -79,6 +99,11 @@ export function checkPaymentModeOnStartup() {
   console.log(
     `[PAYMENT] Razorpay mode: ${mode === "live" ? "LIVE" : mode === "test" ? "TEST" : mode.toUpperCase()} · database: ${prodDb ? "PRODUCTION" : "non-production"} (${databaseHost() || "unknown host"})`
   );
+  const live = liveCredentialProblem(mode, prodDb);
+  if (live) {
+    console.error(`[PAYMENT] FATAL: ${live} Refusing to start.`);
+    process.exit(1);
+  }
   const problem = paymentSafetyProblem();
   if (!problem) return;
   if (env.isProduction) {
