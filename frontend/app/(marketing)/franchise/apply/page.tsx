@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { api } from "@/lib/api";
+import { franchisePublicEnabled } from "@/lib/feature-flags";
 import { getSession } from "@/lib/session";
 import type { FranchiseInfo, FranchiseState, MyFranchiseApplication } from "@/lib/franchise";
 import { FranchiseApplyForm } from "@/components/franchise/apply-form";
@@ -9,6 +10,8 @@ export const metadata = { title: "Apply for a Franchise" };
 export const dynamic = "force-dynamic";
 
 export default async function FranchiseApplyPage() {
+  // Dark launch: the page doesn't exist until NEXT_PUBLIC_FRANCHISE_PUBLIC_ENABLED=true.
+  if (!franchisePublicEnabled()) notFound();
   const session = await getSession();
   if (!session) redirect("/login?callbackUrl=/franchise/apply");
   const [info, locations, mine] = await Promise.all([

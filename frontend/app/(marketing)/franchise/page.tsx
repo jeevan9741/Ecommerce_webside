@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { Building2, FileCheck, MapPin, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
+import { franchisePublicEnabled } from "@/lib/feature-flags";
 import type { FranchiseInfo } from "@/lib/franchise";
 import { formatPaise } from "@/lib/policy-format";
 
@@ -12,6 +14,8 @@ export const dynamic = "force-dynamic";
  * policy; anything not yet decided is shown as "to be announced", never guessed.
  */
 export default async function FranchisePage() {
+  // Dark launch: the page doesn't exist until NEXT_PUBLIC_FRANCHISE_PUBLIC_ENABLED=true.
+  if (!franchisePublicEnabled()) notFound();
   let info: FranchiseInfo | null = null;
   try {
     info = await api.get<FranchiseInfo>("/franchise/info", { token: null });

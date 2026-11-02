@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { CheckCircle2, Circle, XCircle } from "lucide-react";
 import { api } from "@/lib/api";
+import { franchisePublicEnabled } from "@/lib/feature-flags";
 import { getSession } from "@/lib/session";
 import type { MyFranchiseApplication } from "@/lib/franchise";
 import { DOCUMENT_KIND_LABEL, formatBytes, formatRupees, STATUS_STEPS, stepIndex } from "@/lib/franchise-form";
@@ -13,6 +14,8 @@ export const dynamic = "force-dynamic";
 const dateTime = (iso: string) => new Date(iso).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" });
 
 export default async function MyFranchiseApplicationPage({ searchParams }: { searchParams: Promise<{ submitted?: string }> }) {
+  // Dark launch: the page doesn't exist until NEXT_PUBLIC_FRANCHISE_PUBLIC_ENABLED=true.
+  if (!franchisePublicEnabled()) notFound();
   const session = await getSession();
   if (!session) redirect("/login?callbackUrl=/franchise/application");
   const { submitted } = await searchParams;

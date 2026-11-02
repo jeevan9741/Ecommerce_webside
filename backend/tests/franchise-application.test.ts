@@ -5,6 +5,8 @@
  * policy gate, database constraints, ownership checks — is real. Everything is prefixed "zz-test-".
  */
 import "./local-db-guard.js"; // first: refuses to run against a non-local (production) database
+// These tests exercise the public/applicant franchise API, which is dark (404) unless switched on.
+process.env.FRANCHISE_PUBLIC_ENABLED = "true";
 import { after, before, describe, mock, test } from "node:test";
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";

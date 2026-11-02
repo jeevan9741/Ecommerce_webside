@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession, hasCourseAccess, ownedPackageTypes } from "@/lib/session";
 import { DashboardShell } from "@/components/dashboard/shell";
+import { franchisePublicEnabled } from "@/lib/feature-flags";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -28,7 +29,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         { href: "/dashboard/referral", label: "Referral & Earnings", icon: "users" },
         { href: "/dashboard/referral/claim", label: "Claim Partner Commission", icon: "handCoins" },
         { href: "/dashboard/activity", label: "Activity", icon: "receipt" },
-        { href: "/franchise/application", label: "Franchise Application", icon: "building" },
+        ...(franchisePublicEnabled() ? [{ href: "/franchise/application", label: "Franchise Application", icon: "building" } as const] : []),
       ]}
     >
       {children}

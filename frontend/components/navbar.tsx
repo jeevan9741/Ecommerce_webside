@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Menu, X, LogOut, UserRound } from "lucide-react";
 import { LogoMark } from "@/components/logo";
 import { homeFor } from "@/lib/routes";
+import { franchisePublicEnabled, withLinkIf } from "@/lib/feature-flags";
 
 const HOME_LINK = { href: "/", label: "Home" };
 // Scrolls to the About section on the homepage (the Link handles the hash, even from another page).
@@ -21,13 +22,15 @@ export function Navbar() {
   const pathname = usePathname();
   const isAuthenticated = status === "authenticated";
 
-  // Visitors see Home + About + Franchise. Signed-in users are redirected away from the landing page by the
-  // proxy, so they get their portal instead; the Admin link is only rendered for admin accounts.
+  // Visitors see Home + About (+ Franchise when that feature is switched on). Signed-in users are
+  // redirected away from the landing page by the proxy, so they get their portal instead; the Admin link
+  // is only rendered for admin accounts.
+  const franchise = franchisePublicEnabled();
   const navLinks = !isAuthenticated
-    ? [HOME_LINK, ABOUT_LINK, FRANCHISE_LINK]
+    ? withLinkIf([HOME_LINK, ABOUT_LINK], FRANCHISE_LINK, franchise)
     : user?.role === "ADMIN"
       ? [PORTAL_LINK, ADMIN_LINK]
-      : [PORTAL_LINK, FRANCHISE_LINK];
+      : withLinkIf([PORTAL_LINK], FRANCHISE_LINK, franchise);
 
   // Lock background scroll while the drawer is open (links close it via their own onClick).
   useEffect(() => {
