@@ -140,6 +140,7 @@ model User {
   franchiseApplications FranchiseApplication[]
   franchisePartner      FranchisePartner?
   franchiseStudentLinks FranchiseStudent[]     @relation("FranchiseStudentUser")
+  franchiseInvitesAccepted FranchiseStudentInvite[] @relation("InviteAcceptedBy")
   policiesCreated       PolicyVersion[]        @relation("PolicyCreatedBy")
   policiesApproved      PolicyVersion[]        @relation("PolicyApprovedBy")
   approvalsRequested    AdminApprovalRequest[] @relation("ApprovalRequestedBy")
@@ -1605,6 +1606,7 @@ model FranchisePartner {
   allocations     DistrictAllocation[]
   renewals        FranchiseRenewal[]
   students        FranchiseStudent[]
+  studentInvites  FranchiseStudentInvite[]
   attributions    FranchiseOrderAttribution[]
   ledgerAccounts  LedgerAccount[]
   earningsLots    EarningsLot[]
@@ -1656,6 +1658,7 @@ model FranchiseStudent {
   partner      FranchisePartner            @relation(fields: [partnerId], references: [id], onDelete: Restrict)
   student      User                        @relation("FranchiseStudentUser", fields: [studentUserId], references: [id], onDelete: Restrict)
   attributions FranchiseOrderAttribution[]
+  invite       FranchiseStudentInvite?
 
   @@index([partnerId, status])
   @@index([studentUserId])
@@ -2043,4 +2046,39 @@ model FinancialMaintenanceLog {
   transactionId String
 
   @@index([occurredAt])
+}
+
+/// An invitation from a franchise partner to a student (Phase 5F-2). The student accepts it from their
+/// own, OTP-verified ETA account; the partner never creates accounts or sees credentials. Only a hash of
+/// the emailed token is stored. Status rules, the one-open-invitation-per-email index and immutability
+/// are enforced by the database (see the migration).
+model FranchiseStudentInvite {
+  id             String    @id @default(cuid())
+  partnerId      String
+  inviteeName    String
+  /// Lower-cased and trimmed; the accepting account's email must match it exactly.
+  email          String
+  mobile         String?
+  /// SHA-256 of the current token (a resend rotates it, so older links stop working).
+  tokenHash      String    @unique
+  /// OPEN, ACCEPTED, REVOKED or EXPIRED (CHECK in the migration).
+  status         String    @default("OPEN")
+  expiresAt      DateTime
+  sendCount      Int       @default(1)
+  lastSentAt     DateTime  @default(now())
+  createdById    String
+  acceptedAt     DateTime?
+  acceptedUserId String?
+  studentLinkId  String?   @unique
+  revokedAt      DateTime?
+  revokedById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  partner      FranchisePartner  @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  acceptedUser User?             @relation("InviteAcceptedBy", fields: [acceptedUserId], references: [id], onDelete: Restrict)
+  studentLink  FranchiseStudent? @relation(fields: [studentLinkId], references: [id], onDelete: Restrict)
+
+  @@index([partnerId, status, createdAt])
+  @@index([email])
 }

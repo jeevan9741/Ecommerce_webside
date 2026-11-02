@@ -25,7 +25,7 @@ export default async function FranchisePartnerOverviewPage() {
       <section className="card p-6">
         <h2 className="font-display text-lg font-semibold text-parchment">Coming next</h2>
         <p className="mt-2 text-sm text-parchment-muted">
-          Inviting and following your students, support requests, and your collections, commissions and settlements will appear here as they become available.
+          Support requests, and your collections, commissions and settlements, will appear here as they become available. Invite and follow your students under Students.
         </p>
       </section>
     </div>

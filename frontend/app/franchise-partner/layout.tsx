@@ -15,7 +15,10 @@ export default async function FranchisePartnerLayout({ children }: { children: R
       homeHref="/franchise-partner"
       userLabel={partner.ownerName}
       roleLabel={`Franchise ${partner.franchiseCode}`}
-      navItems={[{ href: "/franchise-partner", label: "Overview", icon: "layoutDashboard" }]}
+      navItems={[
+        { href: "/franchise-partner", label: "Overview", icon: "layoutDashboard" },
+        { href: "/franchise-partner/students", label: "Students", icon: "users" },
+      ]}
     >
       {children}
     </DashboardShell>

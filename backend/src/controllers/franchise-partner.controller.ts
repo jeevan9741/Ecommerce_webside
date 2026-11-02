@@ -1,6 +1,8 @@
 import type { Request, Response } from "express";
 import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError, param } from "../utils/http.js";
+import { rateLimit } from "../utils/rate-limit.js";
+import { acceptInvite, cancelInvite, createInvite, listInvites, listStudents, previewInvite, resendInvite, studentDetail } from "../services/franchise-invite.service.js";
 import {
   approvePartnerAction,
   closePartnerAction,
@@ -29,6 +31,61 @@ export async function partnerMe(req: Request, res: Response) {
   if (!req.franchise) throw new HttpError(403, "Franchise access required");
   noStore(res);
   res.json({ partner: await partnerProfile(req.franchise) });
+}
+
+/** The partner context set by requireFranchisePartner; never anything from the request. */
+const ctxOf = (req: Request) => {
+  if (!req.franchise) throw new HttpError(403, "Franchise access required");
+  return req.franchise;
+};
+
+// ---------- Partner: invitations and own students (behind requireFranchisePartner) ----------
+
+export async function partnerCreateInvite(req: Request, res: Response) {
+  const ctx = ctxOf(req);
+  if (!rateLimit(`franchise-invite:${ctx.partnerId}`, 20, 60 * 60 * 1000)) throw new HttpError(429, "Too many invitations. Try again later.", { code: "RATE_LIMITED" });
+  noStore(res);
+  res.status(201).json(await createInvite(ctx, currentUser(req).id, req.body));
+}
+export async function partnerListInvites(req: Request, res: Response) {
+  noStore(res);
+  res.json({ invites: await listInvites(ctxOf(req)) });
+}
+export async function partnerResendInvite(req: Request, res: Response) {
+  noStore(res);
+  res.json(await resendInvite(ctxOf(req), currentUser(req).id, param(req, "id")));
+}
+export async function partnerCancelInvite(req: Request, res: Response) {
+  noStore(res);
+  res.json({ invite: await cancelInvite(ctxOf(req), currentUser(req).id, param(req, "id")) });
+}
+export async function partnerListStudents(req: Request, res: Response) {
+  noStore(res);
+  res.json(await listStudents(ctxOf(req), req.query));
+}
+export async function partnerStudentDetail(req: Request, res: Response) {
+  noStore(res);
+  res.json({ student: await studentDetail(ctxOf(req), currentUser(req).id, param(req, "id")) });
+}
+
+// ---------- Student: an invitation sent to them (signed in; their own account) ----------
+
+const tokenLimit = (req: Request) => {
+  const user = currentUser(req);
+  if (!rateLimit(`franchise-invite-token:${user.id}`, 30, 60 * 60 * 1000) || !rateLimit(`franchise-invite-token-ip:${req.ip}`, 60, 60 * 60 * 1000)) {
+    throw new HttpError(429, "Too many attempts. Try again later.", { code: "RATE_LIMITED" });
+  }
+  return user;
+};
+export async function studentPreviewInvite(req: Request, res: Response) {
+  const user = tokenLimit(req);
+  noStore(res);
+  res.json({ invite: await previewInvite(user.id, param(req, "token")) });
+}
+export async function studentAcceptInvite(req: Request, res: Response) {
+  const user = tokenLimit(req);
+  noStore(res);
+  res.json(await acceptInvite(user.id, param(req, "token")));
 }
 
 // ---------- Admin (under /admin, requireAdmin; the service re-checks the role in the database) ----------
