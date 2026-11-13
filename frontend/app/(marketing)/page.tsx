@@ -1,5 +1,7 @@
-import { BarChart3, GraduationCap, Globe2, Headset, Mail, PlayCircle, Settings, UserPlus } from "lucide-react";
+import Link from "next/link";
+import { BarChart3, Building2, GraduationCap, Globe2, Handshake, Headset, Mail, PlayCircle, Settings, UserPlus } from "lucide-react";
 import { BrandLogo } from "@/components/logo";
+import { APPLY_LINK, PARTNER_LOGIN_LINK } from "@/lib/franchise-nav";
 import {
   DemoLanguagePicker,
   DemoLanguageProvider,
@@ -172,6 +174,35 @@ export default function HomePage() {
                 </span>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Franchise partner — the links open "coming soon" pages while those features are switched off */}
+      <section id="franchise" className="scroll-mt-24 pb-16">
+        <div className="container-academy">
+          <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 rounded-3xl bg-gold-100/60 p-6 text-center sm:p-10 lg:flex-row lg:gap-10 lg:text-left">
+            <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gold-500 text-white shadow-md">
+              <Handshake className="h-8 w-8" aria-hidden="true" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <span className="badge-pill">Franchise opportunity</span>
+              <h2 className="font-display mt-3 text-2xl font-bold text-parchment sm:text-3xl">Become a Franchise Partner</h2>
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-parchment-muted sm:text-base">
+                Bring E-Commerce Training Academy&apos;s practical e-commerce training to your state. We work with one primary
+                franchise partner in each state, and our team reviews every application.
+              </p>
+            </div>
+            <div className="flex w-full shrink-0 flex-col gap-3 sm:w-auto sm:flex-row lg:flex-col">
+              <Link href={APPLY_LINK.href} className="btn-gold whitespace-nowrap sm:!px-8 sm:!py-3.5 sm:!text-base">
+                <Handshake className="h-4 w-4" aria-hidden="true" />
+                {APPLY_LINK.label}
+              </Link>
+              <Link href={PARTNER_LOGIN_LINK.href} className="btn-outline whitespace-nowrap sm:!px-8 sm:!py-3.5 sm:!text-base">
+                <Building2 className="h-4 w-4" aria-hidden="true" />
+                {PARTNER_LOGIN_LINK.label}
+              </Link>
+            </div>
           </div>
         </div>
       </section>

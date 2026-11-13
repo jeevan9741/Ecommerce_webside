@@ -3,6 +3,8 @@ import type { NextRequest } from "next/server";
 import { TOKEN_COOKIE } from "@/lib/api";
 import { homeFor } from "@/lib/routes";
 import { readClaims } from "@/lib/token-claims";
+import { franchisePartnerEnabled } from "@/lib/feature-flags";
+import { partnerAreaNeedsSignIn } from "@/lib/franchise-nav";
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -20,7 +22,7 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/jobs") ||
     pathname.startsWith("/payment") ||
     pathname.startsWith("/invoice") ||
-    pathname.startsWith("/franchise-partner") ||
+    (pathname.startsWith("/franchise-partner") && partnerAreaNeedsSignIn(franchisePartnerEnabled())) ||
     isPortalAlias(pathname)
   ) {
     if (!claims) {

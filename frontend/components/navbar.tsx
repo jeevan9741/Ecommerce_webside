@@ -4,11 +4,11 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
-import { Menu, X, LogOut, UserRound, Handshake } from "lucide-react";
+import { Menu, X, LogOut, UserRound, Handshake, Building2 } from "lucide-react";
 import { LogoMark } from "@/components/logo";
 import { homeFor } from "@/lib/routes";
 import { franchisePartnerEnabled, franchisePublicEnabled, withLinkIf } from "@/lib/feature-flags";
-import { signedInFranchiseLink, visitorFranchiseCta } from "@/lib/franchise-nav";
+import { PARTNER_LOGIN_LINK, signedInFranchiseLink, visitorFranchiseCta } from "@/lib/franchise-nav";
 import { api } from "@/lib/api";
 
 const HOME_LINK = { href: "/", label: "Home" };
@@ -100,13 +100,23 @@ export function Navbar() {
               {franchiseCta && (
                 <Link
                   href={franchiseCta.href}
-                  className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full border border-white/80 px-5 py-2.5 text-[15px] font-semibold text-white transition hover:bg-white/10 active:scale-[0.98]"
+                  className="hidden items-center justify-center gap-2 whitespace-nowrap rounded-full border border-white/80 px-5 py-2.5 text-[15px] font-semibold text-white transition hover:bg-white/10 active:scale-[0.98] lg:inline-flex"
                 >
+                  {/* Hidden on tablets, where three buttons don't fit beside the links (the drawer and homepage still offer it). */}
                   <Handshake className="h-4 w-4" />
-                  <span className="hidden lg:inline">Become a Franchise Partner</span>
-                  <span className="lg:hidden">Franchise</span>
+                  <span className="hidden xl:inline">Become a Franchise Partner</span>
+                  <span className="xl:hidden">Franchise</span>
                 </Link>
               )}
+              {/* Always shown; while the partner dashboard is switched off it opens a "coming soon" page. */}
+              <Link
+                href={PARTNER_LOGIN_LINK.href}
+                className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full border border-white/80 px-5 py-2.5 text-[15px] font-semibold text-white transition hover:bg-white/10 active:scale-[0.98]"
+              >
+                <Building2 className="h-4 w-4" />
+                <span className="hidden xl:inline">{PARTNER_LOGIN_LINK.label}</span>
+                <span className="xl:hidden">Partner Login</span>
+              </Link>
               <Link
                 href="/login"
                 className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-7 py-2.5 text-base font-semibold text-gold-500 shadow transition hover:bg-blue-50 active:scale-[0.98]"
@@ -176,6 +186,14 @@ export function Navbar() {
                     {franchiseCta.label}
                   </Link>
                 )}
+                <Link
+                  href={PARTNER_LOGIN_LINK.href}
+                  onClick={() => setOpen(false)}
+                  className="flex w-full items-center justify-center gap-2 rounded-full border border-white/80 px-6 py-3.5 text-base font-semibold text-white"
+                >
+                  <Building2 className="h-4 w-4" />
+                  {PARTNER_LOGIN_LINK.label}
+                </Link>
                 <Link
                   href="/login"
                   onClick={() => setOpen(false)}

@@ -1,17 +1,26 @@
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { api } from "@/lib/api";
 import { franchiseDemoData, franchisePublicEnabled } from "@/lib/feature-flags";
 import { getSession } from "@/lib/session";
 import type { FranchiseInfo, FranchiseState, MyFranchiseApplication } from "@/lib/franchise";
 import { FranchiseApplyForm } from "@/components/franchise/apply-form";
+import { FranchiseComingSoon } from "@/components/franchise/coming-soon";
 
 export const metadata = { title: "Apply for a Franchise" };
 export const dynamic = "force-dynamic";
 
 export default async function FranchiseApplyPage() {
-  // Dark launch: the page doesn't exist until NEXT_PUBLIC_FRANCHISE_PUBLIC_ENABLED=true.
-  if (!franchisePublicEnabled()) notFound();
+  // Until NEXT_PUBLIC_FRANCHISE_PUBLIC_ENABLED=true the homepage link lands on a "coming soon" notice:
+  // no sign-in, no form, and no franchise API is called.
+  if (!franchisePublicEnabled()) {
+    return (
+      <FranchiseComingSoon title="Franchise applications are coming soon">
+        <p>We&apos;re preparing the ETA Franchise Partner programme. Applications aren&apos;t open yet, so there is nothing to fill in or pay today.</p>
+        <p>Please check back soon.</p>
+      </FranchiseComingSoon>
+    );
+  }
   const session = await getSession();
   if (!session) redirect("/login?callbackUrl=/franchise/apply");
   const loaded = await Promise.all([
