@@ -12,9 +12,9 @@ export const franchisePublicEnabled = () => isSwitchOn(process.env.FRANCHISE_PUB
 export const franchisePartnerEnabled = () => isSwitchOn(process.env.FRANCHISE_PARTNER_ENABLED);
 
 /**
- * Admin two-step verification is ON unless ADMIN_MFA_ENFORCEMENT is exactly "off" — and it can never be
- * turned off when NODE_ENV=production. "off" exists only so older local test suites, whose admin fixtures
- * predate MFA, keep running; the MFA suite runs with it on.
+ * Admin two-step verification is OFF by default in every environment, production included: admins sign in
+ * with their password only. It is required only when ADMIN_MFA_ENFORCEMENT is exactly "on" (any case,
+ * surrounding spaces ignored). Existing authenticator enrolments, recovery codes and audit entries are kept
+ * either way, so switching it back on needs no re-enrolment.
  */
-export const adminMfaEnforced = () =>
-  process.env.NODE_ENV === "production" || (process.env.ADMIN_MFA_ENFORCEMENT ?? "").trim().toLowerCase() !== "off";
+export const adminMfaEnforced = () => (process.env.ADMIN_MFA_ENFORCEMENT ?? "").trim().toLowerCase() === "on";

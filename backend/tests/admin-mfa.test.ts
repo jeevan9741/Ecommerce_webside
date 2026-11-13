@@ -103,16 +103,22 @@ describe("TOTP algorithm (RFC 6238 / RFC 4226)", () => {
     assert.equal(verifyTotp(secret, "abcdef", now, null), null);
   });
 
-  test("enforcement can't be switched off in production", () => {
+  test("enforcement is opt-in: off by default in every environment, on only for exactly \"on\"", () => {
     const saved = { node: process.env.NODE_ENV, mfa: process.env.ADMIN_MFA_ENFORCEMENT };
     try {
-      process.env.ADMIN_MFA_ENFORCEMENT = "off";
-      process.env.NODE_ENV = "production";
-      assert.equal(adminMfaEnforced(), true);
-      process.env.NODE_ENV = "development";
-      assert.equal(adminMfaEnforced(), false);
-      delete process.env.ADMIN_MFA_ENFORCEMENT;
-      assert.equal(adminMfaEnforced(), true, "on by default");
+      for (const nodeEnv of ["production", "development"]) {
+        process.env.NODE_ENV = nodeEnv;
+        delete process.env.ADMIN_MFA_ENFORCEMENT;
+        assert.equal(adminMfaEnforced(), false, `off by default (${nodeEnv})`);
+        for (const v of ["off", "", "true", "1", "yes", "onn"]) {
+          process.env.ADMIN_MFA_ENFORCEMENT = v;
+          assert.equal(adminMfaEnforced(), false, `"${v}" (${nodeEnv})`);
+        }
+        for (const v of ["on", " ON "]) {
+          process.env.ADMIN_MFA_ENFORCEMENT = v;
+          assert.equal(adminMfaEnforced(), true, `"${v}" (${nodeEnv})`);
+        }
+      }
     } finally {
       process.env.NODE_ENV = saved.node;
       process.env.ADMIN_MFA_ENFORCEMENT = "on";

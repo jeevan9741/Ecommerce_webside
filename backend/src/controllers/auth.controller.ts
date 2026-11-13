@@ -49,7 +49,9 @@ export async function login(req: Request, res: Response) {
   if (!user.emailVerified) throw new HttpError(403, "Please verify your email address first.");
 
   const session = toSession(user);
-  if (user.role === "ADMIN") {
+  // Admins sign in with their password only, unless two-step verification is switched on
+  // (ADMIN_MFA_ENFORCEMENT=on, see utils/feature-flags.ts). An authenticator enrolled earlier is then ignored.
+  if (user.role === "ADMIN" && adminMfaEnforced()) {
     // An admin with two-step verification gets a 5-minute challenge, not a session: the authenticator
     // (or a recovery code) is checked by POST /auth/mfa/verify.
     const factor = await prisma.adminMfaFactor.findFirst({ where: { userId: user.id, disabledAt: null, enabledAt: { not: null } }, select: { id: true } });
@@ -58,7 +60,7 @@ export async function login(req: Request, res: Response) {
       return;
     }
     // Not set up yet: this session works for the account but not for admin APIs until MFA is set up.
-    res.json({ token: signSessionToken(session, user.passwordHash), user: session, mfaEnrollmentRequired: adminMfaEnforced() });
+    res.json({ token: signSessionToken(session, user.passwordHash), user: session, mfaEnrollmentRequired: true });
     return;
   }
   res.json({ token: signSessionToken(session, user.passwordHash), user: session });

@@ -30,6 +30,8 @@ const ISSUER = "ETA Admin";
 const MAX_FAILURES = 5;
 const LOCK_MS = 15 * 60 * 1000;
 const RESET_TTL_MS = 24 * 60 * 60 * 1000;
+/** An unfinished enrolment must be confirmed within this time; afterwards its key can never be turned on. */
+export const PENDING_ENROLMENT_TTL_MS = 15 * 60 * 1000;
 
 const parse = <T extends z.ZodType>(schema: T, input: unknown): z.infer<T> => {
   const r = schema.safeParse(input ?? {});
@@ -91,6 +93,11 @@ export async function confirmEnrollment(userId: string, input: unknown) {
     await requireAdminInTx(tx, userId);
     const pending = await liveFactor(tx, userId);
     if (!pending || pending.enabledAt) throw new HttpError(409, "Start setting up two-step verification first.", { code: "NO_PENDING_ENROLLMENT" });
+    // A setup key is shown once and must be confirmed soon after: an older unfinished enrolment (for
+    // example one whose key was seen by someone else) can never be turned on; starting again retires it.
+    if (now.getTime() - pending.createdAt.getTime() > PENDING_ENROLMENT_TTL_MS) {
+      throw new HttpError(409, "This setup has expired. Start again to get a new key.", { code: "ENROLLMENT_EXPIRED" });
+    }
     await tx.$queryRaw`SELECT "id" FROM "AdminMfaFactor" WHERE "id" = ${pending.id} FOR UPDATE`;
     if (pending.lockedUntil && pending.lockedUntil > now) throw new HttpError(429, "Too many wrong codes. Try again in 15 minutes.", { code: "MFA_LOCKED" });
     const step = verifyTotp(secretOf(pending), code, now, null);

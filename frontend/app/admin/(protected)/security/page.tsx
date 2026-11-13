@@ -99,7 +99,7 @@ export default function AdminSecurityPage() {
       <div>
         <h1 className="font-display text-2xl font-semibold text-parchment">Admin Security</h1>
         <p className="mt-1 text-sm text-parchment-muted">
-          Every admin signs in with a password and an authenticator code. Your own setup and recovery codes are on the <Link href="/admin/mfa" className="text-gold-400 underline">two-step verification page</Link>.
+          Admins sign in with their password. An authenticator code is asked for only when two-step verification is switched on for the site; your own setup and recovery codes are on the <Link href="/admin/mfa" className="text-gold-400 underline">two-step verification page</Link>.
         </p>
       </div>
       {notice && <p role="status" className="rounded-lg border border-emerald/40 p-3 text-sm text-emerald">{notice}</p>}

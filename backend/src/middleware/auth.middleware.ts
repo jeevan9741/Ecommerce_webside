@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { prisma } from "../config/prisma.js";
 import { timingSafeEqual } from "node:crypto";
-import { decodeSessionToken, mfaFingerprint, passwordFingerprint, type SessionPayload } from "../utils/tokens.js";
+import { ADMIN_SESSION_MAX_AGE_SECONDS, decodeSessionToken, mfaFingerprint, passwordFingerprint, type SessionPayload } from "../utils/tokens.js";
 import { adminMfaEnforced } from "../utils/feature-flags.js";
 import { HttpError } from "../utils/http.js";
 import { PAID_ACCESS } from "../services/package-access.service.js";
@@ -26,7 +26,8 @@ function readToken(req: Request): string | null {
  * The session in a token, if it's still good: signed, unexpired, the account still exists, and the
  * password hasn't changed since it was issued (so a password reset signs out every other device).
  * Tokens from before password fingerprints carry none; they stay valid only while the account is
- * unchanged since they were issued, which a reset also ends.
+ * unchanged since they were issued, which a reset also ends. An ADMIN account's session (by its database
+ * role) ends 12 hours after it was issued, even if the token itself would last longer.
  */
 type Authenticated = { session: SessionPayload; role: "USER" | "ADMIN"; mv: string | null };
 
@@ -35,6 +36,7 @@ async function authenticate(token: string | null): Promise<Authenticated | null>
   if (!decoded) return null;
   const account = await prisma.user.findUnique({ where: { id: decoded.session.id }, select: { passwordHash: true, updatedAt: true, role: true } });
   if (!account) return null;
+  if (account.role === "ADMIN" && Math.floor(Date.now() / 1000) - decoded.iat > ADMIN_SESSION_MAX_AGE_SECONDS) return null;
   const ok = (): Authenticated => ({ session: decoded.session, role: account.role, mv: decoded.mv });
   if (decoded.pv) {
     const expected = Buffer.from(passwordFingerprint(account.passwordHash));
@@ -45,9 +47,9 @@ async function authenticate(token: string | null): Promise<Authenticated | null>
 }
 
 /**
- * Every signed-in request carries the role from the database, never the token's copy. An ADMIN whose session
- * hasn't passed two-step verification (while it is enforced) is treated as an ordinary user everywhere —
- * content checks included — and only requireAdmin explains why admin access is refused.
+ * Every signed-in request carries the role from the database, never the token's copy. Only while admin
+ * two-step verification is switched on (off by default) is an ADMIN whose session hasn't passed it treated as
+ * an ordinary user everywhere — content checks included — and only requireAdmin explains why.
  */
 async function attach(req: Request, a: Authenticated) {
   let effective: "USER" | "ADMIN" = a.role;
@@ -91,7 +93,7 @@ export function requireUser(req: Request, _res: Response, next: NextFunction) {
 
 /**
  * Admin access: the role is read from the database (a demoted admin's token is refused at once), and —
- * unless ADMIN_MFA_ENFORCEMENT=off — the session must have passed the admin's second factor.
+ * only when ADMIN_MFA_ENFORCEMENT=on — the session must also have passed the admin's second factor.
  */
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   requireUser(req, res, (err?: unknown) => {

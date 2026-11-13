@@ -70,6 +70,11 @@ function AdminMfa() {
       setCode("");
     } catch (err) {
       setError(message(err));
+      // An expired setup can't be confirmed: back to step 1, which issues a new key and retires the old one.
+      if (err instanceof ApiError && err.data.code === "ENROLLMENT_EXPIRED") {
+        setEnrol(null);
+        setCode("");
+      }
     } finally {
       setBusy(false);
     }
@@ -99,7 +104,11 @@ function AdminMfa() {
         <div className="text-center">
           <ShieldCheck className="mx-auto mb-3 h-8 w-8 text-gold-500" aria-hidden="true" />
           <h1 className="font-display text-2xl font-semibold text-parchment">Two-step verification</h1>
-          <p className="mt-1 text-sm text-parchment-muted">Admin accounts sign in with a password and a code from an authenticator app.</p>
+          <p className="mt-1 text-sm text-parchment-muted">
+            {status && !status.enforced
+              ? "Admin sign-in currently needs your password only. An authenticator set up here is asked for only if two-step verification is switched on for the site."
+              : "Admin accounts sign in with a password and a code from an authenticator app."}
+          </p>
         </div>
         {error && <p role="alert" className="rounded-lg border border-danger/40 p-3 text-sm text-danger">{error}</p>}
         {!status && !error && <p className="flex items-center gap-2 text-sm text-parchment-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</p>}
@@ -152,7 +161,7 @@ function AdminMfa() {
               <button type="submit" className="btn-gold w-full" disabled={busy || !password}>{busy ? <Loader2 className="h-4 w-4 animate-spin" aria-label="Checking" /> : "Continue"}</button>
             </form>
           )
-        ) : status && status.enrolled && !status.sessionVerified ? (
+        ) : status && status.enforced && status.enrolled && !status.sessionVerified ? (
           <div className="space-y-3 text-sm text-parchment-muted">
             <p>Two-step verification is set up for this account. Sign in again with your authenticator code to continue.</p>
             <button type="button" className="btn-gold w-full" onClick={() => logout("/admin/login")}>Sign in again</button>

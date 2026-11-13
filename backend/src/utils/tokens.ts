@@ -29,15 +29,21 @@ export function mfaFingerprint(factor: { id: string; enabledAt: Date }): string 
   return createHmac("sha256", env.jwtSecret).update(`mfa:${factor.id}:${factor.enabledAt.toISOString()}`).digest("base64url").slice(0, 22);
 }
 
+/**
+ * Admin sessions (password-only or MFA-verified) last at most 12 hours, whatever JWT_EXPIRES_IN says;
+ * other accounts keep JWT_EXPIRES_IN. The middleware also refuses older tokens of ADMIN accounts (see
+ * ADMIN_SESSION_MAX_AGE_SECONDS), which covers tokens issued before this limit or before a promotion.
+ */
+export const ADMIN_SESSION_TTL = "12h";
+export const ADMIN_SESSION_MAX_AGE_SECONDS = 12 * 60 * 60;
+
 /** `mv` (MFA verified) is set only on sessions issued after a successful second factor. */
 export function signSessionToken(user: SessionPayload, passwordHash: string, opts: { mv?: string } = {}): string {
+  const admin = Boolean(opts.mv) || user.role === "ADMIN";
   return jwt.sign({ ...user, pv: passwordFingerprint(passwordHash), ...(opts.mv ? { mv: opts.mv } : {}) }, env.jwtSecret, {
-    expiresIn: (opts.mv ? ADMIN_SESSION_TTL : env.jwtExpiresIn) as SignOptions["expiresIn"],
+    expiresIn: (admin ? ADMIN_SESSION_TTL : env.jwtExpiresIn) as SignOptions["expiresIn"],
   });
 }
-
-/** MFA-verified admin sessions are shorter than ordinary ones. */
-export const ADMIN_SESSION_TTL = "12h";
 
 /**
  * After a correct password, an admin with MFA gets this 5-minute challenge instead of a session. It is
