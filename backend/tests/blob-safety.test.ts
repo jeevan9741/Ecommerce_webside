@@ -177,6 +177,18 @@ test("startup: NODE_ENV=production against a non-production database is not prod
   assert.match(r.output, /\[BLOB\] FATAL/);
 });
 
+test("startup: NODE_ENV=production against a look-alike or unconfirmed production host is not production", () => {
+  for (const databaseUrl of [
+    "postgresql://user:pass@ep-rapid-fog-ar2sy1xy.localtest.me/neondb", // resolves to 127.0.0.1
+    "postgresql://user:pass@pg.neon.tech/neondb?options=endpoint%3Dep-rapid-fog-ar2sy1xy",
+  ]) {
+    const r = run({ nodeEnv: "production", databaseUrl, privateToken: token(PROD_LIVE), script: startup });
+    assert.equal(r.exitCode, 1, `${databaseUrl}: ${r.output}`);
+    assert.match(r.output, /\[BLOB\] environment: non-production/);
+    assert.doesNotMatch(r.output, new RegExp(`${SECRET}|${PROD_LIVE}`, "i"));
+  }
+});
+
 test("every storage call refuses before contacting Vercel when a non-production process holds a production, unrecognised or OIDC production credential", () => {
   const script = `
     const s = await import(${JSON.stringify(STORAGE)});

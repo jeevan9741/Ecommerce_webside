@@ -18,6 +18,8 @@ export interface PartnerProfile {
   activatedAt: string;
   attributionAllowed: boolean;
   payoutsPaused: boolean;
+  /** The state this franchise holds (one primary franchise per state), from its allocation record. */
+  territory: { state: string; status: string; allocatedAt: string | null } | null;
 }
 
 /**

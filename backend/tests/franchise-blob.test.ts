@@ -49,6 +49,7 @@ const KEY_SHAPE = /^franchise-applications\/fa[0-9a-f]{32}\/(id_proof|photo|addr
 const userIds: string[] = [];
 const loc = { stateId: "", districtId: "" };
 let refund = { version: "", sha256: "" };
+let privacy = { sha256: "" };
 let baseline = new Set<string>();
 
 const PDF = Buffer.from(`%PDF-1.4\n% ${tag}\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n`);
@@ -56,7 +57,7 @@ const JPG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), randomBytes(25
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), randomBytes(256)]);
 const part = (fieldname: string, buffer: Buffer, mimetype: string): UploadedFile => ({ fieldname, originalname: `${fieldname}.bin`, mimetype, size: buffer.length, buffer });
 const files = () => [part("idProof", PDF, "application/pdf"), part("photo", JPG, "image/jpeg"), part("addressProof", PNG, "image/png")];
-const body = () => ({ applicantName: "Blob Test", mobile: "9876543210", stateId: loc.stateId, districtId: loc.districtId, address: "1, Test Street, Test Town", refundPolicyVersion: refund.version, refundPolicySha256: refund.sha256 });
+const body = () => ({ applicantName: "Blob Test", mobile: "9876543210", stateId: loc.stateId, districtId: loc.districtId, address: "1, Test Street, Test Town", refundPolicyVersion: refund.version, refundPolicySha256: refund.sha256, privacyNoticeAccepted: "true", privacyNoticeVersion: refund.version, privacyNoticeSha256: privacy.sha256 });
 const sha = (b: Buffer | Uint8Array) => createHash("sha256").update(b).digest("hex");
 const status = (code: number) => (e: { status?: number }) => e.status === code;
 async function keysUnderPrefix() {
@@ -92,6 +93,7 @@ describe("franchise documents on the isolated test Blob store", { skip }, () => 
       applicationIntake: "OPEN",
       documentRequirements: { PHOTO: "REQUIRED", ADDRESS_PROOF: "OPTIONAL", BUSINESS_PLAN: "OPTIONAL" },
       feeRefundPolicy: { text: `${tag}: test-only refund text for the isolated Blob test (local database only).` },
+      privacyNotice: { text: `DRAFT ${tag}: test-only privacy notice placeholder for the isolated Blob test.` },
     };
     const draft = await createDraft({ domain: "COMMERCIAL", actorId: a.id, payload });
     const { request } = await submitForApproval({ id: draft.id, actorId: a.id, expectedSha: draft.payloadSha256, reason: "isolated Blob test (local database)" });
@@ -99,6 +101,7 @@ describe("franchise documents on the isolated test Blob store", { skip }, () => 
     const info = await intakeStatus();
     assert.equal(info.open, true, info.reasons.join("; "));
     refund = { version: String(info.refundPolicy!.version), sha256: info.refundPolicy!.sha256 };
+    privacy = { sha256: info.privacyNotice!.sha256 };
     const state = await prisma.indiaState.create({ data: { name: `${tag} State`, isActive: true } });
     const district = await prisma.district.create({ data: { stateId: state.id, name: `${tag} District`, isActive: true } });
     Object.assign(loc, { stateId: state.id, districtId: district.id });
@@ -117,6 +120,7 @@ describe("franchise documents on the isolated test Blob store", { skip }, () => 
       await tx.$executeRaw`SET LOCAL eta.maintenance_reason = 'franchise-blob test cleanup'`;
       const apps = (await tx.franchiseApplication.findMany({ where: { userId: { in: userIds } }, select: { id: true } })).map((x) => x.id);
       await tx.franchiseNotification.deleteMany({ where: { applicationId: { in: apps } } });
+      await tx.franchisePrivacyNoticeAcceptance.deleteMany({ where: { applicationId: { in: apps } } });
       await tx.franchiseApplicationDocument.deleteMany({ where: { applicationId: { in: apps } } });
       await tx.franchiseApplicationStatusHistory.deleteMany({ where: { applicationId: { in: apps } } });
       await tx.franchiseApplication.deleteMany({ where: { id: { in: apps } } });

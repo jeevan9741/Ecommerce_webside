@@ -1,11 +1,11 @@
 import { getEnrolledAccess } from "@/lib/dashboard";
-import { getContact } from "@/lib/contact";
+import { getShownContact } from "@/lib/contact";
 import { EnrolledPackages } from "@/components/dashboard/enrolled-packages";
 import { DashboardPageHeader } from "@/components/dashboard/page-header";
 
 export default async function MyCoursesPage() {
   // Only purchased, still-live access comes back from /me/courses — nothing here is unlocked otherwise.
-  const [access, contact] = await Promise.all([getEnrolledAccess(), getContact()]);
+  const [access, contact] = await Promise.all([getEnrolledAccess(), getShownContact()]);
 
   return (
     <div className="space-y-6">

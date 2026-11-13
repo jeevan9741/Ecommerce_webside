@@ -4,11 +4,12 @@ import type { FranchisePartnerStatus, Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
 import { HttpError } from "../utils/http.js";
 import { canonicalSha256 } from "../utils/canonical-json.js";
+import { lockState } from "./franchise-state.service.js";
 
 /**
  * Franchise partners (Phase 5F-1). A user is a Franchise Admin only while the DATABASE says so:
- * a FranchisePartner row that is ACTIVE, inside its agreement dates, holding an ALLOCATED primary
- * allocation of its district, owned by a USER (never an ADMIN). There is no franchise role in the
+ * a FranchisePartner row that is ACTIVE, inside its agreement dates, holding the ALLOCATED primary
+ * allocation of its state (one franchise per state), owned by a USER (never an ADMIN). There is no franchise role in the
  * session token, so nothing can be forged or go stale.
  */
 
@@ -24,7 +25,7 @@ export type AccessDenial =
   | "PARTNER_EXPIRED"
   | "AGREEMENT_NOT_STARTED"
   | "AGREEMENT_ENDED"
-  | "DISTRICT_NOT_ALLOCATED";
+  | "STATE_NOT_ALLOCATED";
 
 const DENIAL_MESSAGE: Record<AccessDenial, string> = {
   NOT_A_PARTNER: "This account isn't an active franchise partner.",
@@ -34,7 +35,7 @@ const DENIAL_MESSAGE: Record<AccessDenial, string> = {
   PARTNER_EXPIRED: "This franchise has expired.",
   AGREEMENT_NOT_STARTED: "This franchise agreement hasn't started yet.",
   AGREEMENT_ENDED: "This franchise agreement has ended.",
-  DISTRICT_NOT_ALLOCATED: "This franchise doesn't hold its district allocation.",
+  STATE_NOT_ALLOCATED: "This franchise doesn't hold its state allocation.",
 };
 
 const STATUS_DENIAL: Partial<Record<FranchisePartnerStatus, AccessDenial>> = {
@@ -48,7 +49,7 @@ const STATUS_DENIAL: Partial<Record<FranchisePartnerStatus, AccessDenial>> = {
  * identifiers (the only ids partner handlers may use) or the reason for refusal.
  */
 export async function resolvePartnerAccess(userId: string, now = new Date()): Promise<{ ok: true; partner: PartnerContext } | { ok: false; reason: AccessDenial; partnerId?: string }> {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true, franchisePartner: { select: { id: true, status: true, districtId: true, franchiseCode: true, agreementStartsAt: true, agreementEndsAt: true } } } });
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true, franchisePartner: { select: { id: true, status: true, districtId: true, franchiseCode: true, agreementStartsAt: true, agreementEndsAt: true, district: { select: { stateId: true } } } } } });
   const p = user?.franchisePartner;
   if (!user || !p) return { ok: false, reason: "NOT_A_PARTNER" };
   if (user.role !== "USER") return { ok: false, reason: "ADMIN_ACCOUNT", partnerId: p.id };
@@ -56,8 +57,9 @@ export async function resolvePartnerAccess(userId: string, now = new Date()): Pr
   if (statusDenial) return { ok: false, reason: statusDenial, partnerId: p.id };
   if (now < p.agreementStartsAt) return { ok: false, reason: "AGREEMENT_NOT_STARTED", partnerId: p.id };
   if (now >= p.agreementEndsAt) return { ok: false, reason: "AGREEMENT_ENDED", partnerId: p.id };
-  const allocated = await prisma.districtAllocation.count({ where: { districtId: p.districtId, partnerId: p.id, role: "PRIMARY", status: "ALLOCATED" } });
-  if (!allocated) return { ok: false, reason: "DISTRICT_NOT_ALLOCATED", partnerId: p.id };
+  // State-level exclusivity: the partner must hold its state (one PRIMARY franchise per state).
+  const allocated = await prisma.stateAllocation.count({ where: { partnerId: p.id, stateId: p.district.stateId, role: "PRIMARY", status: "ALLOCATED" } });
+  if (!allocated) return { ok: false, reason: "STATE_NOT_ALLOCATED", partnerId: p.id };
   return { ok: true, partner: { partnerId: p.id, districtId: p.districtId, franchiseCode: p.franchiseCode } };
 }
 
@@ -85,8 +87,11 @@ export async function partnerProfile(ctx: PartnerContext) {
       payoutsPaused: true,
       user: { select: { name: true, email: true } },
       district: { select: { name: true, code: true, state: { select: { name: true } } } },
+      // The partner's own state allocation only (the territory it holds); never another partner's.
+      stateAllocations: { where: { role: "PRIMARY", status: { in: ["ALLOCATED", "SUSPENDED"] } }, take: 1, select: { status: true, allocatedAt: true, state: { select: { name: true } } } },
     },
   });
+  const territory = p.stateAllocations[0];
   return {
     franchiseCode: p.franchiseCode,
     status: p.status,
@@ -100,6 +105,8 @@ export async function partnerProfile(ctx: PartnerContext) {
     activatedAt: p.activatedAt,
     attributionAllowed: p.attributionAllowed,
     payoutsPaused: p.payoutsPaused,
+    /** One primary franchise per state: the state this franchise holds, from its allocation record. */
+    territory: territory ? { state: territory.state.name, status: territory.status, allocatedAt: territory.allocatedAt } : null,
   };
 }
 
@@ -116,8 +123,9 @@ const addMonths = (d: Date, months: number) => {
 /**
  * Turns an application into an active franchise. Every precondition is re-checked inside the
  * transaction: AGREEMENT_PENDING, a PAID fee, an accepted agreement, the application's own unexpired
- * district RESERVATION, a USER (not ADMIN) owner with no franchise yet. The reservation becomes the
- * allocation in the same transaction, so a district can never end up with two partners.
+ * state RESERVATION, a USER (not ADMIN) owner with no franchise yet. The reservation becomes the
+ * allocation in the same transaction (under the state's lock and its partial unique index), so a state
+ * can never end up with two partners. No route calls this yet: fee payment and agreements don't exist.
  */
 export async function activatePartner(input: { applicationId: string; actorId: string | null; now?: Date }) {
   const now = input.now ?? new Date();
@@ -126,7 +134,7 @@ export async function activatePartner(input: { applicationId: string; actorId: s
     if (!rows.length) throw new HttpError(404, "Not found");
     const app = await tx.franchiseApplication.findUniqueOrThrow({
       where: { id: input.applicationId },
-      select: { id: true, status: true, version: true, userId: true, districtId: true, applicationNo: true, user: { select: { role: true, franchisePartner: { select: { id: true } } } } },
+      select: { id: true, status: true, version: true, userId: true, districtId: true, stateId: true, applicationNo: true, user: { select: { role: true, franchisePartner: { select: { id: true } } } } },
     });
     const refuse = (code: string, message: string) => new HttpError(409, message, { code });
     if (app.status !== "AGREEMENT_PENDING") throw refuse("NOT_READY", `The application is "${app.status}", not awaiting activation.`);
@@ -136,26 +144,27 @@ export async function activatePartner(input: { applicationId: string; actorId: s
     if (!paid) throw refuse("FEE_NOT_PAID", "The franchise fee hasn't been paid.");
     const agreement = await tx.franchiseAgreement.findUnique({ where: { applicationId: app.id }, select: { acceptedAt: true, termMonths: true } });
     if (!agreement?.acceptedAt) throw refuse("AGREEMENT_NOT_ACCEPTED", "The agreement hasn't been accepted.");
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`eta-district:${app.districtId}`}))`;
-    const reservation = await tx.districtAllocation.findFirst({ where: { districtId: app.districtId, applicationId: app.id, role: "PRIMARY", status: "RESERVED" } });
-    if (!reservation) throw refuse("NO_RESERVATION", "The district isn't reserved for this application.");
-    if (reservation.reservedUntil && reservation.reservedUntil <= now) throw refuse("RESERVATION_EXPIRED", "The district reservation has expired.");
+    // One PRIMARY franchise per state: the state's lock, then its reservation for THIS application.
+    await lockState(tx, app.stateId);
+    const reservation = await tx.stateAllocation.findFirst({ where: { stateId: app.stateId, applicationId: app.id, role: "PRIMARY", status: "RESERVED" } });
+    if (!reservation) throw refuse("NO_RESERVATION", "The state isn't reserved for this application.");
+    if (reservation.reservedUntil && reservation.reservedUntil <= now) throw refuse("RESERVATION_EXPIRED", "The state reservation has expired.");
 
     let franchiseCode = newFranchiseCode();
     for (let i = 0; i < 5 && (await tx.franchisePartner.count({ where: { franchiseCode } })); i++) franchiseCode = newFranchiseCode();
     const partner = await tx.franchisePartner.create({
       data: { userId: app.userId, applicationId: app.id, franchiseCode, districtId: app.districtId, status: "ACTIVE", agreementStartsAt: now, agreementEndsAt: addMonths(now, agreement.termMonths), activatedAt: now },
     });
-    const moved = await tx.districtAllocation.updateMany({ where: { id: reservation.id, status: "RESERVED" }, data: { status: "ALLOCATED", partnerId: partner.id, allocatedAt: now } });
-    if (moved.count !== 1) throw refuse("STALE", "The district reservation changed — try again.");
-    await tx.districtAllocationEvent.create({ data: { allocationId: reservation.id, districtId: app.districtId, fromStatus: "RESERVED", toStatus: "ALLOCATED", actorId: input.actorId, reason: "Franchise activated" } });
+    const moved = await tx.stateAllocation.updateMany({ where: { id: reservation.id, status: "RESERVED" }, data: { status: "ALLOCATED", partnerId: partner.id, allocatedAt: now } });
+    if (moved.count !== 1) throw refuse("STALE", "The state reservation changed — try again.");
+    await tx.stateAllocationEvent.create({ data: { allocationId: reservation.id, stateId: app.stateId, fromStatus: "RESERVED", toStatus: "ALLOCATED", actorId: input.actorId, reason: "Franchise activated" } });
     await tx.franchisePartnerEvent.create({ data: { partnerId: partner.id, type: "ACTIVATED", toStatus: "ACTIVE", actorId: input.actorId, reason: "Payment and agreement complete" } });
     const done = await tx.franchiseApplication.updateMany({ where: { id: app.id, status: "AGREEMENT_PENDING", version: app.version }, data: { status: "ACTIVE_FRANCHISE", version: { increment: 1 } } });
     if (done.count !== 1) throw refuse("STALE", "The application changed — try again.");
     await tx.franchiseApplicationStatusHistory.create({
       data: { applicationId: app.id, fromStatus: "AGREEMENT_PENDING", toStatus: "ACTIVE_FRANCHISE", actorId: input.actorId, actorType: input.actorId ? "ADMIN" : "SYSTEM", applicantNote: "Your franchise is active" },
     });
-    await tx.auditLog.create({ data: { actorId: input.actorId, action: "FRANCHISE_PARTNER_ACTIVATED", target: partner.id, metadata: { applicationNo: app.applicationNo, districtId: app.districtId, franchiseCode } } });
+    await tx.auditLog.create({ data: { actorId: input.actorId, action: "FRANCHISE_PARTNER_ACTIVATED", target: partner.id, metadata: { applicationNo: app.applicationNo, stateId: app.stateId, districtId: app.districtId, franchiseCode } } });
     return partner;
   });
 }
@@ -188,7 +197,7 @@ export async function partnerDetail(actorId: string, id: string) {
       user: { select: { id: true, name: true, email: true } },
       application: { select: { id: true, applicationNo: true } },
       district: { select: { name: true, code: true, state: { select: { name: true } } } },
-      allocations: { orderBy: { createdAt: "desc" }, select: { id: true, status: true, allocatedAt: true, suspendedAt: true, releasedAt: true } },
+      stateAllocations: { orderBy: { createdAt: "desc" }, select: { id: true, status: true, allocatedAt: true, suspendedAt: true, releasedAt: true, state: { select: { id: true, name: true } } } },
       events: { orderBy: { createdAt: "asc" }, select: { id: true, type: true, fromStatus: true, toStatus: true, actorId: true, reason: true, approvalRequestId: true, createdAt: true } },
     },
   });
@@ -211,7 +220,7 @@ export async function partnerDetail(actorId: string, id: string) {
     activatedAt: p.activatedAt,
     suspendedAt: p.suspendedAt,
     deactivatedAt: p.deactivatedAt,
-    allocations: p.allocations,
+    allocations: p.stateAllocations.map((a) => ({ id: a.id, status: a.status, allocatedAt: a.allocatedAt, suspendedAt: a.suspendedAt, releasedAt: a.releasedAt, state: a.state.name, stateId: a.state.id })),
     events: p.events,
     requests,
   };
@@ -235,7 +244,7 @@ async function lockPartner(tx: Tx, id: string, expected: FranchisePartnerStatus)
 
 /**
  * Protective suspension: one admin, immediate (a compromised or misbehaving franchise must be stoppable
- * at once). Access ends on the partner's next request; the district stays held (allocation SUSPENDED).
+ * at once). Access ends on the partner's next request; the state stays held (allocation SUSPENDED).
  */
 export async function suspendPartner(actorId: string, id: string, input: unknown) {
   const { reason } = parse(z.object({ reason: reasonSchema }).strict(), input);
@@ -244,10 +253,12 @@ export async function suspendPartner(actorId: string, id: string, input: unknown
     await requireAdmin(tx, actorId, true);
     const p = await lockPartner(tx, id, "ACTIVE");
     await tx.franchisePartner.update({ where: { id }, data: { status: "SUSPENDED", suspendedAt: now } });
-    const alloc = await tx.districtAllocation.findFirst({ where: { partnerId: id, districtId: p.districtId, role: "PRIMARY", status: "ALLOCATED" } });
+    // The state stays held (SUSPENDED): a suspension never reopens it.
+    const alloc = await tx.stateAllocation.findFirst({ where: { partnerId: id, role: "PRIMARY", status: "ALLOCATED" } });
     if (alloc) {
-      await tx.districtAllocation.update({ where: { id: alloc.id }, data: { status: "SUSPENDED", suspendedAt: now } });
-      await tx.districtAllocationEvent.create({ data: { allocationId: alloc.id, districtId: p.districtId, fromStatus: "ALLOCATED", toStatus: "SUSPENDED", actorId, reason } });
+      await lockState(tx, alloc.stateId);
+      await tx.stateAllocation.update({ where: { id: alloc.id }, data: { status: "SUSPENDED", suspendedAt: now } });
+      await tx.stateAllocationEvent.create({ data: { allocationId: alloc.id, stateId: alloc.stateId, fromStatus: "ALLOCATED", toStatus: "SUSPENDED", actorId, reason } });
     }
     await tx.franchisePartnerEvent.create({ data: { partnerId: id, type: "SUSPENDED", fromStatus: "ACTIVE", toStatus: "SUSPENDED", actorId, reason } });
     await tx.auditLog.create({ data: { actorId, action: "FRANCHISE_PARTNER_SUSPENDED", target: id, metadata: { franchiseCode: p.franchiseCode } } });
@@ -317,26 +328,27 @@ export async function approvePartnerAction(actorId: string, requestId: string, i
     const p = await lockPartner(tx, payload.partnerId, payload.fromStatus);
     await tx.adminApprovalRequest.update({ where: { id: requestId }, data: { status: "APPROVED", decidedById: actorId, decidedAt: now } });
 
-    const alloc = await tx.districtAllocation.findFirst({ where: { partnerId: p.id, districtId: p.districtId, role: "PRIMARY", status: { in: ["ALLOCATED", "SUSPENDED"] } } });
+    const alloc = await tx.stateAllocation.findFirst({ where: { partnerId: p.id, role: "PRIMARY", status: { in: ["ALLOCATED", "SUSPENDED"] } } });
+    if (alloc) await lockState(tx, alloc.stateId);
     if (payload.action === "REINSTATE") {
       await tx.franchisePartner.update({ where: { id: p.id }, data: { status: "ACTIVE", suspendedAt: null } });
       if (alloc?.status === "SUSPENDED") {
-        await tx.districtAllocation.update({ where: { id: alloc.id }, data: { status: "ALLOCATED", suspendedAt: null } });
-        await tx.districtAllocationEvent.create({ data: { allocationId: alloc.id, districtId: p.districtId, fromStatus: "SUSPENDED", toStatus: "ALLOCATED", actorId, approvalRequestId: requestId, reason: req.reason } });
+        await tx.stateAllocation.update({ where: { id: alloc.id }, data: { status: "ALLOCATED", suspendedAt: null } });
+        await tx.stateAllocationEvent.create({ data: { allocationId: alloc.id, stateId: alloc.stateId, fromStatus: "SUSPENDED", toStatus: "ALLOCATED", actorId, approvalRequestId: requestId, reason: req.reason } });
       }
       await tx.franchisePartnerEvent.create({ data: { partnerId: p.id, type: "REINSTATED", fromStatus: p.status, toStatus: "ACTIVE", actorId, approvalRequestId: requestId, reason: req.reason } });
     } else {
-      // Deactivation ends partner access; the district stays held (SUSPENDED) until a separate, reviewed
-      // district release — never freed as a side effect.
+      // Deactivation ends partner access; the state stays held (SUSPENDED) until a separate two-admin
+      // state release (reopen) — never freed as a side effect.
       await tx.franchisePartner.update({ where: { id: p.id }, data: { status: "DEACTIVATED", deactivatedAt: now, ...(p.status === "ACTIVE" ? { suspendedAt: now } : {}) } });
       if (alloc?.status === "ALLOCATED") {
-        await tx.districtAllocation.update({ where: { id: alloc.id }, data: { status: "SUSPENDED", suspendedAt: now } });
-        await tx.districtAllocationEvent.create({ data: { allocationId: alloc.id, districtId: p.districtId, fromStatus: "ALLOCATED", toStatus: "SUSPENDED", actorId, approvalRequestId: requestId, reason: req.reason } });
+        await tx.stateAllocation.update({ where: { id: alloc.id }, data: { status: "SUSPENDED", suspendedAt: now } });
+        await tx.stateAllocationEvent.create({ data: { allocationId: alloc.id, stateId: alloc.stateId, fromStatus: "ALLOCATED", toStatus: "SUSPENDED", actorId, approvalRequestId: requestId, reason: req.reason } });
       }
       await tx.franchisePartnerEvent.create({ data: { partnerId: p.id, type: "DEACTIVATED", fromStatus: p.status, toStatus: "DEACTIVATED", actorId, approvalRequestId: requestId, reason: req.reason } });
     }
     await tx.adminApprovalRequest.update({ where: { id: requestId }, data: { status: "EXECUTED", executedAt: now, openKey: null } });
-    await tx.auditLog.create({ data: { actorId, action: "FRANCHISE_PARTNER_ACTION_APPROVED", target: p.id, metadata: { requestId, action: payload.action, requestedById: req.requestedById } } });
+    await tx.auditLog.create({ data: { actorId, action: "FRANCHISE_PARTNER_ACTION_APPROVED", target: p.id, metadata: { requestId, action: payload.action, requestedById: req.requestedById, approvedById: actorId } } });
     return { id: p.id, status: payload.action === "REINSTATE" ? "ACTIVE" : "DEACTIVATED" };
   });
 }

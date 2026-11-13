@@ -9,7 +9,15 @@ type Status = "loading" | "authenticated" | "unauthenticated";
 interface AuthContextValue {
   user: SessionUser | null;
   status: Status;
-  login: (identifier: string, password: string) => Promise<{ ok: true; user: SessionUser } | { ok: false; error: string }>;
+  login: (
+    identifier: string,
+    password: string
+  ) => Promise<{ ok: true; user: SessionUser; mfaEnrollmentRequired: boolean } | { ok: false; mfaRequired: true; challengeToken: string } | { ok: false; mfaRequired?: false; error: string }>;
+  /** Completes an admin sign-in with an authenticator code or a recovery code. */
+  verifyMfa: (
+    challengeToken: string,
+    answer: { code: string } | { recoveryCode: string }
+  ) => Promise<{ ok: true; user: SessionUser; recoveryCodesRemaining: number } | { ok: false; error: string; code?: string }>;
   /** Stores a session issued elsewhere (e.g. registration returns a token directly). */
   setSession: (token: string, user: SessionUser) => void;
   logout: (redirectTo?: string) => void;
@@ -54,11 +62,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback<AuthContextValue["login"]>(
     async (identifier, password) => {
       try {
-        const { token, user: nextUser } = await authService.login(identifier, password);
-        setSession(token, nextUser);
-        return { ok: true, user: nextUser };
+        const res = await authService.login(identifier, password);
+        if ("mfaRequired" in res) return { ok: false, mfaRequired: true, challengeToken: res.challengeToken };
+        setSession(res.token, res.user);
+        return { ok: true, user: res.user, mfaEnrollmentRequired: Boolean(res.mfaEnrollmentRequired) };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : "Login failed. Please try again." };
+      }
+    },
+    [setSession]
+  );
+
+  const verifyMfa = useCallback<AuthContextValue["verifyMfa"]>(
+    async (challengeToken, answer) => {
+      try {
+        const res = await authService.verifyMfa(challengeToken, answer);
+        setSession(res.token, res.user);
+        return { ok: true, user: res.user, recoveryCodesRemaining: res.recoveryCodesRemaining };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : "Verification failed. Please try again.", code: err instanceof ApiError ? (err.data.code as string | undefined) : undefined };
       }
     },
     [setSession]
@@ -78,7 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.location.href = redirectTo;
   }, []);
 
-  const value = useMemo(() => ({ user, status, login, setSession, logout }), [user, status, login, setSession, logout]);
+  const value = useMemo(() => ({ user, status, login, verifyMfa, setSession, logout }), [user, status, login, verifyMfa, setSession, logout]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

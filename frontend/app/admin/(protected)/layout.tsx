@@ -1,10 +1,17 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
+import { api } from "@/lib/api";
+import { mfaRedirect } from "@/lib/admin-mfa";
 import { DashboardShell } from "@/components/dashboard/shell";
+import { FranchiseAdminSectionNav } from "@/components/franchise/admin-section-nav";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   if (!session?.user || session.user.role !== "ADMIN") redirect("/admin/login");
+  // Two-step verification: the API refuses admin calls without it; send the admin to set it up or sign in again.
+  const mfa = await api.get<{ enforced: boolean; enrolled: boolean; sessionVerified: boolean }>("/auth/mfa/status", { token: session.token }).catch(() => null);
+  const to = mfa ? mfaRedirect(mfa) : "/admin/login?reason=mfa";
+  if (to) redirect(to);
 
   return (
     <DashboardShell
@@ -23,11 +30,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         { href: "/admin/center-training", label: "Center Training", icon: "building" },
         { href: "/admin/languages", label: "Languages", icon: "languages" },
         { href: "/admin/withdrawals", label: "Withdrawals", icon: "wallet" },
-        { href: "/admin/franchise-applications", label: "Franchise Applications", icon: "fileCheck" },
-        { href: "/admin/franchise-partners", label: "Franchise Partners", icon: "users" },
-        { href: "/admin/franchise-tickets", label: "Franchise Tickets", icon: "fileText" },
-        { href: "/admin/franchise-policies", label: "Franchise Policies", icon: "handCoins" },
-        { href: "/admin/franchise-locations", label: "Franchise Locations", icon: "building" },
+        { href: "/admin/franchise", label: "Franchise Management", icon: "building", matchPrefixes: ["/admin/franchise-", "/admin/franchise/"] },
         { href: "/admin/referral-claims", label: "Referral Claims", icon: "fileText" },
         { href: "/admin/partner-cards", label: "Partner ID Cards", icon: "badgeCheck" },
         { href: "/admin/partner-card-settings", label: "Partner Card Settings", icon: "settings" },
@@ -38,8 +41,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         { href: "/admin/legal-documents", label: "Company Legal Documents", icon: "fileCheck" },
         { href: "/admin/certificates", label: "Academy Certificates", icon: "fileText" },
         { href: "/admin/settings", label: "Site Settings", icon: "settings" },
+        { href: "/admin/security", label: "Admin Security", icon: "badgeCheck" },
       ]}
     >
+      <FranchiseAdminSectionNav />
       {children}
     </DashboardShell>
   );

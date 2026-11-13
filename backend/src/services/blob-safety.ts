@@ -1,9 +1,11 @@
-import { isProductionDatabase } from "./payment-safety.js";
+import { isConfirmedProductionDatabase, isProductionEnvironment } from "./payment-safety.js";
+
+export { isProductionEnvironment };
 
 /**
  * Keeps non-production environments (local development, staging, tests) away from the production Vercel
  * Blob stores, which hold real customers' course files, e-books and documents. A process counts as
- * PRODUCTION only when NODE_ENV is "production" AND DATABASE_URL points at a known production database;
+ * PRODUCTION only when NODE_ENV is "production" AND DATABASE_URL is a confirmed production database;
  * anything else — including a missing NODE_ENV — is non-production. In a non-production process, a Blob
  * token (or OIDC BLOB_STORE_ID) that belongs to a production store, or that can't be identified at all,
  * is refused: at startup the server exits, and every storage call throws before it reaches Vercel.
@@ -47,11 +49,6 @@ export function classifyBlobStoreId(storeId: string | undefined, productionIds: 
   return productionIds.has(normaliseStoreId(storeId)) ? "production" : "non-production";
 }
 
-/** Production only with BOTH NODE_ENV=production and a known production database; otherwise non-production. */
-export function isProductionEnvironment(nodeEnv: string | undefined = process.env.NODE_ENV, productionDatabase: boolean = isProductionDatabase()) {
-  return nodeEnv === "production" && productionDatabase;
-}
-
 export interface BlobSafetyInput {
   nodeEnv?: string;
   productionDatabase: boolean;
@@ -83,7 +80,7 @@ export function blobSafetyProblem(input: BlobSafetyInput): string | null {
 /** The current process's configuration (read at call time, so a changed environment is re-checked). */
 const currentInput = (): BlobSafetyInput => ({
   nodeEnv: process.env.NODE_ENV,
-  productionDatabase: isProductionDatabase(),
+  productionDatabase: isConfirmedProductionDatabase(process.env.DATABASE_URL),
   privateToken: process.env.BLOB_READ_WRITE_TOKEN,
   publicToken: process.env.BLOB_PUBLIC_READ_WRITE_TOKEN,
   oidcStoreId: process.env.BLOB_STORE_ID,

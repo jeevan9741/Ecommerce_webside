@@ -325,6 +325,7 @@ function approveInTransaction(input: { requestId: string; approverId: string; ex
     await audit(tx, input.approverId, "POLICY_PUBLISHED", published, {
       approvalRequestId: request.id,
       requestedById: request.requestedById,
+      approvedById: input.approverId,
       effectiveFrom: effectiveFrom.toISOString(),
       supersededVersion: current?.version ?? null,
     });

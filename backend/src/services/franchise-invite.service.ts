@@ -7,6 +7,7 @@ import { HttpError } from "../utils/http.js";
 import { sendEmail } from "./email.service.js";
 import { courseProgress } from "./certificate.service.js";
 import type { PartnerContext } from "./franchise-partner.service.js";
+import { studentReference } from "./franchise-partner-dashboard.service.js";
 
 /**
  * Franchise student invitations and links (Phase 5F-2). A partner invites by email; the student accepts
@@ -220,7 +221,7 @@ export async function acceptInvite(userId: string, token: string) {
 
     // The inviting franchise must still be able to take students right now.
     const p = await tx.franchisePartner.findUniqueOrThrow({ where: { id: inv.partnerId }, select: { id: true, userId: true, status: true, attributionAllowed: true, districtId: true, agreementStartsAt: true, agreementEndsAt: true } });
-    const allocated = await tx.districtAllocation.count({ where: { partnerId: p.id, districtId: p.districtId, role: "PRIMARY", status: "ALLOCATED" } });
+    const allocated = await tx.stateAllocation.count({ where: { partnerId: p.id, role: "PRIMARY", status: "ALLOCATED" } });
     if (p.userId === userId || p.status !== "ACTIVE" || !p.attributionAllowed || now < p.agreementStartsAt || now >= p.agreementEndsAt || !allocated) {
       throw refuse(409, "FRANCHISE_UNAVAILABLE", "This franchise can't accept students right now.");
     }
@@ -249,16 +250,27 @@ export async function acceptInvite(userId: string, token: string) {
 
 const studentListSchema = z.object({ q: z.string().trim().max(100).optional(), page: z.coerce.number().int().min(1).max(10_000).default(1) });
 
-/** The franchise's own ACTIVE students. Fields per decision D3: name, linked date — no contact details. */
+/**
+ * The franchise's own ACTIVE students. Fields per decision D3 — name, linked date — plus a display
+ * reference, the link status and how many courses the student currently has. No contact details.
+ */
 export async function listStudents(ctx: PartnerContext, query: unknown) {
   const f = parse(studentListSchema, query);
   const where: Prisma.FranchiseStudentWhereInput = { partnerId: ctx.partnerId, status: "ACTIVE", ...(f.q ? { student: { name: { contains: f.q, mode: "insensitive" } } } : {}) };
   const pageSize = 25;
   const [total, rows] = await Promise.all([
     prisma.franchiseStudent.count({ where }),
-    prisma.franchiseStudent.findMany({ where, orderBy: { startsAt: "desc" }, skip: (f.page - 1) * pageSize, take: pageSize, select: { id: true, startsAt: true, source: true, student: { select: { name: true } } } }),
+    prisma.franchiseStudent.findMany({ where, orderBy: [{ startsAt: "desc" }, { id: "asc" }], skip: (f.page - 1) * pageSize, take: pageSize, select: { id: true, startsAt: true, source: true, status: true, studentUserId: true, student: { select: { name: true } } } }),
   ]);
-  return { page: f.page, pageSize, total, students: rows.map((r) => ({ id: r.id, name: r.student.name, linkedAt: r.startsAt, source: r.source })) };
+  const counts = new Map(
+    (await prisma.courseAccess.groupBy({ by: ["userId"], where: { userId: { in: rows.map((r) => r.studentUserId) }, revokedAt: null }, _count: { _all: true } })).map((c) => [c.userId, c._count._all])
+  );
+  return {
+    page: f.page,
+    pageSize,
+    total,
+    students: rows.map((r) => ({ id: r.id, reference: studentReference(r.id), name: r.student.name, linkedAt: r.startsAt, source: r.source, status: r.status, enrolledCourses: counts.get(r.studentUserId) ?? 0 })),
+  };
 }
 
 /**

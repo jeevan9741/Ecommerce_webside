@@ -8,7 +8,7 @@ import { deleteObject, getDownloadUrl, uploadBuffer } from "./storage.service.js
 import { sendEmail } from "./email.service.js";
 import { resolvePolicy } from "./policy.service.js";
 import { isPending } from "./policy-schemas.js";
-import { heldDistrictIds } from "./franchise-location.service.js";
+import { holdingAllocation, lockState, releaseReservationFor } from "./franchise-state.service.js";
 
 /**
  * Franchise applications (Phase 4: submission and the applicant's own view). Applicants are signed-in,
@@ -17,7 +17,10 @@ import { heldDistrictIds } from "./franchise-location.service.js";
  * through short-lived signed links issued after an ownership check.
  *
  * Intake is closed unless the COMMERCIAL policy in force (two-admin published) says
- * applicationIntake = OPEN and the document requirements and fee refund policy are decided.
+ * applicationIntake = OPEN and the document requirements and applicant privacy notice are decided.
+ * Every application records an explicit acceptance of the exact notice version. There is no
+ * customer-facing refund policy (customer decision, 2026-11): none is shown, required or recorded.
+ * One franchise per STATE: a state held by a reservation or a franchise doesn't accept applications.
  */
 
 export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
@@ -68,9 +71,10 @@ export async function intakeStatus(now = new Date()) {
   else {
     if (payload.applicationIntake !== "OPEN") reasons.push(isPending(payload.applicationIntake) || payload.applicationIntake === undefined ? "Application intake hasn't been decided yet." : "Applications are closed.");
     if (isPending(payload.documentRequirements) || payload.documentRequirements === undefined) reasons.push("Document requirements haven't been decided yet.");
-    if (isPending(payload.feeRefundPolicy) || payload.feeRefundPolicy === undefined) reasons.push("The fee refund policy hasn't been published yet.");
+    // A policy published before schema version 3 has no privacyNotice at all: that keeps intake closed too.
+    if (isPending(payload.privacyNotice) || payload.privacyNotice === undefined) reasons.push("The applicant privacy notice hasn't been published yet.");
   }
-  const refundText = !isPending(payload.feeRefundPolicy) ? (payload.feeRefundPolicy as { text?: string } | undefined)?.text : undefined;
+  const privacyText = !isPending(payload.privacyNotice) ? (payload.privacyNotice as { text?: string } | undefined)?.text : undefined;
   return {
     open: reasons.length === 0,
     reasons,
@@ -78,9 +82,24 @@ export async function intakeStatus(now = new Date()) {
     franchiseFeeInPaise: typeof payload.franchiseFeeInPaise === "string" ? payload.franchiseFeeInPaise : null,
     franchiseFeeGst: payload.franchiseFeeGst === undefined || isPending(payload.franchiseFeeGst) ? "PENDING" : payload.franchiseFeeGst,
     agreementTermMonths: typeof payload.agreementTermMonths === "number" ? payload.agreementTermMonths : null,
-    refundPolicy: refundText && commercial ? { version: commercial.version, text: refundText, sha256: sha256Hex(refundText) } : null,
+    /** Versioned with the COMMERCIAL policy; the SHA-256 pins the exact wording the applicant accepts. */
+    privacyNotice: privacyText && commercial ? { version: commercial.version, text: privacyText, sha256: sha256Hex(privacyText) } : null,
     documentRequirements: (isPending(payload.documentRequirements) ? null : (payload.documentRequirements as Requirements | undefined)) ?? null,
   };
+}
+
+/**
+ * The published revenue split for the opportunity page, or null until one is published. Only the two
+ * shares are exposed (nothing about formulas or settlement), and only when they are whole basis points
+ * that add up to 100%.
+ */
+export async function publishedRevenueShare(now = new Date()) {
+  const policy = await resolvePolicy("REVENUE_SHARE", now);
+  const payload = (policy?.payload ?? {}) as Record<string, unknown>;
+  const { partnerShareBps, etaShareBps } = payload;
+  if (!policy || !Number.isInteger(partnerShareBps) || !Number.isInteger(etaShareBps)) return null;
+  if ((partnerShareBps as number) + (etaShareBps as number) !== 10_000) return null;
+  return { version: policy.version, partnerShareBps: partnerShareBps as number, etaShareBps: etaShareBps as number };
 }
 
 // ---------- Submission ----------
@@ -114,8 +133,6 @@ const submissionSchema = z.object({
     .transform((v) => (v ? Number(v) : null))
     .refine((v) => v === null || v <= 1_000_000_000, "Investment capacity is at most ₹1,00,00,00,000"),
   businessPlanText: optionalText(5000),
-  refundPolicyVersion: z.string().regex(/^\d+$/, "Acknowledge the refund policy"),
-  refundPolicySha256: z.string().regex(/^[0-9a-f]{64}$/, "Acknowledge the refund policy"),
 });
 
 async function nextApplicationNo(tx: Prisma.TransactionClient, now: Date) {
@@ -138,8 +155,13 @@ export async function submitApplication(input: { userId: string; body: Record<st
   const parsed = submissionSchema.safeParse(input.body);
   if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? "Invalid application", { code: "INVALID_APPLICATION", issues: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })) });
   const f = parsed.data;
-  if (Number(f.refundPolicyVersion) !== intake.refundPolicy!.version || f.refundPolicySha256 !== intake.refundPolicy!.sha256) {
-    throw new HttpError(409, "The refund policy changed — please review it again.", { code: "POLICY_CHANGED", refundPolicy: intake.refundPolicy });
+  // Privacy notice: an explicit acceptance of exactly the notice now published — checked here, on the
+  // server, whatever the form did. It is separate from the refund-policy acknowledgement.
+  if (input.body.privacyNoticeAccepted !== "true") {
+    throw new HttpError(400, "Please read and accept the privacy notice.", { code: "PRIVACY_NOTICE_NOT_ACCEPTED" });
+  }
+  if (String(input.body.privacyNoticeVersion ?? "") !== String(intake.privacyNotice!.version) || input.body.privacyNoticeSha256 !== intake.privacyNotice!.sha256) {
+    throw new HttpError(409, "The privacy notice changed — please review it again.", { code: "PRIVACY_NOTICE_CHANGED", privacyNotice: intake.privacyNotice });
   }
 
   // Location: active state, active district inside it, not held by a primary franchise.
@@ -147,7 +169,13 @@ export async function submitApplication(input: { userId: string; body: Record<st
   if (!district || district.stateId !== f.stateId || !district.isActive || !district.state.isActive) {
     throw new HttpError(400, "Choose an available district in the selected state.", { code: "INVALID_LOCATION" });
   }
-  if ((await heldDistrictIds([district.id])).size) throw new HttpError(409, "This district already has a franchise partner.", { code: "DISTRICT_UNAVAILABLE" });
+  // One franchise per state: a reserved, allocated or suspended state takes no new applications.
+  const held = await holdingAllocation(prisma, district.stateId);
+  if (held) {
+    throw held.status === "RESERVED"
+      ? new HttpError(409, "This state is temporarily reserved and isn't accepting applications.", { code: "STATE_RESERVED" })
+      : new HttpError(409, "This state already has an active ETA franchise.", { code: "STATE_CLOSED" });
+  }
 
   // Documents: one per field; ID proof always required; others per the published requirements.
   const requirements = intake.documentRequirements!;
@@ -170,7 +198,7 @@ export async function submitApplication(input: { userId: string; body: Record<st
   }
   const checked = [...byField.entries()].map(([field, file]) => ({ field, file, type: checkFile(file) }));
 
-  if (await prisma.franchiseApplication.count({ where: { userId: user.id, status: { not: "REJECTED" } } })) {
+  if (await prisma.franchiseApplication.count({ where: { userId: user.id, status: { notIn: ["REJECTED", "WITHDRAWN"] } } })) {
     throw new HttpError(409, "You already have an open franchise application.", { code: "APPLICATION_EXISTS" });
   }
 
@@ -222,19 +250,28 @@ export async function submitApplication(input: { userId: string; body: Record<st
           investmentCapacityInr: f.investmentCapacityInr,
           businessPlanText: f.businessPlanText,
           requiredDocumentKinds: requiredKinds,
-          refundPolicyVersion: intake.refundPolicy!.version,
-          refundPolicyText: intake.refundPolicy!.text,
-          refundPolicySha256: intake.refundPolicy!.sha256,
           submittedAt: now,
         },
       });
       if (documents.length) await tx.franchiseApplicationDocument.createMany({ data: documents });
+      // Evidence of the explicit acceptance, with the application in the same transaction: both or neither.
+      await tx.franchisePrivacyNoticeAcceptance.create({
+        data: {
+          applicationId,
+          userId: user.id,
+          policyVersionId: intake.policy!.id,
+          noticeVersion: intake.privacyNotice!.version,
+          noticeSha256: intake.privacyNotice!.sha256,
+          method: "EXPLICIT_CHECKBOX",
+          acceptedAt: now,
+        },
+      });
       await tx.franchiseApplicationStatusHistory.create({
         data: { applicationId, toStatus: "APPLICATION_SUBMITTED", actorId: user.id, actorType: "APPLICANT", applicantNote: "Application submitted" },
       });
       // Audit metadata carries ids and counts only — no name, mobile, email or address.
       await tx.auditLog.create({
-        data: { actorId: user.id, action: "FRANCHISE_APPLICATION_SUBMITTED", target: applicationId, metadata: { applicationNo, districtId: f.districtId, documents: documents.length, policyVersion: intake.refundPolicy!.version } },
+        data: { actorId: user.id, action: "FRANCHISE_APPLICATION_SUBMITTED", target: applicationId, metadata: { applicationNo, districtId: f.districtId, documents: documents.length, policyVersion: intake.policy!.version, privacyNoticeVersion: intake.privacyNotice!.version } },
       });
       return created;
     });
@@ -280,6 +317,7 @@ export const STATUS_LABEL: Record<FranchiseApplicationStatus, string> = {
   AGREEMENT_PENDING: "Agreement pending",
   ACTIVE_FRANCHISE: "Active franchise",
   REJECTED: "Not approved",
+  WITHDRAWN: "Withdrawn",
 };
 
 export async function myApplication(userId: string) {
@@ -311,11 +349,35 @@ export async function myApplication(userId: string) {
     officeAvailable: app.officeAvailable,
     investmentCapacityInr: app.investmentCapacityInr,
     businessPlanText: app.businessPlanText,
-    refundPolicyVersion: app.refundPolicyVersion,
     rejectionReason: app.status === "REJECTED" ? app.rejectionReason : null,
+    canWithdraw: WITHDRAWABLE.includes(app.status),
     documents: app.documents,
     timeline: app.history.map((h) => ({ status: h.toStatus, label: STATUS_LABEL[h.toStatus] ?? h.toStatus, note: h.applicantNote, at: h.createdAt })),
   };
+}
+
+/** Statuses the applicant can withdraw from (after AGREEMENT_PENDING the fee may be paid — ETA handles it). */
+const WITHDRAWABLE: FranchiseApplicationStatus[] = ["APPLICATION_SUBMITTED", "UNDER_REVIEW", "INTERVIEW_DISCUSSION", "APPROVED", "PAYMENT_PENDING"];
+
+/**
+ * The applicant withdraws their own open application. A temporary state reservation for it is released in
+ * the same transaction, so a withdrawal never closes or keeps holding a state. Audited; ids only.
+ */
+export async function withdrawApplication(userId: string, input: unknown) {
+  const r = z.object({ reason: z.string().trim().max(500).optional() }).strict().safeParse(input ?? {});
+  if (!r.success) throw new HttpError(400, "Invalid request", { code: "INVALID_REQUEST" });
+  const now = new Date();
+  return prisma.$transaction(async (tx) => {
+    const app = await tx.franchiseApplication.findFirst({ where: { userId, status: { in: WITHDRAWABLE } }, orderBy: { submittedAt: "desc" }, select: { id: true, status: true, version: true, stateId: true, applicationNo: true } });
+    if (!app) throw new HttpError(409, "You have no open application to withdraw.", { code: "NOTHING_TO_WITHDRAW" });
+    await lockState(tx, app.stateId);
+    const { count } = await tx.franchiseApplication.updateMany({ where: { id: app.id, status: app.status, version: app.version }, data: { status: "WITHDRAWN", version: { increment: 1 } } });
+    if (count !== 1) throw new HttpError(409, "Your application changed — reload and try again.", { code: "STALE" });
+    const released = await releaseReservationFor(tx, app.id, userId, "Application withdrawn by the applicant", now);
+    await tx.franchiseApplicationStatusHistory.create({ data: { applicationId: app.id, fromStatus: app.status, toStatus: "WITHDRAWN", actorId: userId, actorType: "APPLICANT", applicantNote: "You withdrew this application", internalNote: r.data.reason || null } });
+    await tx.auditLog.create({ data: { actorId: userId, action: "FRANCHISE_APPLICATION_WITHDRAWN", target: app.id, metadata: { applicationNo: app.applicationNo, fromStatus: app.status, reservationReleased: Boolean(released) } } });
+    return { id: app.id, status: "WITHDRAWN" as const };
+  });
 }
 
 /** A short-lived signed link to one of the CALLER'S documents; anyone else's id is simply not found. */

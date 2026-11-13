@@ -8,7 +8,8 @@ import { HttpError } from "../utils/http.js";
 import { rateLimit } from "../utils/rate-limit.js";
 import { passwordResetEmailTemplate } from "../services/email.service.js";
 import { RESEND_COOLDOWN_MS, SEND_WINDOW_MS, consumeOtp, createAndSendOtp, otpSendBlocked } from "../services/otp.service.js";
-import { signSessionToken, verifyEmailVerificationToken, type SessionPayload } from "../utils/tokens.js";
+import { signMfaChallenge, signSessionToken, verifyEmailVerificationToken, type SessionPayload } from "../utils/tokens.js";
+import { adminMfaEnforced } from "../utils/feature-flags.js";
 import { currentUser } from "../middleware/auth.middleware.js";
 
 const loginSchema = z.object({
@@ -32,6 +33,10 @@ export async function login(req: Request, res: Response) {
   if (!parsed.success) throw new HttpError(400, "Please enter your email/username and password.");
 
   const identifier = parsed.data.identifier.toLowerCase();
+  // Slow down password guessing: per address and per account name (generous for real users).
+  if (!rateLimit(`login-ip:${req.ip ?? "unknown"}`, 100, 15 * 60 * 1000) || !rateLimit(`login-id:${identifier}`, 20, 15 * 60 * 1000)) {
+    throw new HttpError(429, "Too many sign-in attempts. Please wait a few minutes and try again.");
+  }
   const user = await prisma.user.findFirst({
     where: { OR: [{ email: identifier }, { username: identifier }] },
   });
@@ -44,6 +49,18 @@ export async function login(req: Request, res: Response) {
   if (!user.emailVerified) throw new HttpError(403, "Please verify your email address first.");
 
   const session = toSession(user);
+  if (user.role === "ADMIN") {
+    // An admin with two-step verification gets a 5-minute challenge, not a session: the authenticator
+    // (or a recovery code) is checked by POST /auth/mfa/verify.
+    const factor = await prisma.adminMfaFactor.findFirst({ where: { userId: user.id, disabledAt: null, enabledAt: { not: null } }, select: { id: true } });
+    if (factor) {
+      res.json({ mfaRequired: true, challengeToken: signMfaChallenge(user.id, user.passwordHash) });
+      return;
+    }
+    // Not set up yet: this session works for the account but not for admin APIs until MFA is set up.
+    res.json({ token: signSessionToken(session, user.passwordHash), user: session, mfaEnrollmentRequired: adminMfaEnforced() });
+    return;
+  }
   res.json({ token: signSessionToken(session, user.passwordHash), user: session });
 }
 

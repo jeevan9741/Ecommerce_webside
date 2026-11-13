@@ -9,6 +9,7 @@ import { formatDateTime } from "@/lib/format";
 import { DOCUMENT_KIND_LABEL, formatBytes, formatRupees } from "@/lib/franchise-form";
 import { ACTION, REJECTION_REASON_MAX, isReviewAction, rejectionReasonError, type ReviewAction } from "@/lib/franchise-review";
 import { StatusBadge } from "@/components/franchise/status-badge";
+import { AdminUnavailableSystems } from "@/components/franchise/admin-unavailable-systems";
 
 interface Detail {
   id: string;
@@ -20,14 +21,16 @@ interface Detail {
   applicant: { name: string; email: string; mobile: string; address: string; emailVerified: boolean; accountCreatedAt: string };
   location: { state: string; district: string; districtCode: string | null };
   answers: { education: string | null; businessExperience: string | null; officeAvailable: boolean | null; investmentCapacityInr: number | null; businessPlanText: string | null };
-  refundPolicy: { version: number };
+  /** Only on applications submitted while a refund acknowledgement was still collected. */
+  refundPolicy: { version: number } | null;
   requiredDocumentKinds: string[];
   documents: { id: string; kind: string; originalName: string; mimeType: string; sizeBytes: number; createdAt: string }[];
   decision: { approvedAt: string | null; approvedBy: string | null; rejectedAt: string | null; rejectionReason: string | null };
   history: { id: string; fromLabel: string | null; toLabel: string; toStatus: string; actorName: string | null; applicantNote: string | null; internalNote: string | null; createdAt: string }[];
   notes: { id: string; body: string; author: string | null; createdAt: string }[];
   allowedTransitions: string[];
-  district: { districtActive: boolean; held: boolean; approvedApplicationNo: string | null };
+  /** One primary franchise per state: whether this application's state is free for it. */
+  territory: { locationActive: boolean; held: boolean; heldStatus: string | null; reservedForThis: boolean; approvedApplicationNo: string | null };
 }
 
 const message = (err: unknown) => (err instanceof Error ? err.message : "Something went wrong.");
@@ -76,7 +79,8 @@ export default function FranchiseApplicationDetailPage() {
               <Item label="Email" value={`${app.applicant.email}${app.applicant.emailVerified ? " (verified)" : " (not verified)"}`} />
               <Item label="Account created" value={formatDateTime(app.applicant.accountCreatedAt)} />
               <Item label="Address" value={app.applicant.address} wide />
-              <Item label="District" value={`${app.location.district}${app.location.districtCode ? ` (LGD ${app.location.districtCode})` : ""}, ${app.location.state}`} wide />
+              <Item label="State (franchise territory)" value={app.location.state} />
+              <Item label="Training centre district" value={`${app.location.district}${app.location.districtCode ? ` (LGD ${app.location.districtCode})` : ""}`} />
             </dl>
           </section>
 
@@ -86,7 +90,7 @@ export default function FranchiseApplicationDetailPage() {
               <Item label="Education" value={app.answers.education} />
               <Item label="Investment capacity" value={app.answers.investmentCapacityInr !== null ? formatRupees(app.answers.investmentCapacityInr) : null} />
               <Item label="Office or training space" value={app.answers.officeAvailable === null ? null : app.answers.officeAvailable ? "Yes" : "Not yet"} />
-              <Item label="Refund policy accepted" value={`Version ${app.refundPolicy.version}`} />
+              {app.refundPolicy && <Item label="Refund policy acknowledged (earlier form)" value={`Version ${app.refundPolicy.version}`} />}
               <Item label="Business experience" value={app.answers.businessExperience} wide />
               <Item label="Business plan" value={app.answers.businessPlanText} wide />
             </dl>
@@ -124,6 +128,8 @@ export default function FranchiseApplicationDetailPage() {
 
         <div className="space-y-6">
           <Actions app={app} onDone={async (msg) => { setNotice(msg); await reload(); }} />
+          <StateReservation app={app} onDone={async (msg) => { setNotice(msg); await reload(); }} />
+          <AdminUnavailableSystems note="Approval never activates a franchise; activation needs all of these." />
           <Notes app={app} onAdded={reload} />
         </div>
       </div>
@@ -139,7 +145,12 @@ function Actions({ app, onDone }: { app: Detail; onDone: (msg: string) => Promis
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const actions = app.allowedTransitions.filter(isReviewAction);
-  const districtBlock = !app.district.districtActive ? "This district is disabled." : app.district.held ? "This district is already held by a franchise." : app.district.approvedApplicationNo ? `Application ${app.district.approvedApplicationNo} for this district is already approved.` : null;
+  const t = app.territory;
+  const districtBlock = !t.locationActive
+    ? "This state or centre district is disabled."
+    : t.held
+      ? t.heldStatus === "RESERVED" ? "This state is reserved for another application." : "This state already has an active ETA franchise."
+      : t.approvedApplicationNo ? `Application ${t.approvedApplicationNo} for this state is already approved.` : null;
 
   const start = (a: ReviewAction) => {
     setPending(a);
@@ -191,7 +202,7 @@ function Actions({ app, onDone }: { app: Detail; onDone: (msg: string) => Promis
       {actions.includes("APPROVED") && districtBlock && (
         <p className="mt-3 flex gap-2 text-xs text-gold-400"><AlertTriangle className="h-4 w-4 shrink-0" /> Approval unavailable: {districtBlock}</p>
       )}
-      {app.decision.approvedAt && <p className="mt-3 text-xs text-parchment-muted">Approved {formatDateTime(app.decision.approvedAt)} by {app.decision.approvedBy}. No district has been reserved or allocated yet.</p>}
+      {app.decision.approvedAt && <p className="mt-3 text-xs text-parchment-muted">Approved {formatDateTime(app.decision.approvedAt)} by {app.decision.approvedBy}. Approval doesn&apos;t reserve or close the state.</p>}
 
       {pending && (
         <div className="mt-4 space-y-3 rounded-lg border border-white/10 p-4" role="dialog" aria-label={ACTION[pending].label}>
@@ -274,5 +285,89 @@ function Item({ label, value, wide }: { label: string; value: string | null; wid
       <dt className="text-xs uppercase tracking-wide text-parchment-muted">{label}</dt>
       <dd className="mt-1 whitespace-pre-line text-parchment">{value || "—"}</dd>
     </div>
+  );
+}
+
+/** Statuses at which an admin may temporarily reserve the state (mirrors the backend's rule). */
+const RESERVABLE = ["APPROVED", "PAYMENT_PENDING", "AGREEMENT_PENDING"];
+
+function StateReservation({ app, onDone }: { app: Detail; onDone: (msg: string) => Promise<void> }) {
+  const [mode, setMode] = useState<"reserve" | "release" | null>(null);
+  const [reason, setReason] = useState("");
+  const [days, setDays] = useState("30");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const t = app.territory;
+  const canReserve = RESERVABLE.includes(app.status) && !t.held && !t.reservedForThis && t.locationActive;
+
+  async function confirm() {
+    if (!mode) return;
+    if (reason.trim().length < 10) return setError("Give a reason of at least 10 characters; it is recorded in the audit log.");
+    setBusy(true);
+    setError(null);
+    try {
+      const path = `/admin/franchise/applications/${encodeURIComponent(app.id)}/${mode === "reserve" ? "reserve-state" : "release-reservation"}`;
+      await api.post(path, mode === "reserve" ? { reason: reason.trim(), days: Number(days) } : { reason: reason.trim() });
+      setMode(null);
+      setReason("");
+      await onDone(mode === "reserve" ? `State reserved for ${app.applicationNo}.` : "Reservation released; the state is available again.");
+    } catch (err) {
+      setError(message(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card p-6">
+      <h2 className="font-display text-lg font-semibold text-parchment">State: {app.location.state}</h2>
+      <p className="mt-1 text-xs text-parchment-muted">
+        {t.reservedForThis
+          ? "Temporarily reserved for this application. Other applicants can't apply for this state while it lasts."
+          : t.held
+            ? t.heldStatus === "RESERVED" ? "Reserved for another application." : "This state already has an active ETA franchise."
+            : "Available. Applications alone never close a state."}
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {canReserve && (
+          <button type="button" className="btn-outline btn-sm" disabled={busy} onClick={() => { setMode("reserve"); setError(null); }}>
+            Reserve state
+          </button>
+        )}
+        {t.reservedForThis && (
+          <button type="button" className="btn-ghost btn-sm text-danger" disabled={busy} onClick={() => { setMode("release"); setError(null); }}>
+            Release reservation
+          </button>
+        )}
+        <button type="button" className="btn-gold btn-sm" disabled aria-describedby="activate-note">
+          Activate franchise
+        </button>
+      </div>
+      <p id="activate-note" className="mt-2 text-xs text-parchment-muted">
+        Activation is not available yet: fee payment verification and the signed franchise agreement aren&apos;t set up. Activation will
+        require both, plus a reservation, before the state closes.
+      </p>
+      {mode && (
+        <div className="mt-4 space-y-3 rounded-lg border border-white/10 p-4" role="dialog" aria-label={mode === "reserve" ? "Reserve state" : "Release reservation"}>
+          <label className="label-field" htmlFor="reservation-reason">Reason (recorded in the audit log)</label>
+          <textarea id="reservation-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} rows={3} className="input-field resize-none" />
+          {mode === "reserve" && (
+            <div>
+              <label className="label-field" htmlFor="reservation-days">Reserve for (days, up to 90)</label>
+              <input id="reservation-days" type="number" min={1} max={90} value={days} onChange={(e) => setDays(e.target.value)} className="input-field w-32" />
+            </div>
+          )}
+          {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+          <div className="flex gap-2">
+            <button type="button" className="btn-gold btn-sm" disabled={busy} onClick={confirm}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-label="Saving" /> : "Confirm"}
+            </button>
+            <button type="button" className="btn-outline btn-sm" disabled={busy} onClick={() => setMode(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

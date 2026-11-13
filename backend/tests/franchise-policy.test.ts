@@ -170,7 +170,7 @@ describe("policy governance over the API", () => {
     assert.ok(commercial.current.pending.includes("franchiseFeeGst"));
     const pendingByDomain = Object.fromEntries(ready.body.domains.map((d: { domain: string; current: { pending: string[] } }) => [d.domain, d.current.pending.sort()]));
     assert.deepEqual(pendingByDomain, {
-      COMMERCIAL: ["agreementTemplate", "applicationIntake", "districtReservationAndReassignment", "documentRequirements", "eSignProvider", "feeRefundPolicy", "franchiseFeeGst", "renewalTerms"],
+      COMMERCIAL: ["agreementTemplate", "applicationIntake", "districtReservationAndReassignment", "documentRequirements", "eSignProvider", "feeRefundPolicy", "franchiseFeeGst", "privacyNotice", "renewalTerms"],
       REVENUE_SHARE: ["courseSaleGstTreatment", "netDistributableRevenueFormula", "referralOverlap", "refundChargebackDebtRecovery", "studentAttributionScope"],
       SETTLEMENT: ["executionTime", "payoutProvider", "reserveReleaseDays", "suspendedPartnerPayouts"],
       TAX: ["gstinCollection", "panCollection", "tds"],

@@ -22,9 +22,17 @@ export interface RegisterInput {
 
 type OtpPurpose = "REGISTER";
 
+/** An admin with two-step verification gets a short challenge instead of a session. */
+export type LoginResponse =
+  | { token: string; user: SessionUser; mfaEnrollmentRequired?: boolean }
+  | { mfaRequired: true; challengeToken: string };
+
 export const authService = {
-  login: (identifier: string, password: string) =>
-    api.post<{ token: string; user: SessionUser }>("/auth/login", { identifier, password }),
+  login: (identifier: string, password: string) => api.post<LoginResponse>("/auth/login", { identifier, password }),
+
+  /** The sign-in second step: an authenticator code or a one-time recovery code. */
+  verifyMfa: (challengeToken: string, answer: { code: string } | { recoveryCode: string }) =>
+    api.post<{ token: string; user: SessionUser; method: "TOTP" | "RECOVERY_CODE"; recoveryCodesRemaining: number }>("/auth/mfa/verify", { challengeToken, ...answer }),
 
   session: () => api.get<{ user: SessionUser }>("/auth/session"),
 

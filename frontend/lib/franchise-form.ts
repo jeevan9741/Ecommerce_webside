@@ -66,6 +66,40 @@ export function formatRupees(v: number | string): string {
   return `₹${rest ? `${rest},${last3}` : last3}`;
 }
 
+/** The application form's three steps, in order. */
+export const APPLICATION_STEPS = ["Applicant details", "Business details", "Documents and confirmation"] as const;
+
+export interface StepValues {
+  applicantName: string;
+  mobile: string;
+  stateId: string;
+  districtId: string;
+  address: string;
+  investmentCapacityInr: string;
+}
+
+/**
+ * The first problem that stops the applicant leaving step 0 or 1 (the same rules the backend applies on
+ * submit), or null. Step 2 (documents) is checked on submit, where the files are.
+ */
+export function applicationStepProblem(step: number, v: StepValues): string | null {
+  if (step === 0) {
+    if (v.applicantName.trim().length < 2) return "Enter your full name.";
+    if (!isValidMobile(v.mobile)) return "Enter a 10-digit Indian mobile number.";
+    if (!v.stateId) return "Choose your state or union territory.";
+    if (!v.districtId) return "Choose the district you want to serve.";
+    if (v.address.trim().length < 10) return "Enter your full address (at least 10 characters).";
+  }
+  if (step === 1 && !parseInvestment(v.investmentCapacityInr).ok) return "Investment capacity must be a whole number of rupees, up to ₹100 crore.";
+  return null;
+}
+
+/** Basis points as a percentage: 8000 → "80%", 1250 → "12.5%". */
+export function formatShareBps(bps: number): string {
+  if (!Number.isInteger(bps) || bps < 0 || bps > 10_000) return "—";
+  return `${bps % 100 === 0 ? bps / 100 : (bps / 100).toFixed(2).replace(/0+$/, "")}%`;
+}
+
 /** Applicant-facing order of the journey; REJECTED is shown separately. */
 export const STATUS_STEPS = [
   { status: "APPLICATION_SUBMITTED", label: "Application submitted" },

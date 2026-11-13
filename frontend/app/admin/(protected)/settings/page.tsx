@@ -39,13 +39,8 @@ const DEFAULT_FOUNDER: FounderSettings = {
   name: "",
   bio: "Founded by a team of e-commerce operators with hands-on experience building and scaling online stores.",
 };
-const DEFAULT_CONTACT: ContactSettings = {
-  address: "Rayadurgam, Andhra Pradesh, India",
-  email: "support@ecommerceacademy.in",
-  phone: "+91 00000 00000",
-  whatsapp: "https://wa.me/910000000000",
-  telegram: "https://t.me/ecommercetrainingacademy",
-};
+// Empty until an admin enters real details: pre-filled placeholders could be saved as if they were real.
+const DEFAULT_CONTACT: ContactSettings = { address: "", email: "", phone: "", whatsapp: "", telegram: "" };
 const DEFAULT_SOCIAL: SocialLinksSettings = { instagram: "", facebook: "", youtube: "" };
 const DEFAULT_LEGAL: LegalSettings = { note: "" };
 

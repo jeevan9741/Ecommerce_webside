@@ -26,7 +26,8 @@ function LoginForm() {
     const res = await login(identifier, password);
     setBusy(false);
     if (!res.ok) {
-      setError(res.error);
+      // Admin accounts finish signing in (with their authenticator) on the admin login page.
+      setError(res.mfaRequired ? "This account uses two-step verification. Please sign in on the admin login page." : res.error);
       return;
     }
     router.push(postLoginPath(res.user.role, callbackUrl));

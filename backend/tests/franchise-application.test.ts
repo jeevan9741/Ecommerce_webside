@@ -54,8 +54,8 @@ let base = "";
 const userIds: string[] = [];
 type U = { id: string; token: string; email: string };
 const people: Record<string, U> = {};
-const loc = { stateId: "", otherStateId: "", d1: "", d2: "", d3: "", dHeld: "", dInactive: "", dOther: "" };
-let refund = { version: 0, sha256: "", text: "" };
+const loc = { stateId: "", otherStateId: "", heldStateId: "", d1: "", d2: "", d3: "", dHeld: "", dInactive: "", dOther: "" };
+let privacy = { version: 0, sha256: "", text: "" };
 
 async function makeUser(name: string, role: "USER" | "ADMIN" = "USER", verified = true) {
   const u = await prisma.user.create({
@@ -104,8 +104,9 @@ function fields(over: Record<string, string | undefined> = {}) {
     businessExperience: "Five years running a training centre",
     officeAvailable: "true",
     investmentCapacityInr: "500000",
-    refundPolicyVersion: String(refund.version),
-    refundPolicySha256: refund.sha256,
+    privacyNoticeAccepted: "true",
+    privacyNoticeVersion: String(privacy.version),
+    privacyNoticeSha256: privacy.sha256,
   };
   return { ...base, ...over };
 }
@@ -126,16 +127,19 @@ async function apply(user: U | null, f: Record<string, string | undefined>, file
 
 // ---- Policy publication (two admins, real API) ----
 async function publishCommercial(over: Record<string, unknown>) {
-  const payload = { ...APPROVED_STARTING_VALUES.COMMERCIAL, ...over };
-  const d = await call("POST", "/admin/franchise/policies", people.admA, { domain: "COMMERCIAL", payload });
+  await publishPolicy("COMMERCIAL", over);
+}
+async function publishPolicy(domain: "COMMERCIAL" | "REVENUE_SHARE", over: Record<string, unknown>) {
+  const payload = { ...APPROVED_STARTING_VALUES[domain], ...over };
+  const d = await call("POST", "/admin/franchise/policies", people.admA, { domain, payload });
   assert.equal(d.status, 201, d.text);
   const s = await call("POST", `/admin/franchise/policies/${d.body.policy.id}/submit`, people.admA, { expectedSha: d.body.policy.payloadSha256, reason: "Phase 4 test configuration", effectiveFrom: null });
   assert.equal(s.status, 200, s.text);
   const a = await call("POST", `/admin/franchise/approvals/${s.body.request.id}/approve`, people.admB, { expectedPayloadSha: s.body.request.payloadSha256 });
   assert.equal(a.status, 200, a.text);
 }
-const REFUND_TEXT = `${tag}: the franchise fee is refundable in full until the agreement is signed (test text).`;
 const DOCS = { PHOTO: "REQUIRED", ADDRESS_PROOF: "OPTIONAL", BUSINESS_PLAN: "OPTIONAL" };
+const PRIVACY_TEXT = `DRAFT ${tag}: test-only privacy notice placeholder, pending legal approval (automated test text).`;
 
 before(async () => {
   server = createApp().listen(0);
@@ -149,14 +153,17 @@ before(async () => {
   loc.stateId = st.body.id;
   const st2 = await call("POST", "/admin/franchise/locations/states", people.admA, { name: `${tag} Other`, code: num() });
   loc.otherStateId = st2.body.id;
-  for (const [key, stateId] of [["d1", loc.stateId], ["d2", loc.stateId], ["d3", loc.stateId], ["dHeld", loc.stateId], ["dInactive", loc.stateId], ["dOther", loc.otherStateId]] as const) {
+  // The held district lives in its own state: one franchise per state, so a hold closes the whole state.
+  const st3 = await call("POST", "/admin/franchise/locations/states", people.admA, { name: `${tag} Held`, code: num() });
+  loc.heldStateId = st3.body.id;
+  for (const [key, stateId] of [["d1", loc.stateId], ["d2", loc.stateId], ["d3", loc.stateId], ["dHeld", loc.heldStateId], ["dInactive", loc.stateId], ["dOther", loc.otherStateId]] as const) {
     const r = await call("POST", "/admin/franchise/locations/districts", people.admA, { stateId, name: `${tag} ${key}`, code: num() });
     assert.equal(r.status, 201, r.text);
     loc[key] = r.body.id;
     assert.equal(r.body.isActive, false, "new districts start disabled");
   }
   // Verified by the admin and enabled (the count must match what they reviewed).
-  for (const [stateId, expectedDistricts] of [[loc.stateId, 5], [loc.otherStateId, 1]] as const) {
+  for (const [stateId, expectedDistricts] of [[loc.stateId, 4], [loc.otherStateId, 1], [loc.heldStateId, 1]] as const) {
     const on = await call("POST", `/admin/franchise/locations/states/${stateId}/activate`, people.admA, { confirm: true, expectedDistricts });
     assert.equal(on.status, 200, on.text);
   }
@@ -173,7 +180,10 @@ after(async () => {
       const districts = (await tx.district.findMany({ where: { name: { startsWith: tag } }, select: { id: true } })).map((d) => d.id);
       await tx.districtAllocationEvent.deleteMany({ where: { districtId: { in: districts } } });
       await tx.districtAllocation.deleteMany({ where: { districtId: { in: districts } } });
+      await tx.stateAllocationEvent.deleteMany({ where: { state: { name: { startsWith: tag } } } });
+      await tx.stateAllocation.deleteMany({ where: { state: { name: { startsWith: tag } } } });
       await tx.franchiseNotification.deleteMany({ where: { applicationId: { in: apps } } });
+      await tx.franchisePrivacyNoticeAcceptance.deleteMany({ where: { applicationId: { in: apps } } });
       await tx.franchiseApplicationDocument.deleteMany({ where: { applicationId: { in: apps } } });
       await tx.franchiseApplicationStatusHistory.deleteMany({ where: { applicationId: { in: apps } } });
       await tx.franchiseApplication.deleteMany({ where: { id: { in: apps } } });
@@ -227,51 +237,75 @@ describe("intake gate", () => {
     assert.equal(info.body.open, false, JSON.stringify(info.body));
     const u = await makeUser("early");
     const before = store.size;
-    const r = await apply(u, fields({ refundPolicyVersion: "1", refundPolicySha256: "0".repeat(64) }));
+    const r = await apply(u, fields());
     assert.deepEqual([r.status, r.body.code], [409, "APPLICATIONS_CLOSED"]);
     assert.equal(store.size, before, "no upload when closed");
   });
 
   test("a published policy with intake CLOSED keeps it closed", async () => {
-    await publishCommercial({ applicationIntake: "CLOSED", documentRequirements: DOCS, feeRefundPolicy: { text: REFUND_TEXT } });
+    await publishCommercial({ applicationIntake: "CLOSED", documentRequirements: DOCS, privacyNotice: { text: PRIVACY_TEXT } });
     const info = await call("GET", "/franchise/info", null);
     assert.equal(info.body.open, false);
     assert.match(info.body.reasons.join(" "), /closed/i);
   });
 
-  test("intake OPEN with documents and refund policy decided opens it; GST still shows PENDING", async () => {
-    await publishCommercial({ applicationIntake: "OPEN", documentRequirements: DOCS, feeRefundPolicy: { text: REFUND_TEXT } });
+  test("intake OPEN stays closed while the privacy notice is PENDING", async () => {
+    await publishCommercial({ applicationIntake: "OPEN", documentRequirements: DOCS, });
+    const info = await call("GET", "/franchise/info", null);
+    assert.equal(info.body.open, false);
+    assert.match(info.body.reasons.join(" "), /privacy notice/i);
+    assert.equal(info.body.privacyNotice, null);
+  });
+
+  test("intake OPEN with documents and privacy notice decided opens it — no refund policy is needed or shown; GST still PENDING", async () => {
+    await publishCommercial({ applicationIntake: "OPEN", documentRequirements: DOCS, privacyNotice: { text: PRIVACY_TEXT } });
     const info = await call("GET", "/franchise/info", null);
     assert.equal(info.body.open, true, JSON.stringify(info.body.reasons));
     assert.equal(info.body.franchiseFeeGst, "PENDING");
-    assert.equal(info.body.refundPolicy.text, REFUND_TEXT);
-    assert.equal(info.body.refundPolicy.sha256, createHash("sha256").update(REFUND_TEXT).digest("hex"));
+    assert.equal("refundPolicy" in info.body, false, "no customer-facing refund policy");
     assert.deepEqual(info.body.documentRequirements, DOCS);
-    refund = info.body.refundPolicy;
+    assert.equal(info.body.privacyNotice.text, PRIVACY_TEXT);
+    assert.equal(info.body.privacyNotice.sha256, createHash("sha256").update(PRIVACY_TEXT).digest("hex"));
+    assert.equal(info.body.privacyNotice.version, info.body.policy.version, "versioned with the COMMERCIAL policy");
+    privacy = info.body.privacyNotice;
+  });
+
+  test("the page shows only the published revenue split — the two shares and the policy version, nothing else", async () => {
+    await publishPolicy("REVENUE_SHARE", {});
+    const info = await call("GET", "/franchise/info", null);
+    assert.equal(info.status, 200);
+    assert.deepEqual(Object.keys(info.body.revenueShare).sort(), ["etaShareBps", "partnerShareBps", "version"]);
+    assert.deepEqual([info.body.revenueShare.partnerShareBps, info.body.revenueShare.etaShareBps], [8000, 2000]);
+    assert.equal(Number.isInteger(info.body.revenueShare.version), true);
   });
 });
 
 describe("public locations", () => {
-  test("lists active districts only, and marks a primary-held district unavailable", async () => {
-    // Hold dHeld with a reservation for some other applicant's application (created directly).
+  test("availability is per STATE (from allocations only): a reserved state closes all its districts; others stay open", async () => {
+    // Reserve the held state for an applicant's application there (created through the API, then a direct hold).
     const holder = await makeUser("holder");
-    const ok = await apply(holder, fields({ districtId: loc.d3 }));
+    const ok = await apply(holder, fields({ stateId: loc.heldStateId, districtId: loc.dHeld }));
     assert.equal(ok.status, 201, JSON.stringify(ok.body));
-    await prisma.districtAllocation.create({ data: { districtId: loc.dHeld, status: "RESERVED", reservedAt: new Date(), applicationId: ok.body.id, createdById: people.admA.id } });
+    await prisma.stateAllocation.create({ data: { stateId: loc.heldStateId, status: "RESERVED", reservedAt: new Date(), applicationId: ok.body.id, createdById: people.admA.id } });
 
     const r = await call("GET", "/franchise/locations", null);
-    const state = r.body.states.find((s: { id: string }) => s.id === loc.stateId);
-    const byId = Object.fromEntries(state.districts.map((d: { id: string; available: boolean }) => [d.id, d.available]));
-    assert.equal(byId[loc.d1], true);
-    assert.equal(byId[loc.dHeld], false);
+    const open = r.body.states.find((s: { id: string }) => s.id === loc.stateId);
+    const held = r.body.states.find((s: { id: string }) => s.id === loc.heldStateId);
+    assert.equal(open.availability, "AVAILABLE");
+    assert.equal(held.availability, "RESERVED");
+    const byId = Object.fromEntries(open.districts.map((d: { id: string; available: boolean }) => [d.id, d.available]));
+    assert.deepEqual([byId[loc.d1], byId[loc.d2], byId[loc.d3]], [true, true, true], "every centre district of an available state is selectable");
+    assert.ok(held.districts.every((d: { available: boolean }) => !d.available), "no district of a reserved state is selectable");
     assert.equal(loc.dInactive in byId, false, "inactive districts are not listed");
     assert.doesNotMatch(r.text, /applications|userId|email/i, "no applicant data on the public list");
   });
 
-  test("a second PRIMARY hold on the same district is refused by the database", async () => {
-    const app = await prisma.franchiseApplication.findFirstOrThrow({ where: { userId: people.holder.id } });
+  test("a second PRIMARY hold on the same state is refused by the database", async () => {
+    const other = await makeUser("otherHolder");
+    const ok = await apply(other, fields({ districtId: loc.d1 }));
+    assert.equal(ok.status, 201, JSON.stringify(ok.body));
     await assert.rejects(
-      prisma.districtAllocation.create({ data: { districtId: loc.dHeld, status: "RESERVED", reservedAt: new Date(), applicationId: app.id, createdById: people.admA.id } }),
+      prisma.stateAllocation.create({ data: { stateId: loc.heldStateId, status: "RESERVED", reservedAt: new Date(), applicationId: ok.body.id, createdById: people.admA.id } }),
       (e: { code?: string }) => e.code === "P2002"
     );
   });
@@ -285,7 +319,7 @@ describe("submission", () => {
     assert.deepEqual([r.status, r.body.code], [403, "EMAIL_NOT_VERIFIED"]);
   });
 
-  test("validation: mobile, location, refund acknowledgement, documents", async () => {
+  test("validation: mobile, location, state availability, documents", async () => {
     // A fresh account per case: every attempt counts toward the per-account rate limit.
     const expect = async (label: string, f: Record<string, string | undefined>, files: FilePart[] | undefined, status: number, code: string) => {
       const r = await apply(await makeUser(`v-${label.replace(/\W+/g, "-")}`), f, files);
@@ -294,10 +328,9 @@ describe("submission", () => {
     await expect("mobile", fields({ mobile: "1234567890" }), undefined, 400, "INVALID_APPLICATION");
     await expect("investment float", fields({ investmentCapacityInr: "1000.50" }), undefined, 400, "INVALID_APPLICATION");
     await expect("investment cap", fields({ investmentCapacityInr: "1000000001" }), undefined, 400, "INVALID_APPLICATION");
-    await expect("stale refund policy", fields({ refundPolicySha256: "a".repeat(64) }), undefined, 409, "POLICY_CHANGED");
     await expect("district of another state", fields({ districtId: loc.dOther }), undefined, 400, "INVALID_LOCATION");
     await expect("inactive district", fields({ districtId: loc.dInactive }), undefined, 400, "INVALID_LOCATION");
-    await expect("held district", fields({ districtId: loc.dHeld }), undefined, 409, "DISTRICT_UNAVAILABLE");
+    await expect("reserved state", fields({ stateId: loc.heldStateId, districtId: loc.dHeld }), undefined, 409, "STATE_RESERVED");
   });
 
   test("documents: ID proof always, photo when required, type by content, one per field, size limit", async () => {
@@ -333,8 +366,7 @@ describe("submission", () => {
     assert.equal(app.email, u.email, "email is the verified account email, not a form field");
     assert.equal(app.status, "APPLICATION_SUBMITTED");
     assert.deepEqual([...app.requiredDocumentKinds].sort(), ["ID_PROOF", "PHOTO"]);
-    assert.equal(app.refundPolicySha256, refund.sha256);
-    assert.equal(app.refundPolicyText, REFUND_TEXT);
+    assert.deepEqual([app.refundPolicyVersion, app.refundPolicyText, app.refundPolicySha256], [null, null, null], "no refund acknowledgement is recorded");
     assert.equal(app.investmentCapacityInr, 500000);
     assert.equal(app.documents.length, 3);
     for (const d of app.documents) {
@@ -539,7 +571,10 @@ describe("admin locations", () => {
     const list = await call("GET", "/admin/franchise/locations", people.admA);
     const st = list.body.states.find((s: { id: string }) => s.id === loc.stateId);
     const d = Object.fromEntries(st.districts.map((x: { id: string }) => [x.id, x]));
-    assert.equal(d[loc.dHeld].held, true);
+    const heldState = list.body.states.find((s: { id: string }) => s.id === loc.heldStateId);
+    assert.equal(heldState.availability, "RESERVED", "the admin list shows the state's availability");
+    assert.equal(heldState.districts[0].held, true, "a district is held while its state is");
+    assert.equal(d[loc.d1].held, false);
     assert.ok(d[loc.d2].openApplications >= 4, JSON.stringify(d[loc.d2]));
     assert.equal(d[loc.dInactive].isActive, false);
   });
@@ -581,5 +616,106 @@ describe("admin locations", () => {
     const audits = await prisma.auditLog.findMany({ where: { action: "FRANCHISE_LOCATIONS_IMPORTED", actorId: people.admA.id, target: { in: [p1.body.fileSha256, p2.body.fileSha256] } } });
     assert.equal(audits.length, 2);
     assert.deepEqual((audits[0].metadata as { fileSha256?: string; createdDisabled?: boolean }).createdDisabled, true);
+  });
+});
+
+describe("privacy notice acceptance (server-side, versioned, append-only)", () => {
+  const acceptances = (userId: string) => prisma.franchisePrivacyNoticeAcceptance.findMany({ where: { userId }, orderBy: { acceptedAt: "asc" } });
+
+  test("no acceptance → refused before any upload, and nothing is stored", async () => {
+    const u = await makeUser("pnMissing");
+    const before = store.size;
+    for (const over of [{ privacyNoticeAccepted: undefined }, { privacyNoticeAccepted: "false" }, { privacyNoticeAccepted: "on" }, { privacyNoticeAccepted: "TRUE" }, { privacyNoticeAccepted: "" }]) {
+      const r = await apply(u, fields(over));
+      assert.deepEqual([r.status, r.body.code], [400, "PRIVACY_NOTICE_NOT_ACCEPTED"], JSON.stringify(over));
+    }
+    assert.equal(store.size, before, "no document was uploaded");
+    assert.equal(await prisma.franchiseApplication.count({ where: { userId: u.id } }), 0);
+    assert.equal((await acceptances(u.id)).length, 0);
+  });
+
+  test("nothing else stands in for privacy consent", async () => {
+    const u = await makeUser("pnRefundOnly");
+    const r = await apply(u, fields({ privacyNoticeAccepted: undefined, privacyNoticeVersion: undefined, privacyNoticeSha256: undefined }));
+    assert.deepEqual([r.status, r.body.code], [400, "PRIVACY_NOTICE_NOT_ACCEPTED"]);
+  });
+
+  test("a wrong version or a different text hash is refused with the current notice", async () => {
+    const u = await makeUser("pnWrong");
+    for (const over of [{ privacyNoticeVersion: String(privacy.version + 1) }, { privacyNoticeVersion: "abc" }, { privacyNoticeVersion: undefined }, { privacyNoticeSha256: "0".repeat(64) }, { privacyNoticeSha256: undefined }]) {
+      const r = await apply(u, fields(over));
+      assert.deepEqual([r.status, r.body.code], [409, "PRIVACY_NOTICE_CHANGED"], JSON.stringify(over));
+      assert.equal(r.body.privacyNotice.sha256, privacy.sha256);
+    }
+    assert.equal(await prisma.franchiseApplication.count({ where: { userId: u.id } }), 0);
+  });
+
+  let accepted: { user: U; applicationId: string; policyVersionId: string; sha: string; version: number } | null = null;
+
+  test("a valid acceptance is recorded with the application: version, hash, user, application, UTC time, explicit method", async () => {
+    const u = await makeUser("pnValid");
+    const t0 = Date.now();
+    const r = await apply(u, fields({ districtId: loc.d2 }));
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    const rows = await acceptances(u.id);
+    assert.equal(rows.length, 1);
+    const [row] = rows;
+    const info = await call("GET", "/franchise/info", null);
+    assert.equal(row.applicationId, r.body.id);
+    assert.equal(row.userId, u.id);
+    assert.equal(row.noticeVersion, privacy.version);
+    assert.equal(row.noticeSha256, privacy.sha256);
+    assert.equal(row.policyVersionId, info.body.policy.id);
+    assert.equal(row.method, "EXPLICIT_CHECKBOX");
+    assert.ok(row.acceptedAt.getTime() >= t0 - 1000 && row.acceptedAt.getTime() <= Date.now() + 1000, "server time of acceptance");
+    // Nothing beyond the references and the evidence is stored (no IP, device or contact data).
+    assert.deepEqual(Object.keys(row).sort(), ["acceptedAt", "applicationId", "id", "method", "noticeSha256", "noticeVersion", "policyVersionId", "userId"]);
+    const audit = await prisma.auditLog.findFirstOrThrow({ where: { action: "FRANCHISE_APPLICATION_SUBMITTED", target: r.body.id } });
+    assert.equal((audit.metadata as { privacyNoticeVersion?: number }).privacyNoticeVersion, privacy.version);
+    accepted = { user: u, applicationId: r.body.id, policyVersionId: row.policyVersionId, sha: row.noticeSha256, version: row.noticeVersion };
+  });
+
+  test("a duplicate submission is refused and records no second acceptance", async () => {
+    assert.ok(accepted, "previous test recorded an acceptance");
+    const r = await apply(accepted.user, fields({ districtId: loc.d2 }));
+    assert.deepEqual([r.status, r.body.code], [409, "APPLICATION_EXISTS"]);
+    assert.equal((await acceptances(accepted.user.id)).length, 1);
+  });
+
+  test("acceptance rows can't be changed or deleted, and malformed evidence is refused (database guards)", async () => {
+    assert.ok(accepted);
+    const row = (await acceptances(accepted.user.id))[0];
+    await assert.rejects(prisma.franchisePrivacyNoticeAcceptance.update({ where: { id: row.id }, data: { noticeVersion: 999 } }), /append-only/);
+    await assert.rejects(prisma.franchisePrivacyNoticeAcceptance.delete({ where: { id: row.id } }), /append-only/);
+    await assert.rejects(
+      prisma.franchisePrivacyNoticeAcceptance.create({ data: { applicationId: accepted.applicationId, userId: accepted.user.id, policyVersionId: accepted.policyVersionId, noticeVersion: 1, noticeSha256: "not-a-hash" } }),
+      /evidence_check|violates check constraint/
+    );
+  });
+
+  test("a new notice version keeps the old acceptance and the old wording intact; the old version is then refused", async () => {
+    assert.ok(accepted);
+    const NEW_TEXT = `${PRIVACY_TEXT} Revised.`;
+    await publishCommercial({ applicationIntake: "OPEN", documentRequirements: DOCS, privacyNotice: { text: NEW_TEXT } });
+    const info = await call("GET", "/franchise/info", null);
+    assert.ok(info.body.privacyNotice.version > accepted.version, "a newer version is published");
+    assert.notEqual(info.body.privacyNotice.sha256, accepted.sha);
+    // The earlier acceptance still points at the version (and exact wording) that was accepted.
+    const [old] = await acceptances(accepted.user.id);
+    assert.deepEqual([old.noticeVersion, old.noticeSha256, old.policyVersionId], [accepted.version, accepted.sha, accepted.policyVersionId]);
+    const oldPolicy = await prisma.policyVersion.findUniqueOrThrow({ where: { id: accepted.policyVersionId } });
+    assert.equal(createHash("sha256").update((oldPolicy.payload as { privacyNotice: { text: string } }).privacyNotice.text).digest("hex"), accepted.sha);
+    // Submitting against the superseded notice is refused...
+    const u = await makeUser("pnStale");
+    const current = {};
+    const stale = await apply(u, fields({ ...current, districtId: loc.d3 }));
+    assert.deepEqual([stale.status, stale.body.code], [409, "PRIVACY_NOTICE_CHANGED"]);
+    // ...and the current one is accepted, as a new row for that application.
+    const ok = await apply(u, fields({ ...current, privacyNoticeVersion: String(info.body.privacyNotice.version), privacyNoticeSha256: info.body.privacyNotice.sha256, districtId: loc.d3 }));
+    assert.equal(ok.status, 201, JSON.stringify(ok.body));
+    const [fresh] = await acceptances(u.id);
+    assert.deepEqual([fresh.noticeVersion, fresh.noticeSha256], [info.body.privacyNotice.version, info.body.privacyNotice.sha256]);
+    // Keep the shared fixtures pointing at the notice now in force for any later test.
+    privacy = info.body.privacyNotice;
   });
 });

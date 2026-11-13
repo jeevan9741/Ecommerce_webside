@@ -41,7 +41,12 @@ async function makeUser(name: string, role: "USER" | "ADMIN" = "USER") {
   people[name] = { id: u.id, token: signSessionToken({ id: u.id, name, email: u.email, role, referralCode: u.referralCode }, u.passwordHash) };
   return people[name];
 }
-const newDistrict = async (label: string) => (await prisma.district.create({ data: { stateId, name: `${tag} ${label}`, isActive: true } })).id;
+/** A district in its own test state (one franchise per state). */
+const newDistrict = async (label: string) => {
+  const s = await prisma.indiaState.create({ data: { name: `${tag} ${label} State`, isActive: true } });
+  return (await prisma.district.create({ data: { stateId: s.id, name: `${tag} ${label}`, isActive: true } })).id;
+};
+const stateOf = async (districtId: string) => (await prisma.district.findUniqueOrThrow({ where: { id: districtId } })).stateId;
 
 async function makeApplication(user: U, districtId: string, status: "APPROVED" | "AGREEMENT_PENDING" | "ACTIVE_FRANCHISE" = "ACTIVE_FRANCHISE") {
   const n = ++seq;
@@ -53,7 +58,7 @@ async function makeApplication(user: U, districtId: string, status: "APPROVED" |
       applicantName: `Partner ${n}`,
       mobile: `9${String(600000000 + n)}`,
       email: `${tag}-app${n}@example.test`,
-      stateId,
+      stateId: await stateOf(districtId),
       districtId,
       address: `${n}, Partner Street`,
       requiredDocumentKinds: ["ID_PROOF"],
@@ -67,7 +72,7 @@ async function makeApplication(user: U, districtId: string, status: "APPROVED" |
 /** A partner fixture written directly (activation itself is tested separately). */
 async function makePartner(
   name: string,
-  opts: { status?: FranchisePartnerStatus; startsAt?: Date; endsAt?: Date; allocation?: "ALLOCATED" | "SUSPENDED" | "OTHER_DISTRICT" | null; role?: "USER" | "ADMIN" } = {}
+  opts: { status?: FranchisePartnerStatus; startsAt?: Date; endsAt?: Date; allocation?: "ALLOCATED" | "SUSPENDED" | "OTHER_STATE" | null; role?: "USER" | "ADMIN" } = {}
 ) {
   const user = await makeUser(name, opts.role ?? "USER");
   const districtId = await newDistrict(name);
@@ -89,11 +94,11 @@ async function makePartner(
   });
   const alloc = opts.allocation === undefined ? "ALLOCATED" : opts.allocation;
   if (alloc === "ALLOCATED" || alloc === "SUSPENDED") {
-    await prisma.districtAllocation.create({
-      data: { districtId, partnerId: partner.id, applicationId: app.id, status: alloc, allocatedAt: now, ...(alloc === "SUSPENDED" ? { suspendedAt: now } : {}), createdById: people.admA.id },
+    await prisma.stateAllocation.create({
+      data: { stateId: await stateOf(districtId), partnerId: partner.id, applicationId: app.id, status: alloc, allocatedAt: now, ...(alloc === "SUSPENDED" ? { suspendedAt: now } : {}), createdById: people.admA.id },
     });
-  } else if (alloc === "OTHER_DISTRICT") {
-    await prisma.districtAllocation.create({ data: { districtId: await newDistrict(`${name}-other`), partnerId: partner.id, status: "ALLOCATED", allocatedAt: now, createdById: people.admA.id } });
+  } else if (alloc === "OTHER_STATE") {
+    await prisma.stateAllocation.create({ data: { stateId: await stateOf(await newDistrict(`${name}-other`)), partnerId: partner.id, status: "ALLOCATED", allocatedAt: now, createdById: people.admA.id } });
   }
   return { user, partner, app, districtId };
 }
@@ -139,6 +144,9 @@ after(async () => {
       await tx.franchisePartnerEvent.deleteMany({ where: { partnerId: { in: partners } } });
       await tx.districtAllocationEvent.deleteMany({ where: { districtId: { in: districts } } });
       await tx.districtAllocation.deleteMany({ where: { districtId: { in: districts } } });
+      // State-level exclusivity rows (guarded; removable only in logged maintenance mode).
+      await tx.stateAllocationEvent.deleteMany({ where: { state: { name: { startsWith: tag } } } });
+      await tx.stateAllocation.deleteMany({ where: { state: { name: { startsWith: tag } } } });
       await tx.franchisePartner.deleteMany({ where: { id: { in: partners } } });
       await tx.franchiseAgreement.deleteMany({ where: { applicationId: { in: apps } } });
       await tx.franchisePayment.deleteMany({ where: { applicationId: { in: apps } } });
@@ -210,9 +218,9 @@ describe("database-verified access", () => {
       ["expiredStatus", { status: "EXPIRED" }, "PARTNER_EXPIRED"],
       ["notStarted", { startsAt: new Date(Date.now() + DAY), endsAt: new Date(Date.now() + 400 * DAY) }, "AGREEMENT_NOT_STARTED"],
       ["ended", { startsAt: new Date(Date.now() - 400 * DAY), endsAt: new Date(Date.now() - DAY) }, "AGREEMENT_ENDED"],
-      ["noAllocation", { allocation: null }, "DISTRICT_NOT_ALLOCATED"],
-      ["allocSuspended", { allocation: "SUSPENDED" }, "DISTRICT_NOT_ALLOCATED"],
-      ["otherDistrict", { allocation: "OTHER_DISTRICT" }, "DISTRICT_NOT_ALLOCATED"],
+      ["noAllocation", { allocation: null }, "STATE_NOT_ALLOCATED"],
+      ["allocSuspended", { allocation: "SUSPENDED" }, "STATE_NOT_ALLOCATED"],
+      ["otherState", { allocation: "OTHER_STATE" }, "STATE_NOT_ALLOCATED"],
       ["adminOwner", { role: "ADMIN" }, "ADMIN_ACCOUNT"],
     ];
     for (const [name, opts, code] of cases) {
@@ -266,27 +274,27 @@ describe("activation (service only; no route in 5F-1)", () => {
       },
     });
     if ((opts.reservation ?? "ok") !== "none") {
-      await prisma.districtAllocation.create({
-        data: { districtId, applicationId: app.id, status: "RESERVED", reservedAt: new Date(now - DAY), reservedUntil: new Date(opts.reservation === "expired" ? now - 1000 : now + 7 * DAY), createdById: people.admA.id },
+      await prisma.stateAllocation.create({
+        data: { stateId: await stateOf(districtId), applicationId: app.id, status: "RESERVED", reservedAt: new Date(now - DAY), reservedUntil: new Date(opts.reservation === "expired" ? now - 1000 : now + 7 * DAY), createdById: people.admA.id },
       });
     }
     return { user, app, districtId };
   }
 
-  test("creates the partner, allocates the reserved district and activates the application in one step", async () => {
+  test("creates the partner, allocates the reserved STATE and activates the application in one step", async () => {
     const { user, app, districtId } = await readyApplication("activate");
     const p = await activatePartner({ applicationId: app.id, actorId: people.admA.id });
     assert.match(p.franchiseCode, /^FR-[A-HJ-NP-Z2-9]{8}$/);
     assert.equal(p.userId, user.id);
     const months = (p.agreementEndsAt.getUTCFullYear() - p.agreementStartsAt.getUTCFullYear()) * 12 + p.agreementEndsAt.getUTCMonth() - p.agreementStartsAt.getUTCMonth();
     assert.equal(months, 60);
-    const alloc = await prisma.districtAllocation.findFirstOrThrow({ where: { districtId } });
+    const alloc = await prisma.stateAllocation.findFirstOrThrow({ where: { stateId: await stateOf(districtId) } });
     assert.deepEqual([alloc.status, alloc.partnerId], ["ALLOCATED", p.id]);
     const row = await prisma.franchiseApplication.findUniqueOrThrow({ where: { id: app.id }, include: { history: true } });
     assert.equal(row.status, "ACTIVE_FRANCHISE");
     assert.ok(row.history.some((h) => h.toStatus === "ACTIVE_FRANCHISE"));
     assert.equal(await prisma.franchisePartnerEvent.count({ where: { partnerId: p.id, type: "ACTIVATED" } }), 1);
-    assert.equal(await prisma.districtAllocationEvent.count({ where: { allocationId: alloc.id, toStatus: "ALLOCATED" } }), 1);
+    assert.equal(await prisma.stateAllocationEvent.count({ where: { allocationId: alloc.id, toStatus: "ALLOCATED" } }), 1);
     assert.equal(await prisma.auditLog.count({ where: { action: "FRANCHISE_PARTNER_ACTIVATED", target: p.id } }), 1);
     const r = await me(user);
     assert.equal(r.status, 200, r.text);
@@ -342,14 +350,14 @@ describe("admin partner actions", () => {
     assert.equal((await call("GET", `${P}/does-not-exist`, people.admA)).status, 404);
   });
 
-  test("suspension: one admin, immediate, district stays held", async () => {
+  test("suspension: one admin, immediate, the state stays held", async () => {
     const { user, partner, districtId } = await makePartner("suspend");
     assert.equal((await call("POST", `${P}/${partner.id}/suspend`, people.admA, { reason: "short" })).status, 400);
     const r = await call("POST", `${P}/${partner.id}/suspend`, people.admA, { reason });
     assert.equal(r.status, 200, r.text);
     assert.equal((await me(user)).body.code, "PARTNER_SUSPENDED", "access ends on the next request");
-    const alloc = await prisma.districtAllocation.findFirstOrThrow({ where: { districtId } });
-    assert.equal(alloc.status, "SUSPENDED", "the district is still held");
+    const alloc = await prisma.stateAllocation.findFirstOrThrow({ where: { stateId: await stateOf(districtId) } });
+    assert.equal(alloc.status, "SUSPENDED", "the state is still held");
     assert.equal(await prisma.franchisePartnerEvent.count({ where: { partnerId: partner.id, type: "SUSPENDED" } }), 1);
     assert.deepEqual([(await call("POST", `${P}/${partner.id}/suspend`, people.admA, { reason })).body.code], ["STALE"]);
   });
@@ -376,16 +384,17 @@ describe("admin partner actions", () => {
     assert.equal((await call("POST", `${R}/${req.body.request.id}/approve`, people.admB, { expectedPayloadSha: req.body.request.payloadSha256 })).body.code, "NOT_PENDING");
   });
 
-  test("deactivation (two admins) ends access and keeps the district held; a deactivated franchise can't be reinstated", async () => {
+  test("deactivation (two admins) ends access and keeps the state held; a deactivated franchise can't be reinstated", async () => {
     const { user, partner, districtId } = await makePartner("deactivate");
     const req = await call("POST", `${P}/${partner.id}/requests`, people.admA, { action: "DEACTIVATE", reason });
     const ok = await call("POST", `${R}/${req.body.request.id}/approve`, people.admB, { expectedPayloadSha: req.body.request.payloadSha256 });
     assert.equal(ok.status, 200, ok.text);
     assert.equal((await me(user)).body.code, "PARTNER_DEACTIVATED");
-    const alloc = await prisma.districtAllocation.findFirstOrThrow({ where: { districtId } });
+    const stateId = await stateOf(districtId);
+    const alloc = await prisma.stateAllocation.findFirstOrThrow({ where: { stateId } });
     assert.equal(alloc.status, "SUSPENDED", "not released as a side effect");
-    const pub = await prisma.districtAllocation.count({ where: { districtId, role: "PRIMARY", status: { in: ["RESERVED", "ALLOCATED", "SUSPENDED"] } } });
-    assert.equal(pub, 1, "nobody else can be allocated this district");
+    const held = await prisma.stateAllocation.count({ where: { stateId, role: "PRIMARY", status: { in: ["RESERVED", "ALLOCATED", "SUSPENDED"] } } });
+    assert.equal(held, 1, "nobody else can be allocated this state");
     const again = await call("POST", `${P}/${partner.id}/requests`, people.admA, { action: "REINSTATE", reason });
     assert.deepEqual([again.status, again.body.code], [409, "INVALID_ACTION"]);
   });

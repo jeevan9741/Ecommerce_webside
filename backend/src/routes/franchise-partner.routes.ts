@@ -16,6 +16,10 @@ router.post("/franchise-partner/invites/:id/resend", requireFranchisePartner, as
 router.post("/franchise-partner/invites/:id/cancel", requireFranchisePartner, asyncHandler(partner.partnerCancelInvite));
 router.get("/franchise-partner/students", requireFranchisePartner, asyncHandler(partner.partnerListStudents));
 router.get("/franchise-partner/students/:id", requireFranchisePartner, asyncHandler(partner.partnerStudentDetail));
+router.get("/franchise-partner/overview", requireFranchisePartner, asyncHandler(partner.partnerOverviewView));
+router.get("/franchise-partner/enrolments", requireFranchisePartner, asyncHandler(partner.partnerEnrolmentList));
+router.get("/franchise-partner/progress", requireFranchisePartner, asyncHandler(partner.partnerProgressList));
+router.get("/franchise-partner/earnings", requireFranchisePartner, asyncHandler(partner.partnerEarningsView));
 router.get("/franchise-partner/tickets", requireFranchisePartner, asyncHandler(partner.partnerTicketList));
 router.post("/franchise-partner/tickets", requireFranchisePartner, asyncHandler(partner.partnerTicketCreate));
 router.get("/franchise-partner/tickets/:id", requireFranchisePartner, asyncHandler(partner.partnerTicketGet));

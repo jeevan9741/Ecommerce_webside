@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { useAuth } from "@/contexts/auth-context";
 import { PartnerStatus } from "@/components/franchise/partner-status";
+import { AdminUnavailableSystems } from "@/components/franchise/admin-unavailable-systems";
 
 interface Request {
   id: string;
@@ -32,7 +33,8 @@ interface Detail {
   agreementStartsAt: string;
   agreementEndsAt: string;
   activatedAt: string;
-  allocations: { id: string; status: string }[];
+  /** State allocations (one primary franchise per state), newest first. */
+  allocations: { id: string; status: string; state: string; stateId: string; allocatedAt: string | null; suspendedAt: string | null; releasedAt: string | null }[];
   events: { id: string; type: string; fromStatus: string | null; toStatus: string | null; reason: string | null; createdAt: string }[];
   requests: Request[];
 }
@@ -94,8 +96,8 @@ export default function FranchisePartnerAdminPage() {
           <dl className="grid gap-4 text-sm sm:grid-cols-2">
             <Item label="Owner" value={`${p.owner.name} · ${p.owner.email}`} />
             <Item label="Application" value={p.application.applicationNo} />
-            <Item label="District" value={`${p.district.name}${p.district.code ? ` (LGD ${p.district.code})` : ""}, ${p.district.state}`} />
-            <Item label="District allocation" value={p.allocations.map((a) => a.status).join(", ") || "—"} />
+            <Item label="Training centre district" value={`${p.district.name}${p.district.code ? ` (LGD ${p.district.code})` : ""}, ${p.district.state}`} />
+            <Item label="State allocation" value={p.allocations.map((a) => `${a.state}: ${a.status}`).join(", ") || "—"} />
             <Item label="Agreement" value={`${formatDate(p.agreementStartsAt)} – ${formatDate(p.agreementEndsAt)}`} />
             <Item label="Activated" value={formatDateTime(p.activatedAt)} />
           </dl>
@@ -139,7 +141,7 @@ export default function FranchisePartnerAdminPage() {
           {mode && (
             <div className="space-y-2 rounded-lg border border-white/10 p-3" role="dialog" aria-label={mode}>
               <p className="text-sm text-parchment">
-                {mode === "SUSPEND" ? "Suspend this franchise now? Its owner loses dashboard access immediately; the district stays held." : mode === "REINSTATE" ? "Ask a second admin to reinstate this franchise?" : "Ask a second admin to deactivate this franchise? The district stays held until it's released separately."}
+                {mode === "SUSPEND" ? "Suspend this franchise now? Its owner loses dashboard access immediately; the state stays closed (held)." : mode === "REINSTATE" ? "Ask a second admin to reinstate this franchise?" : "Ask a second admin to deactivate this franchise? The state stays closed until two admins reopen it on the State Management page."}
               </p>
               <label htmlFor="reason" className="label-field">Reason (at least 10 characters)</label>
               <textarea id="reason" rows={3} maxLength={1000} className="input-field resize-none text-sm" value={reason} onChange={(e) => setReason(e.target.value)} />
@@ -161,9 +163,53 @@ export default function FranchisePartnerAdminPage() {
               </div>
             </div>
           )}
+          <p className="text-xs text-parchment-muted">Dashboard access follows the partner status: only an active franchise can sign in to its dashboard.</p>
+          <Link href={`/admin/franchise-assignments?partnerId=${encodeURIComponent(p.id)}`} className="btn-outline btn-sm inline-flex">View assigned students</Link>
         </section>
       </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2"><SupportHistory partnerId={p.id} /></div>
+        <AdminUnavailableSystems note="Final activation stays disabled until these exist." />
+      </div>
     </div>
+  );
+}
+
+interface Ticket {
+  id: string;
+  ticketNo: string;
+  subject: string;
+  category: string;
+  status: string;
+  awaiting: string;
+  lastMessageAt: string;
+}
+
+/** The franchise's support tickets, newest activity first (read-only here; open one to reply). */
+function SupportHistory({ partnerId }: { partnerId: string }) {
+  const [tickets, setTickets] = useState<Ticket[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api.get<{ tickets: Ticket[] }>(`/admin/franchise/partners/${encodeURIComponent(partnerId)}/support`).then((r) => setTickets(r.tickets), (e) => setError(message(e)));
+  }, [partnerId]);
+  return (
+    <section className="card p-6" aria-labelledby="support-history">
+      <h2 id="support-history" className="font-display text-lg font-semibold text-parchment">Support history</h2>
+      {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
+      {!tickets && !error && <p className="mt-2 flex items-center gap-2 text-sm text-parchment-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</p>}
+      {tickets?.length === 0 && <p className="mt-2 text-sm text-parchment-muted">This franchise hasn&apos;t raised any support tickets.</p>}
+      {tickets && tickets.length > 0 && (
+        <ul className="mt-3 divide-y divide-white/5 text-sm">
+          {tickets.map((t) => (
+            <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+              <Link href={`/admin/franchise-tickets/${t.id}`} className="text-parchment hover:underline">{t.ticketNo} · {t.subject}</Link>
+              <span className="text-xs text-parchment-muted">{t.status.replace("_", " ").toLowerCase()} · {formatDateTime(t.lastMessageAt)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

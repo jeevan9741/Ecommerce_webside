@@ -2,6 +2,7 @@ import { prisma } from "../config/prisma.js";
 import { HttpError } from "../utils/http.js";
 import { sha256Hex } from "../utils/canonical-json.js";
 import { requireAdminInTx, requireAdminRead } from "./franchise-admin-guard.js";
+import { publicStateAvailability } from "./franchise-state.service.js";
 
 /**
  * States/UTs and districts for the franchise programme. Locations are never deleted (applications and
@@ -23,15 +24,23 @@ export async function heldDistrictIds(districtIds?: string[]) {
   return new Set(rows.map((r) => r.districtId));
 }
 
-/** Public list: active states with their active districts and whether each can be applied for. */
+/**
+ * Public list: active states with their availability (one franchise per state — from the state
+ * allocations only, never from applications) and their active districts, which are the possible
+ * centre locations. A district no longer carries exclusivity, so every active district is selectable
+ * inside an AVAILABLE state; inside a RESERVED or CLOSED state none is.
+ */
 export async function publicLocations() {
   const states = await prisma.indiaState.findMany({
     where: { isActive: true },
     orderBy: [{ displayOrder: "asc" }, { name: "asc" }],
     select: { id: true, name: true, code: true, districts: { where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true, name: true } } },
   });
-  const held = await heldDistrictIds();
-  return states.map((s) => ({ ...s, districts: s.districts.map((d) => ({ id: d.id, name: d.name, available: !held.has(d.id) })) }));
+  const availability = await publicStateAvailability(states.map((s) => s.id));
+  return states.map((s) => {
+    const a = availability.get(s.id) ?? "AVAILABLE";
+    return { ...s, availability: a, districts: s.districts.map((d) => ({ id: d.id, name: d.name, available: a === "AVAILABLE" })) };
+  });
 }
 
 /** Admin list: every state and district with allocation and application counts. */
@@ -43,8 +52,10 @@ export async function adminLocations(actorId: string) {
       include: { districts: { orderBy: { name: "asc" }, select: { id: true, name: true, code: true, isActive: true } } },
     }),
     heldDistrictIds(),
-    prisma.franchiseApplication.groupBy({ by: ["districtId"], where: { status: { not: "REJECTED" } }, _count: true }),
+    prisma.franchiseApplication.groupBy({ by: ["districtId"], where: { status: { notIn: ["REJECTED", "WITHDRAWN"] } }, _count: true }),
   ]);
+  // One franchise per state: a district is held when its STATE is held (or, historically, the district).
+  const stateAvailability = await publicStateAvailability(states.map((s) => s.id));
   const open = new Map(applications.map((a) => [a.districtId, a._count]));
   return states.map((s) => ({
     id: s.id,
@@ -52,7 +63,8 @@ export async function adminLocations(actorId: string) {
     code: s.code,
     isActive: s.isActive,
     displayOrder: s.displayOrder,
-    districts: s.districts.map((d) => ({ ...d, held: held.has(d.id), openApplications: open.get(d.id) ?? 0 })),
+    availability: stateAvailability.get(s.id) ?? "AVAILABLE",
+    districts: s.districts.map((d) => ({ ...d, held: held.has(d.id) || stateAvailability.has(s.id), openApplications: open.get(d.id) ?? 0 })),
   }));
 }
 

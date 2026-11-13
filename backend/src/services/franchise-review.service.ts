@@ -5,7 +5,7 @@ import { env } from "../config/env.js";
 import { HttpError } from "../utils/http.js";
 import { sendEmail } from "./email.service.js";
 import { STATUS_LABEL } from "./franchise-application.service.js";
-import { HOLDING_STATUSES } from "./franchise-location.service.js";
+import { expireReservations, holdingAllocation, lockState, releaseReservationFor } from "./franchise-state.service.js";
 
 /**
  * Admin review of franchise applications (Phase 5A): list and search, an audited detail view,
@@ -23,7 +23,7 @@ export const REVIEW_TRANSITIONS: Partial<Record<Status, Status[]>> = {
   UNDER_REVIEW: ["INTERVIEW_DISCUSSION", "APPROVED", "REJECTED"],
   INTERVIEW_DISCUSSION: ["APPROVED", "REJECTED"],
 };
-/** An application in any of these holds its district against other approvals. */
+/** One approved-or-later application per STATE at a time (an approval never closes the state by itself). */
 const APPROVED_OR_LATER: Status[] = ["APPROVED", "PAYMENT_PENDING", "AGREEMENT_PENDING", "ACTIVE_FRANCHISE"];
 const NOTIFIED: Status[] = ["UNDER_REVIEW", "INTERVIEW_DISCUSSION", "APPROVED", "REJECTED"];
 
@@ -115,16 +115,22 @@ export async function applicationSummary(actorId: string) {
 
 // ---------- Detail ----------
 
-/** Why the district couldn't be approved right now (shown before an admin tries). */
-async function districtConflict(db: Tx | typeof prisma, app: { id: string; districtId: string }) {
+/**
+ * Why the application's STATE couldn't be approved right now (shown before an admin tries): the centre
+ * district or the state disabled, the state already held (reserved, allocated or suspended), or another
+ * application for the same state already approved.
+ */
+async function stateConflict(db: Tx | typeof prisma, app: { id: string; districtId: string; stateId: string }) {
   const [district, held, approved] = await Promise.all([
     db.district.findUnique({ where: { id: app.districtId }, select: { isActive: true, state: { select: { isActive: true } } } }),
-    db.districtAllocation.count({ where: { districtId: app.districtId, role: "PRIMARY", status: { in: [...HOLDING_STATUSES] } } }),
-    db.franchiseApplication.findFirst({ where: { districtId: app.districtId, status: { in: APPROVED_OR_LATER }, id: { not: app.id } }, select: { applicationNo: true } }),
+    holdingAllocation(db, app.stateId),
+    db.franchiseApplication.findFirst({ where: { stateId: app.stateId, status: { in: APPROVED_OR_LATER }, id: { not: app.id } }, select: { applicationNo: true } }),
   ]);
   return {
-    districtActive: Boolean(district?.isActive && district.state.isActive),
-    held: held > 0,
+    locationActive: Boolean(district?.isActive && district.state.isActive),
+    held: Boolean(held && held.applicationId !== app.id),
+    heldStatus: held?.status ?? null,
+    reservedForThis: held?.applicationId === app.id && held.status === "RESERVED",
     approvedApplicationNo: approved?.applicationNo ?? null,
   };
 }
@@ -175,7 +181,7 @@ export async function applicationDetail(actorId: string, id: string) {
       investmentCapacityInr: app.investmentCapacityInr,
       businessPlanText: app.businessPlanText,
     },
-    refundPolicy: { version: app.refundPolicyVersion, sha256: app.refundPolicySha256 },
+    refundPolicy: app.refundPolicyVersion ? { version: app.refundPolicyVersion, sha256: app.refundPolicySha256 } : null,
     requiredDocumentKinds: app.requiredDocumentKinds,
     // Metadata only: document access arrives with the document-review phase.
     documents: app.documents,
@@ -183,7 +189,7 @@ export async function applicationDetail(actorId: string, id: string) {
     history: app.history.map((h) => ({ ...h, fromLabel: h.fromStatus ? STATUS_LABEL[h.fromStatus] : null, toLabel: STATUS_LABEL[h.toStatus], actorName: h.actorType === "ADMIN" ? nameOf(h.actorId) : h.actorType === "APPLICANT" ? "Applicant" : "System" })),
     notes: app.notes.map((n) => ({ id: n.id, body: n.body, author: nameOf(n.authorId), createdAt: n.createdAt })),
     allowedTransitions: allowedTransitions(app.status),
-    district: await districtConflict(prisma, app),
+    territory: await stateConflict(prisma, app),
   };
 }
 
@@ -229,7 +235,7 @@ export async function transitionApplication(actorId: string, id: string, input: 
   const now = new Date();
   const result = await prisma.$transaction(async (tx) => {
     await requireAdminInTx(tx, actorId);
-    const app = await tx.franchiseApplication.findUnique({ where: { id }, select: { id: true, status: true, version: true, districtId: true, userId: true, email: true, applicationNo: true } });
+    const app = await tx.franchiseApplication.findUnique({ where: { id }, select: { id: true, status: true, version: true, districtId: true, stateId: true, userId: true, email: true, applicationNo: true } });
     if (!app) throw new HttpError(404, "Not found");
     if (!allowedTransitions(app.status).includes(t.to)) {
       throw new HttpError(409, `An application that is "${STATUS_LABEL[app.status]}" can't move to "${STATUS_LABEL[t.to]}".`, { code: "INVALID_TRANSITION", status: app.status });
@@ -237,12 +243,14 @@ export async function transitionApplication(actorId: string, id: string, input: 
     if (app.version !== t.expectedVersion) throw new HttpError(409, "This application changed since you opened it — reload and try again.", { code: "STALE", version: app.version });
 
     if (t.to === "APPROVED") {
-      // One decision per district at a time; no allocation or reservation is created in this phase.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`eta-district:${app.districtId}`}))`;
-      const c = await districtConflict(tx, app);
-      if (!c.districtActive) throw new HttpError(409, "This district is disabled, so it can't be approved.", { code: "DISTRICT_DISABLED" });
-      if (c.held) throw new HttpError(409, "This district is already held by a franchise.", { code: "DISTRICT_UNAVAILABLE" });
-      if (c.approvedApplicationNo) throw new HttpError(409, `Another application for this district (${c.approvedApplicationNo}) is already approved.`, { code: "DISTRICT_ALREADY_APPROVED" });
+      // One decision per STATE at a time (the state's lock). Approval doesn't reserve or close the state:
+      // only an explicit admin reservation holds it, and only activation closes it.
+      await lockState(tx, app.stateId);
+      await expireReservations(tx, app.stateId);
+      const c = await stateConflict(tx, app);
+      if (!c.locationActive) throw new HttpError(409, "This state or centre district is disabled, so it can't be approved.", { code: "LOCATION_DISABLED" });
+      if (c.held) throw new HttpError(409, c.heldStatus === "RESERVED" ? "This state is reserved for another application." : "This state already has an active ETA franchise.", { code: c.heldStatus === "RESERVED" ? "STATE_RESERVED" : "STATE_CLOSED" });
+      if (c.approvedApplicationNo) throw new HttpError(409, `Another application for this state (${c.approvedApplicationNo}) is already approved.`, { code: "STATE_ALREADY_APPROVED" });
     }
 
     // Version-guarded write: a concurrent decision (or a stale form) changes nothing.
@@ -259,6 +267,8 @@ export async function transitionApplication(actorId: string, id: string, input: 
     await tx.franchiseApplicationStatusHistory.create({
       data: { applicationId: id, fromStatus: app.status, toStatus: t.to, actorId, actorType: "ADMIN", applicantNote: t.applicantNote || null, internalNote: t.internalNote || null },
     });
+    // A rejected application never keeps a state held.
+    if (t.to === "REJECTED") await releaseReservationFor(tx, id, actorId, "Application rejected", now);
     await tx.auditLog.create({
       data: { actorId, action: "FRANCHISE_APPLICATION_STATUS_CHANGED", target: id, metadata: { applicationNo: app.applicationNo, from: app.status, to: t.to, version: t.expectedVersion + 1 } },
     });

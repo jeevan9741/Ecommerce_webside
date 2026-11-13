@@ -15,7 +15,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { CoursePublic } from "@/components/course-card";
-import type { Contact } from "@/lib/contact";
+import type { ShownContact } from "@/lib/contact-values";
 import { formatInr } from "@/lib/format";
 
 type CourseType = CoursePublic["type"];
@@ -43,7 +43,7 @@ export function sortByPackage(access: EnrolledAccess[]) {
   return [...access].sort((a, b) => PACKAGE_ORDER.indexOf(a.course.type) - PACKAGE_ORDER.indexOf(b.course.type));
 }
 
-export function EnrolledPackages({ access, contact }: { access: EnrolledAccess[]; contact: Contact }) {
+export function EnrolledPackages({ access, contact }: { access: EnrolledAccess[]; contact: ShownContact }) {
   return (
     <section>
 
@@ -103,12 +103,13 @@ export function PackageCard({ access }: { access: EnrolledAccess }) {
   );
 }
 
-function SupportCard({ contact }: { contact: Contact }) {
+/** Only real, admin-saved support channels are offered (see shownContact) — never a link that goes nowhere. */
+function SupportCard({ contact }: { contact: ShownContact }) {
   const links = [
-    { href: contact.whatsapp, label: "WhatsApp", icon: MessageCircle, external: true },
-    { href: contact.telegram, label: "Telegram", icon: Send, external: true },
-    { href: `mailto:${contact.email}`, label: "Email Us", icon: Mail, external: false },
-  ];
+    contact.whatsapp && { href: contact.whatsapp, label: "WhatsApp", icon: MessageCircle, external: true },
+    contact.telegram && { href: contact.telegram, label: "Telegram", icon: Send, external: true },
+    contact.email && { href: `mailto:${contact.email}`, label: "Email Us", icon: Mail, external: false },
+  ].filter(Boolean) as { href: string; label: string; icon: typeof Mail; external: boolean }[];
 
   return (
     <div className="card mt-5 flex flex-col gap-4 p-6 md:flex-row md:items-center md:justify-between">
@@ -121,19 +122,23 @@ function SupportCard({ contact }: { contact: Contact }) {
           <p className="mt-0.5 text-sm text-parchment-muted">Our support team is here for every enrolled student.</p>
         </div>
       </div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 md:flex md:shrink-0">
-        {links.map(({ href, label, icon: LinkIcon, external }) => (
-          <a
-            key={label}
-            href={href}
-            {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-            className="btn-outline !px-5 !py-2.5 text-sm"
-          >
-            <LinkIcon className="h-4 w-4" />
-            {label}
-          </a>
-        ))}
-      </div>
+      {links.length > 0 ? (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 md:flex md:shrink-0">
+          {links.map(({ href, label, icon: LinkIcon, external }) => (
+            <a
+              key={label}
+              href={href}
+              {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+              className="btn-outline !px-5 !py-2.5 text-sm"
+            >
+              <LinkIcon className="h-4 w-4" />
+              {label}
+            </a>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-parchment-muted">Support contact details will be listed here soon.</p>
+      )}
     </div>
   );
 }

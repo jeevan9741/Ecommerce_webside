@@ -9,7 +9,7 @@ test("every status has a label; only the four review moves are actions", () => {
   assert.equal(isReviewAction("APPROVED"), true);
   assert.equal(isReviewAction("PAYMENT_PENDING"), false);
   assert.equal(isReviewAction("ACTIVE_FRANCHISE"), false);
-  assert.match(ACTION.APPROVED.confirm, /doesn't reserve or allocate the district/);
+  assert.match(ACTION.APPROVED.confirm, /doesn't reserve or close the state, and doesn't activate a franchise/);
 });
 
 test("rejection reasons: 10–1000 characters after trimming, same as the server", () => {

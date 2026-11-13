@@ -60,6 +60,8 @@ export interface DashboardNavItem {
   href: string;
   label: string;
   icon: DashboardIconName;
+  /** Other path prefixes this item stays highlighted for (a section that spans several URLs). */
+  matchPrefixes?: string[];
 }
 
 export function DashboardShell({
@@ -101,7 +103,7 @@ export function DashboardShell({
     return pathname === path || (path.split("/").length > 2 && pathname.startsWith(`${path}/`));
   };
   const activeHref = navItems
-    .filter(({ href }) => matches(href))
+    .filter(({ href, matchPrefixes }) => matches(href) || (matchPrefixes ?? []).some((p) => pathname.startsWith(p)))
     .reduce<string | null>((best, { href }) => (!best || href.length > best.length ? href : best), null);
 
   const SidebarContent = (

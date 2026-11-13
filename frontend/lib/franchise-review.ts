@@ -13,6 +13,7 @@ export const REVIEW_STATUSES = [
   "AGREEMENT_PENDING",
   "ACTIVE_FRANCHISE",
   "REJECTED",
+  "WITHDRAWN",
 ] as const;
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
 
@@ -25,13 +26,14 @@ export const STATUS_LABEL: Record<ReviewStatus, string> = {
   AGREEMENT_PENDING: "Agreement pending",
   ACTIVE_FRANCHISE: "Active franchise",
   REJECTED: "Not approved",
+  WITHDRAWN: "Withdrawn by applicant",
 };
 
 /** The button for each move an admin can make in this phase. */
 export const ACTION: Record<"UNDER_REVIEW" | "INTERVIEW_DISCUSSION" | "APPROVED" | "REJECTED", { label: string; tone: "neutral" | "good" | "bad"; confirm: string }> = {
   UNDER_REVIEW: { label: "Start review", tone: "neutral", confirm: "Move this application to Under review?" },
   INTERVIEW_DISCUSSION: { label: "Move to interview / discussion", tone: "neutral", confirm: "Move this application to Interview / discussion?" },
-  APPROVED: { label: "Approve", tone: "good", confirm: "Approve this application? This doesn't reserve or allocate the district yet." },
+  APPROVED: { label: "Approve", tone: "good", confirm: "Approve this application? Approval doesn't reserve or close the state, and doesn't activate a franchise." },
   REJECTED: { label: "Reject", tone: "bad", confirm: "Reject this application? The applicant will see the reason after signing in." },
 };
 

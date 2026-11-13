@@ -1,5 +1,6 @@
 import { MapPin, Mail, Phone, MessageCircle, Send, FileText, Download, Target } from "lucide-react";
 import { api } from "@/lib/api";
+import { shownContact, telHref } from "@/lib/contact-values";
 
 export const metadata = { title: "About Us" };
 export const dynamic = "force-dynamic";
@@ -15,13 +16,6 @@ const DEFAULTS = {
     name: "",
     bio: "Founded by a team of e-commerce operators with hands-on experience building and scaling online stores across multiple marketplaces — now dedicated full-time to teaching what actually works.",
   },
-  contact: {
-    address: "Rayadurgam, Andhra Pradesh, India",
-    email: "support@ecommerceacademy.in",
-    phone: "+91 00000 00000",
-    whatsapp: "https://wa.me/910000000000",
-    telegram: "https://t.me/ecommercetrainingacademy",
-  },
   legal: { note: "" },
 };
 
@@ -33,7 +27,9 @@ export default async function AboutPage() {
   }>("/about", { token: null });
   const about = { ...DEFAULTS.about, ...(settingsMap.about as object) };
   const founder = { ...DEFAULTS.founder, ...(settingsMap.founder as object) };
-  const contact = { ...DEFAULTS.contact, ...(settingsMap.contact as object) };
+  // Contact tiles show only real, admin-saved details — never the built-in placeholders.
+  const contact = shownContact(settingsMap.contact);
+  const hasContact = Boolean(contact.address || contact.email || contact.phone || contact.whatsapp || contact.telegram);
   const legal = { ...DEFAULTS.legal, ...(settingsMap.legal as object) };
 
   return (
@@ -61,16 +57,18 @@ export default async function AboutPage() {
       </div>
 
       {/* Contact */}
-      <div className="mx-auto mt-16 max-w-4xl">
-        <h2 className="text-center font-display text-2xl font-semibold text-parchment">Get in touch</h2>
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <ContactTile icon={MapPin} label="Academy Address" value={contact.address} />
-          <ContactTile icon={Mail} label="Email" value={contact.email} href={`mailto:${contact.email}`} />
-          <ContactTile icon={Phone} label="Phone" value={contact.phone} href={`tel:${contact.phone.replace(/\s+/g, "")}`} />
-          <ContactTile icon={MessageCircle} label="WhatsApp" value="Chat with us" href={contact.whatsapp} />
-          <ContactTile icon={Send} label="Telegram" value="Join our channel" href={contact.telegram} />
+      {hasContact && (
+        <div className="mx-auto mt-16 max-w-4xl">
+          <h2 className="text-center font-display text-2xl font-semibold text-parchment">Get in touch</h2>
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {contact.address && <ContactTile icon={MapPin} label="Academy Address" value={contact.address} />}
+            {contact.email && <ContactTile icon={Mail} label="Email" value={contact.email} href={`mailto:${contact.email}`} />}
+            {contact.phone && <ContactTile icon={Phone} label="Phone" value={contact.phone} href={telHref(contact.phone)} />}
+            {contact.whatsapp && <ContactTile icon={MessageCircle} label="WhatsApp" value="Chat with us" href={contact.whatsapp} />}
+            {contact.telegram && <ContactTile icon={Send} label="Telegram" value="Join our channel" href={contact.telegram} />}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Certificates */}
       <div className="mx-auto mt-16 max-w-4xl">

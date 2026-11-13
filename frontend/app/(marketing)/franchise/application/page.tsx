@@ -7,6 +7,7 @@ import { getSession } from "@/lib/session";
 import type { MyFranchiseApplication } from "@/lib/franchise";
 import { DOCUMENT_KIND_LABEL, formatBytes, formatRupees, STATUS_STEPS, stepIndex } from "@/lib/franchise-form";
 import { DocumentLink } from "@/components/franchise/document-link";
+import { WithdrawApplication } from "@/components/franchise/withdraw-application";
 
 export const metadata = { title: "My Franchise Application" };
 export const dynamic = "force-dynamic";
@@ -39,7 +40,7 @@ export default async function MyFranchiseApplicationPage({ searchParams }: { sea
       <div className="mx-auto max-w-3xl space-y-6">
         {submitted && (
           <div role="status" className="card flex items-center gap-3 border-emerald/40 p-4 text-sm text-parchment">
-            <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald" /> Application received. We&apos;ve emailed you a confirmation. This doesn&apos;t reserve the district;
+            <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald" /> Application received. We&apos;ve emailed you a confirmation. This doesn&apos;t reserve the state;
             our team will review your application.
           </div>
         )}
@@ -47,7 +48,7 @@ export default async function MyFranchiseApplicationPage({ searchParams }: { sea
           <p className="eyebrow">Franchise Application</p>
           <h1 className="mt-2 font-display text-3xl font-bold text-parchment">{app.applicationNo}</h1>
           <p className="mt-1 text-sm text-parchment-muted">
-            {app.district}, {app.state} · submitted {dateTime(app.submittedAt)}
+            {app.state} · training centre in {app.district} · submitted {dateTime(app.submittedAt)}
           </p>
         </div>
 
@@ -62,6 +63,14 @@ export default async function MyFranchiseApplicationPage({ searchParams }: { sea
                 <Link href="/franchise/apply" className="btn-outline btn-sm mt-4 inline-flex">Apply again</Link>
               </div>
             </div>
+          ) : app.status === "WITHDRAWN" ? (
+            <div className="mt-4 flex gap-3 text-sm text-parchment-muted">
+              <XCircle className="h-5 w-5 shrink-0 text-parchment-muted" />
+              <div>
+                <p>You withdrew this application. Nothing more will happen with it.</p>
+                <Link href="/franchise/apply" className="btn-outline btn-sm mt-4 inline-flex">Apply again</Link>
+              </div>
+            </div>
           ) : (
             <ol className="mt-4 space-y-3">
               {STATUS_STEPS.map((s, i) => (
@@ -72,6 +81,7 @@ export default async function MyFranchiseApplicationPage({ searchParams }: { sea
               ))}
             </ol>
           )}
+          {app.canWithdraw && <WithdrawApplication />}
         </section>
 
         <section className="card p-6 sm:p-8">
@@ -113,7 +123,6 @@ export default async function MyFranchiseApplicationPage({ searchParams }: { sea
             <Item label="Address" value={app.address} wide />
             <Item label="Business experience" value={app.businessExperience} wide />
             <Item label="Business plan" value={app.businessPlanText} wide />
-            <Item label="Refund policy accepted" value={`Version ${app.refundPolicyVersion}`} />
           </dl>
         </section>
       </div>

@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { currentUser } from "../middleware/auth.middleware.js";
+import { listEnrolments, listProgress, partnerEarnings, partnerOverview } from "../services/franchise-partner-dashboard.service.js";
 import { HttpError, param } from "../utils/http.js";
 import { rateLimit } from "../utils/rate-limit.js";
 import { acceptInvite, cancelInvite, createInvite, listInvites, listStudents, previewInvite, resendInvite, studentDetail } from "../services/franchise-invite.service.js";
@@ -77,6 +78,25 @@ export async function partnerListStudents(req: Request, res: Response) {
 export async function partnerStudentDetail(req: Request, res: Response) {
   noStore(res);
   res.json({ student: await studentDetail(ctxOf(req), currentUser(req).id, param(req, "id")) });
+}
+
+// ---------- Partner: dashboard views (behind requireFranchisePartner; own students only, read-only) ----------
+
+export async function partnerOverviewView(req: Request, res: Response) {
+  noStore(res);
+  res.json(await partnerOverview(ctxOf(req)));
+}
+export async function partnerEnrolmentList(req: Request, res: Response) {
+  noStore(res);
+  res.json(await listEnrolments(ctxOf(req), req.query));
+}
+export async function partnerProgressList(req: Request, res: Response) {
+  noStore(res);
+  res.json(await listProgress(ctxOf(req), req.query));
+}
+export async function partnerEarningsView(req: Request, res: Response) {
+  noStore(res);
+  res.json({ earnings: await partnerEarnings(ctxOf(req)) });
 }
 
 // ---------- Partner: support tickets (behind requireFranchisePartner; own tickets only) ----------

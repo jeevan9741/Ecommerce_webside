@@ -39,6 +39,7 @@ router.get("/franchise/locations", asyncHandler(franchise.franchiseLocations));
 // requireUser runs before multer so anonymous uploads are refused without buffering them.
 router.post("/franchise/applications", requireUser, documents, asyncHandler(franchise.submitFranchiseApplication));
 router.get("/franchise/applications/me", requireUser, asyncHandler(franchise.myFranchiseApplication));
+router.post("/franchise/applications/me/withdraw", requireUser, asyncHandler(franchise.withdrawMyApplication));
 router.get("/franchise/applications/me/documents/:id/url", requireUser, asyncHandler(franchise.myFranchiseDocumentUrl));
 
 export default router;

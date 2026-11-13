@@ -67,7 +67,7 @@ interface Lesson {
 }
 
 /** Published lessons a package gives access to: its own videos and those in the live categories it unlocks. */
-async function courseLessons(courseId: string): Promise<Lesson[]> {
+export async function courseLessons(courseId: string): Promise<Lesson[]> {
   const links = await prisma.categoryPackage.findMany({
     where: { courseId, category: { parentId: null, isActive: true } },
     select: { categoryId: true },

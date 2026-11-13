@@ -17,8 +17,12 @@ export default async function FranchisePartnerLayout({ children }: { children: R
       roleLabel={`Franchise ${partner.franchiseCode}`}
       navItems={[
         { href: "/franchise-partner", label: "Overview", icon: "layoutDashboard" },
-        { href: "/franchise-partner/students", label: "Students", icon: "users" },
+        { href: "/franchise-partner/students", label: "My Students", icon: "users" },
+        { href: "/franchise-partner/enrolments", label: "Course Enrolments", icon: "bookOpen" },
+        { href: "/franchise-partner/progress", label: "Learning Progress", icon: "award" },
+        { href: "/franchise-partner/earnings", label: "Referral & Earnings", icon: "wallet" },
         { href: "/franchise-partner/support", label: "Support", icon: "fileText" },
+        { href: "/franchise-partner/profile", label: "Franchise Profile", icon: "user" },
       ]}
     >
       {children}

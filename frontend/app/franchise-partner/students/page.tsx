@@ -2,26 +2,28 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, Mail, Search } from "lucide-react";
+import { Loader2, Mail } from "lucide-react";
+import { PartnerTable } from "@/components/franchise/partner-table";
+import { STUDENT_STATUS_LABEL } from "@/lib/franchise-partner-views";
 import { api } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { INVITE_STATUS_LABEL, canCancel, inviteFormError, resendState, type InviteRow } from "@/lib/franchise-invite";
 
 interface StudentRow {
   id: string;
+  reference: string;
   name: string;
   linkedAt: string;
+  status: string;
+  enrolledCourses: number;
 }
 
 const message = (err: unknown) => (err instanceof Error ? err.message : "Something went wrong.");
 const fetchInvites = () => api.get<{ invites: InviteRow[] }>("/franchise-partner/invites").then((r) => r.invites);
-const fetchStudents = (q: string) => api.get<{ students: StudentRow[]; total: number }>(`/franchise-partner/students${q ? `?q=${encodeURIComponent(q)}` : ""}`);
 
 /** The franchise's own students and invitations (the server scopes everything to this franchise). */
 export default function FranchiseStudentsPage() {
   const [invites, setInvites] = useState<InviteRow[] | null>(null);
-  const [students, setStudents] = useState<{ students: StudentRow[]; total: number } | null>(null);
-  const [q, setQ] = useState("");
   const [form, setForm] = useState({ name: "", email: "", mobile: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +32,6 @@ export default function FranchiseStudentsPage() {
   const reloadInvites = useCallback(async () => setInvites(await fetchInvites()), []);
   useEffect(() => {
     fetchInvites().then(setInvites, (e) => setError(message(e)));
-    fetchStudents("").then(setStudents, (e) => setError(message(e)));
   }, []);
 
   async function act(fn: () => Promise<unknown>, done: string) {
@@ -127,30 +128,28 @@ export default function FranchiseStudentsPage() {
         {invites?.length === 0 && <p className="p-5 text-sm text-parchment-muted">No invitations yet.</p>}
       </section>
 
-      <section className="card">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5">
-          <h2 className="font-display text-lg font-semibold text-parchment">Your students {students ? `(${students.total})` : ""}</h2>
-          <form
-            className="flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              fetchStudents(q.trim()).then(setStudents, (err) => setError(message(err)));
-            }}
-          >
-            <input aria-label="Search students" className="input-field !w-56 text-sm" placeholder="Search by name" value={q} maxLength={100} onChange={(e) => setQ(e.target.value)} />
-            <button type="submit" className="btn-outline btn-sm" aria-label="Search"><Search className="h-4 w-4" /></button>
-          </form>
-        </div>
-        <ul className="mt-3 divide-y divide-white/5 text-sm">
-          {students?.students.map((s) => (
-            <li key={s.id} className="flex items-center justify-between px-5 py-3">
-              <Link href={`/franchise-partner/students/${s.id}`} className="font-medium text-parchment hover:underline">{s.name}</Link>
-              <span className="text-xs text-parchment-muted">Joined {formatDate(s.linkedAt)}</span>
-            </li>
-          ))}
-        </ul>
-        {students?.students.length === 0 && <p className="p-5 text-sm text-parchment-muted">No students yet. They appear here once they accept your invitation.</p>}
-      </section>
+      <PartnerTable<StudentRow>
+        endpoint="/franchise-partner/students"
+        rowsKey="students"
+        title="Your students"
+        searchPlaceholder="Search by name"
+        rowKey={(r) => r.id}
+        emptyText="No students yet. They appear here once they accept your invitation."
+        columns={[
+          {
+            header: "Student",
+            cell: (r) => (
+              <Link href={`/franchise-partner/students/${r.id}`} className="font-medium text-parchment hover:underline">
+                {r.name}
+              </Link>
+            ),
+          },
+          { header: "Reference", cell: (r) => <span className="font-mono text-xs text-parchment-muted">{r.reference}</span> },
+          { header: "Joined", cell: (r) => <span className="text-parchment-muted">{formatDate(r.linkedAt)}</span> },
+          { header: "Status", cell: (r) => <span className="text-emerald">{STUDENT_STATUS_LABEL[r.status] ?? r.status}</span> },
+          { header: "Courses", cell: (r) => <span className="text-parchment">{r.enrolledCourses}</span> },
+        ]}
+      />
     </div>
   );
 }

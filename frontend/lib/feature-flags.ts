@@ -12,5 +12,12 @@ export const franchisePublicEnabled = (value: string | undefined = process.env.N
 /** Franchise partner dashboard (/franchise-partner) and its navigation link. Independent of the public switch. */
 export const franchisePartnerEnabled = (value: string | undefined = process.env.NEXT_PUBLIC_FRANCHISE_PARTNER_ENABLED) => isSwitchOn(value);
 
+/**
+ * Display-only marker for previews that run on demonstration (synthetic, unverified) district data: the
+ * district lists say so and never call a district available. Grants nothing and changes no access rule.
+ * Never set it in production.
+ */
+export const franchiseDemoData = (value: string | undefined = process.env.NEXT_PUBLIC_FRANCHISE_DEMO_DATA) => isSwitchOn(value);
+
 /** Adds a link only when its feature is switched on (used for navigation lists). */
 export const withLinkIf = <T>(links: T[], link: T, enabled: boolean): T[] => (enabled ? [...links, link] : links);

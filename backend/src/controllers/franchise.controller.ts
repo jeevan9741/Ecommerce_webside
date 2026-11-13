@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError, param } from "../utils/http.js";
 import { rateLimit } from "../utils/rate-limit.js";
-import { intakeStatus, myApplication, myDocumentUrl, submitApplication, type UploadedFile } from "../services/franchise-application.service.js";
+import { intakeStatus, myApplication, myDocumentUrl, publishedRevenueShare, submitApplication, withdrawApplication, type UploadedFile } from "../services/franchise-application.service.js";
 import {
   adminLocations,
   applyImport,
@@ -20,7 +20,8 @@ import { requireAdminRead } from "../services/franchise-admin-guard.js";
 
 /** What the opportunity page and form need: whether intake is open and the published terms (never a guess). */
 export async function franchiseInfo(_req: Request, res: Response) {
-  res.json(await intakeStatus());
+  const [intake, revenueShare] = await Promise.all([intakeStatus(), publishedRevenueShare()]);
+  res.json({ ...intake, revenueShare });
 }
 
 export async function franchiseLocations(_req: Request, res: Response) {
@@ -41,6 +42,11 @@ export async function submitFranchiseApplication(req: Request, res: Response) {
 
 export async function myFranchiseApplication(req: Request, res: Response) {
   res.json({ application: await myApplication(currentUser(req).id) });
+}
+
+/** The applicant withdraws their own open application (never anyone else's: scoped to the caller). */
+export async function withdrawMyApplication(req: Request, res: Response) {
+  res.json(await withdrawApplication(currentUser(req).id, req.body));
 }
 
 export async function myFranchiseDocumentUrl(req: Request, res: Response) {

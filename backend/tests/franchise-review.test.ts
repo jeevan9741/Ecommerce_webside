@@ -53,6 +53,13 @@ async function makeUser(name: string, role: "USER" | "ADMIN" = "USER") {
 }
 
 /** A submitted application for a fresh applicant (one open application per account). */
+/** A district in a fresh test state (state-level rules: each conflict scenario gets its own state). */
+async function districtInNewState(label: string, isActive = true) {
+  const s = await prisma.indiaState.create({ data: { name: `${tag} ${label} State`, isActive: true } });
+  return (await prisma.district.create({ data: { stateId: s.id, name: `${tag} ${label}`, isActive } })).id;
+}
+const stateOf = async (districtId: string) => (await prisma.district.findUniqueOrThrow({ where: { id: districtId } })).stateId;
+
 async function makeApp(districtId: string, label = "app") {
   const n = ++seq;
   const user = await makeUser(`${label}${n}`);
@@ -63,7 +70,7 @@ async function makeApp(districtId: string, label = "app") {
       applicantName: `Applicant ${label} ${n}`,
       mobile: `9${String(700000000 + n)}`,
       email: user.email,
-      stateId: loc.stateId,
+      stateId: (await prisma.district.findUniqueOrThrow({ where: { id: districtId } })).stateId,
       districtId,
       address: `${n}, Test Street, Test Town`,
       requiredDocumentKinds: ["ID_PROOF"],
@@ -98,9 +105,11 @@ before(async () => {
   await makeUser("plain");
   const st = await prisma.indiaState.create({ data: { name: `${tag} State`, isActive: true } });
   loc.stateId = st.id;
-  for (const key of ["d1", "d2", "d3", "dHeld", "dOff"] as const) {
-    loc[key] = (await prisma.district.create({ data: { stateId: st.id, name: `${tag} ${key}`, isActive: key !== "dOff" } })).id;
+  for (const key of ["d1", "d2", "d3"] as const) {
+    loc[key] = (await prisma.district.create({ data: { stateId: st.id, name: `${tag} ${key}`, isActive: true } })).id;
   }
+  // One franchise per state: the held and the disabled districts each live in their own state.
+  for (const key of ["dHeld", "dOff"] as const) loc[key] = await districtInNewState(key, key !== "dOff");
 });
 
 after(async () => {
@@ -112,6 +121,8 @@ after(async () => {
       const districts = (await tx.district.findMany({ where: { name: { startsWith: tag } }, select: { id: true } })).map((d) => d.id);
       await tx.districtAllocationEvent.deleteMany({ where: { districtId: { in: districts } } });
       await tx.districtAllocation.deleteMany({ where: { districtId: { in: districts } } });
+      await tx.stateAllocationEvent.deleteMany({ where: { state: { name: { startsWith: tag } } } });
+      await tx.stateAllocation.deleteMany({ where: { state: { name: { startsWith: tag } } } });
       await tx.franchiseNotification.deleteMany({ where: { applicationId: { in: apps } } });
       await tx.franchiseApplicationNote.deleteMany({ where: { applicationId: { in: apps } } });
       await tx.franchiseApplicationStatusHistory.deleteMany({ where: { applicationId: { in: apps } } });
@@ -224,7 +235,7 @@ describe("status transitions", () => {
     ]);
     assert.equal(await prisma.auditLog.count({ where: { action: "FRANCHISE_APPLICATION_STATUS_CHANGED", target: app.id } }), 3);
     // No district allocation or reservation is created in this phase.
-    assert.equal(await prisma.districtAllocation.count({ where: { districtId: loc.d1 } }), 0);
+    assert.equal(await prisma.stateAllocation.count({ where: { stateId: loc.stateId } }), 0, "approval never reserves or closes the state by itself");
     // Applicant sees the status and the applicant note — never the internal note.
     const mine = await call("GET", "/franchise/applications/me", applicant);
     assert.equal(mine.body.application.status, "APPROVED");
@@ -240,7 +251,7 @@ describe("status transitions", () => {
   });
 
   test("forbidden moves are refused and change nothing", async () => {
-    const { app } = await makeApp(loc.d2, "forbid");
+    const { app } = await makeApp(await districtInNewState("forbid"), "forbid"); // approves: its own state
     const expect = async (label: string, body: Record<string, unknown>, status: number, code?: string) => {
       const r = await move(people.admA, app.id, body);
       assert.equal(r.status, status, `${label}: ${r.text}`);
@@ -323,47 +334,48 @@ describe("status transitions", () => {
   });
 });
 
-describe("district rule on approval (no allocation in this phase)", () => {
+describe("state rule on approval (approval never reserves or closes a state)", () => {
   const toReview = async (id: string) => assert.equal((await move(people.admA, id, { to: "UNDER_REVIEW", expectedVersion: 0 })).status, 200);
 
-  test("a second approval for the same district is refused; other districts are unaffected", async () => {
-    const district = (await prisma.district.create({ data: { stateId: loc.stateId, name: `${tag} solo`, isActive: true } })).id;
+  test("a second approval for the same STATE is refused (even in another district); other states are unaffected", async () => {
+    const district = await districtInNewState("solo");
+    const sameState = (await prisma.district.create({ data: { stateId: await stateOf(district), name: `${tag} solo-2`, isActive: true } })).id;
     const a = await makeApp(district, "dupA");
-    const b = await makeApp(district, "dupB");
+    const b = await makeApp(sameState, "dupB");
     await toReview(a.app.id);
     await toReview(b.app.id);
     assert.equal((await move(people.admA, a.app.id, { to: "APPROVED", expectedVersion: 1 })).status, 200);
     const second = await move(people.admB, b.app.id, { to: "APPROVED", expectedVersion: 1 });
-    assert.deepEqual([second.status, second.body.code], [409, "DISTRICT_ALREADY_APPROVED"]);
+    assert.deepEqual([second.status, second.body.code], [409, "STATE_ALREADY_APPROVED"]);
     assert.match(second.body.error, new RegExp(a.app.applicationNo));
     const detail = await call("GET", `${A}/${b.app.id}`, people.admA);
-    assert.equal(detail.body.application.district.approvedApplicationNo, a.app.applicationNo);
+    assert.equal(detail.body.application.territory.approvedApplicationNo, a.app.applicationNo);
     // B can still be rejected.
-    assert.equal((await move(people.admB, b.app.id, { to: "REJECTED", expectedVersion: 1, rejectionReason: "District already has an approved partner." })).status, 200);
-    assert.equal(await prisma.districtAllocation.count({ where: { districtId: district } }), 0);
+    assert.equal((await move(people.admB, b.app.id, { to: "REJECTED", expectedVersion: 1, rejectionReason: "State already has an approved partner." })).status, 200);
+    assert.equal(await prisma.stateAllocation.count({ where: { stateId: await stateOf(district) } }), 0);
   });
 
-  test("two approvals for one district at the same moment: exactly one wins (per-district lock)", async () => {
-    const district = (await prisma.district.create({ data: { stateId: loc.stateId, name: `${tag} race`, isActive: true } })).id;
+  test("two approvals for one state at the same moment: exactly one wins (per-state lock)", async () => {
+    const district = await districtInNewState("race");
     const apps = [await makeApp(district, "lockA"), await makeApp(district, "lockB"), await makeApp(district, "lockC")];
     for (const x of apps) await toReview(x.app.id);
     const results = await Promise.all(apps.map((x, i) => move(i % 2 ? people.admB : people.admA, x.app.id, { to: "APPROVED", expectedVersion: 1 })));
     assert.deepEqual(results.map((r) => r.status).sort(), [200, 409, 409], JSON.stringify(results.map((r) => r.body)));
-    assert.ok(results.filter((r) => r.status === 409).every((r) => r.body.code === "DISTRICT_ALREADY_APPROVED"));
+    assert.ok(results.filter((r) => r.status === 409).every((r) => r.body.code === "STATE_ALREADY_APPROVED"));
     assert.equal(await prisma.franchiseApplication.count({ where: { districtId: district, status: "APPROVED" } }), 1);
   });
 
-  test("held or disabled districts can't be approved", async () => {
+  test("a reserved state, or a disabled centre district, can't be approved", async () => {
     const held = await makeApp(loc.dHeld, "held");
     const holder = await makeApp(loc.dHeld, "holder");
-    await prisma.districtAllocation.create({ data: { districtId: loc.dHeld, status: "RESERVED", reservedAt: new Date(), applicationId: holder.app.id, createdById: people.admA.id } });
+    await prisma.stateAllocation.create({ data: { stateId: await stateOf(loc.dHeld), status: "RESERVED", reservedAt: new Date(), applicationId: holder.app.id, createdById: people.admA.id } });
     await toReview(held.app.id);
     const r1 = await move(people.admA, held.app.id, { to: "APPROVED", expectedVersion: 1 });
-    assert.deepEqual([r1.status, r1.body.code], [409, "DISTRICT_UNAVAILABLE"]);
+    assert.deepEqual([r1.status, r1.body.code], [409, "STATE_RESERVED"]);
     const off = await makeApp(loc.dOff, "off");
     await toReview(off.app.id);
     const r2 = await move(people.admA, off.app.id, { to: "APPROVED", expectedVersion: 1 });
-    assert.deepEqual([r2.status, r2.body.code], [409, "DISTRICT_DISABLED"]);
+    assert.deepEqual([r2.status, r2.body.code], [409, "LOCATION_DISABLED"]);
     assert.equal(await version(off.app.id), 1, "nothing changed");
   });
 });

@@ -1,7 +1,7 @@
 // Run with `npm test` (Node strips the TypeScript types of the imported module).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { franchisePublicEnabled, isSwitchOn, withLinkIf } from "../lib/feature-flags.ts";
+import { franchiseDemoData, franchisePublicEnabled, isSwitchOn, withLinkIf } from "../lib/feature-flags.ts";
 
 test("a switch is on only for an explicit \"true\" (any case, trimmed)", () => {
   for (const v of ["true", "TRUE", " True "]) assert.equal(isSwitchOn(v), true, JSON.stringify(v));
@@ -26,4 +26,11 @@ test("navigation: the Franchise link is added only when the feature is on", () =
   const FR = { href: "/franchise", label: "Franchise" };
   assert.deepEqual(withLinkIf([HOME], FR, false), [HOME]);
   assert.deepEqual(withLinkIf([HOME], FR, true), [HOME, FR]);
+});
+
+test("the demonstration-data marker is OFF by default and ON only when set to true", () => {
+  assert.equal(franchiseDemoData(undefined), false);
+  assert.equal(franchiseDemoData(""), false);
+  assert.equal(franchiseDemoData("yes"), false);
+  assert.equal(franchiseDemoData("true"), true);
 });

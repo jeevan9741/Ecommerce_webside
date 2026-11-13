@@ -43,17 +43,19 @@ async function makeUser(name: string, role: "USER" | "ADMIN" = "USER") {
 
 async function makePartner(name: string) {
   const user = await makeUser(name);
-  const districtId = (await prisma.district.create({ data: { stateId, name: `${tag} ${name}`, isActive: true } })).id;
+  // One franchise per state: every test partner gets its own test state.
+  const partnerStateId = (await prisma.indiaState.create({ data: { name: `${tag} ${name} State`, isActive: true } })).id;
+  const districtId = (await prisma.district.create({ data: { stateId: partnerStateId, name: `${tag} ${name}`, isActive: true } })).id;
   const app = await prisma.franchiseApplication.create({
     data: {
       applicationNo: `ZT-${short}-${String(++seq).padStart(4, "0")}`, userId: user.id, status: "ACTIVE_FRANCHISE", applicantName: name, mobile: `9${String(400000000 + seq)}`,
-      email: user.email, stateId, districtId, address: "1, Test Street", requiredDocumentKinds: ["ID_PROOF"], refundPolicyVersion: 1, refundPolicyText: "test", refundPolicySha256: "a".repeat(64),
+      email: user.email, stateId: partnerStateId, districtId, address: "1, Test Street", requiredDocumentKinds: ["ID_PROOF"], refundPolicyVersion: 1, refundPolicyText: "test", refundPolicySha256: "a".repeat(64),
     },
   });
   const partner = await prisma.franchisePartner.create({
     data: { userId: user.id, applicationId: app.id, franchiseCode: `FR-ZT${short}${seq}`, districtId, status: "ACTIVE", agreementStartsAt: new Date(Date.now() - DAY), agreementEndsAt: new Date(Date.now() + 365 * DAY) },
   });
-  await prisma.districtAllocation.create({ data: { districtId, partnerId: partner.id, applicationId: app.id, status: "ALLOCATED", allocatedAt: new Date(), createdById: people.admA.id } });
+  await prisma.stateAllocation.create({ data: { stateId: partnerStateId, partnerId: partner.id, applicationId: app.id, status: "ALLOCATED", allocatedAt: new Date(), createdById: people.admA.id } });
   return { user, partner };
 }
 
@@ -106,6 +108,9 @@ after(async () => {
       await tx.supportTicketMessage.deleteMany({ where: { ticketId: { in: tickets } } });
       await tx.supportTicket.deleteMany({ where: { id: { in: tickets } } });
       await tx.districtAllocation.deleteMany({ where: { districtId: { in: districts } } });
+      // State-level exclusivity rows (guarded; removable only in logged maintenance mode).
+      await tx.stateAllocationEvent.deleteMany({ where: { state: { name: { startsWith: tag } } } });
+      await tx.stateAllocation.deleteMany({ where: { state: { name: { startsWith: tag } } } });
       await tx.franchisePartner.deleteMany({ where: { id: { in: partners } } });
       await tx.franchiseApplication.deleteMany({ where: { id: { in: apps } } });
       await tx.district.deleteMany({ where: { id: { in: districts } } });

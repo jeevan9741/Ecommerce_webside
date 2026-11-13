@@ -10,3 +10,11 @@ export const franchisePublicEnabled = () => isSwitchOn(process.env.FRANCHISE_PUB
 
 /** Franchise partner dashboard API (/api/franchise-partner/*). Independent of the public switch. */
 export const franchisePartnerEnabled = () => isSwitchOn(process.env.FRANCHISE_PARTNER_ENABLED);
+
+/**
+ * Admin two-step verification is ON unless ADMIN_MFA_ENFORCEMENT is exactly "off" — and it can never be
+ * turned off when NODE_ENV=production. "off" exists only so older local test suites, whose admin fixtures
+ * predate MFA, keep running; the MFA suite runs with it on.
+ */
+export const adminMfaEnforced = () =>
+  process.env.NODE_ENV === "production" || (process.env.ADMIN_MFA_ENFORCEMENT ?? "").trim().toLowerCase() !== "off";

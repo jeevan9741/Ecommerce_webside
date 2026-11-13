@@ -18,6 +18,7 @@ mock.module("../src/services/email.service.js", {
 });
 const { createApp } = await import("../src/app.js");
 const { prisma } = await import("../src/config/prisma.js");
+import { endLinkFixture } from "./franchise-fixtures.js";
 const { signSessionToken } = await import("../src/utils/tokens.js");
 const { hashToken, RESEND_MIN_GAP_MS } = await import("../src/services/franchise-invite.service.js");
 
@@ -45,18 +46,20 @@ async function makeUser(name: string, opts: { role?: "USER" | "ADMIN"; verified?
 
 async function makePartner(name: string) {
   const user = await makeUser(name);
-  const districtId = (await prisma.district.create({ data: { stateId, name: `${tag} ${name}`, isActive: true } })).id;
+  // One franchise per state: every test partner gets its own test state.
+  const partnerStateId = (await prisma.indiaState.create({ data: { name: `${tag} ${name} State`, isActive: true } })).id;
+  const districtId = (await prisma.district.create({ data: { stateId: partnerStateId, name: `${tag} ${name}`, isActive: true } })).id;
   const app = await prisma.franchiseApplication.create({
     data: {
       applicationNo: `ZI-${short}-${String(++seq).padStart(4, "0")}`, userId: user.id, status: "ACTIVE_FRANCHISE", applicantName: name, mobile: `9${String(500000000 + seq)}`,
-      email: user.email, stateId, districtId, address: "1, Test Street", requiredDocumentKinds: ["ID_PROOF"], refundPolicyVersion: 1, refundPolicyText: "test", refundPolicySha256: "a".repeat(64),
+      email: user.email, stateId: partnerStateId, districtId, address: "1, Test Street", requiredDocumentKinds: ["ID_PROOF"], refundPolicyVersion: 1, refundPolicyText: "test", refundPolicySha256: "a".repeat(64),
     },
   });
   const now = Date.now();
   const partner = await prisma.franchisePartner.create({
     data: { userId: user.id, applicationId: app.id, franchiseCode: `FR-ZI${short}${seq}`, districtId, status: "ACTIVE", agreementStartsAt: new Date(now - DAY), agreementEndsAt: new Date(now + 365 * DAY) },
   });
-  await prisma.districtAllocation.create({ data: { districtId, partnerId: partner.id, applicationId: app.id, status: "ALLOCATED", allocatedAt: new Date(), createdById: people.adm.id } });
+  await prisma.stateAllocation.create({ data: { stateId: partnerStateId, partnerId: partner.id, applicationId: app.id, status: "ALLOCATED", allocatedAt: new Date(), createdById: people.adm.id } });
   return { user, partner };
 }
 
@@ -111,6 +114,9 @@ after(async () => {
       await tx.franchiseStudentInvite.deleteMany({ where: { partnerId: { in: partners } } });
       await tx.franchiseStudent.deleteMany({ where: { id: { in: links } } });
       await tx.districtAllocation.deleteMany({ where: { districtId: { in: districts } } });
+      // State-level exclusivity rows (guarded; removable only in logged maintenance mode).
+      await tx.stateAllocationEvent.deleteMany({ where: { state: { name: { startsWith: tag } } } });
+      await tx.stateAllocation.deleteMany({ where: { state: { name: { startsWith: tag } } } });
       await tx.franchisePartner.deleteMany({ where: { id: { in: partners } } });
       await tx.franchiseApplication.deleteMany({ where: { id: { in: apps } } });
       await tx.district.deleteMany({ where: { id: { in: districts } } });
@@ -362,7 +368,7 @@ describe("own students (no cross-franchise access)", () => {
     assert.equal((await call("GET", "/franchise-partner/students/does-not-exist", C.user)).status, 404);
     assert.equal((await call("GET", `/franchise-partner/students/${link}`, student)).status, 403, "students can't use the partner API");
     assert.equal((await call("GET", `/franchise-partner/students/${link}`, people.adm)).status, 403, "admins can't use the partner API");
-    await prisma.franchiseStudent.update({ where: { id: link }, data: { status: "ENDED", endsAt: new Date(), endReason: "test" } });
+    await endLinkFixture(prisma, link);
     assert.equal((await call("GET", `/franchise-partner/students/${link}`, C.user)).status, 404, "ended links are hidden");
   });
 });

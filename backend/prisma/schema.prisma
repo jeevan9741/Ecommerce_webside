@@ -125,30 +125,33 @@ model User {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  preferredLanguage     Language?              @relation("PreferredLanguage", fields: [preferredLanguageId], references: [id])
-  orders                Order[]                @relation("CustomerOrders")
-  referredOrders        Order[]                @relation("ReferrerOrders")
-  courseAccess          CourseAccess[]
-  commissions           CommissionLedger[]
-  payoutMethods         PayoutMethod[]
-  withdrawalRequests    WithdrawalRequest[]
-  referralClaims        ReferralClaim[]
-  partnerCard           PartnerCard?
-  videoProgress         VideoProgress[]
-  auditLogs             AuditLog[]
-  courseCertificates    CourseCertificate[]
-  franchiseApplications FranchiseApplication[]
-  franchisePartner      FranchisePartner?
-  franchiseStudentLinks FranchiseStudent[]     @relation("FranchiseStudentUser")
-  franchiseInvitesAccepted FranchiseStudentInvite[] @relation("InviteAcceptedBy")
-  supportTicketsOpened  SupportTicket[]        @relation("TicketOpenedBy")
-  supportTicketsClosed  SupportTicket[]        @relation("TicketClosedBy")
-  supportTicketMessages SupportTicketMessage[] @relation("TicketMessageAuthor")
-  supportTicketEvents   SupportTicketEvent[]   @relation("TicketEventActor")
-  policiesCreated       PolicyVersion[]        @relation("PolicyCreatedBy")
-  policiesApproved      PolicyVersion[]        @relation("PolicyApprovedBy")
-  approvalsRequested    AdminApprovalRequest[] @relation("ApprovalRequestedBy")
-  approvalsDecided      AdminApprovalRequest[] @relation("ApprovalDecidedBy")
+  preferredLanguage        Language?                          @relation("PreferredLanguage", fields: [preferredLanguageId], references: [id])
+  orders                   Order[]                            @relation("CustomerOrders")
+  referredOrders           Order[]                            @relation("ReferrerOrders")
+  courseAccess             CourseAccess[]
+  commissions              CommissionLedger[]
+  payoutMethods            PayoutMethod[]
+  withdrawalRequests       WithdrawalRequest[]
+  referralClaims           ReferralClaim[]
+  partnerCard              PartnerCard?
+  videoProgress            VideoProgress[]
+  auditLogs                AuditLog[]
+  courseCertificates       CourseCertificate[]
+  franchiseApplications    FranchiseApplication[]
+  privacyNoticeAcceptances FranchisePrivacyNoticeAcceptance[]
+  franchisePartner         FranchisePartner?
+  franchiseStudentLinks    FranchiseStudent[]                 @relation("FranchiseStudentUser")
+  franchiseInvitesAccepted FranchiseStudentInvite[]           @relation("InviteAcceptedBy")
+  supportTicketsOpened     SupportTicket[]                    @relation("TicketOpenedBy")
+  supportTicketsClosed     SupportTicket[]                    @relation("TicketClosedBy")
+  supportTicketMessages    SupportTicketMessage[]             @relation("TicketMessageAuthor")
+  supportTicketEvents      SupportTicketEvent[]               @relation("TicketEventActor")
+  policiesCreated          PolicyVersion[]                    @relation("PolicyCreatedBy")
+  policiesApproved         PolicyVersion[]                    @relation("PolicyApprovedBy")
+  approvalsRequested       AdminApprovalRequest[]             @relation("ApprovalRequestedBy")
+  approvalsDecided         AdminApprovalRequest[]             @relation("ApprovalDecidedBy")
+  /// Admin two-factor authentication (TOTP) enrolments; at most one not disabled at a time.
+  mfaFactors               AdminMfaFactor[]
 
   @@index([referralCode])
 }
@@ -815,6 +818,8 @@ enum FranchiseApplicationStatus {
   AGREEMENT_PENDING
   ACTIVE_FRANCHISE
   REJECTED
+  /// The applicant withdrew it. Never closes or holds a state.
+  WITHDRAWN
 }
 
 enum FranchiseDocumentKind {
@@ -916,6 +921,14 @@ enum AdminApprovalAction {
   BENEFICIARY_CHANGE
   PARTNER_REINSTATE
   PARTNER_DEACTIVATE
+  /// Two-admin release of a state held by a deactivated or expired franchise (reopens the state).
+  STATE_RELEASE
+  /// Two-admin move of a student from one franchise to another (requested by one admin, approved by another).
+  STUDENT_REASSIGN
+  /// Two-admin end of a student's franchise assignment.
+  STUDENT_ASSIGNMENT_END
+  /// Two-admin reset of another admin's MFA (lost device and recovery codes); neither approver may be the target.
+  ADMIN_MFA_RESET
   SETTLEMENT_BATCH_APPROVE
   PAYOUT_PROVIDER_ACTIVATE
   RESERVE_RELEASE_MANUAL
@@ -1107,13 +1120,14 @@ model PolicyVersion {
   approvedBy      User?                 @relation("PolicyApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
   approvalRequest AdminApprovalRequest? @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict)
 
-  journals          LedgerJournal[]
-  feePayments       FranchisePayment[]
-  agreements        FranchiseAgreement[]
-  settlementBatches SettlementBatch[]
-  schedules         SettlementSchedule[]
-  tdsDeductions     TdsDeduction[]
-  gstInvoices       GstInvoice[]
+  journals           LedgerJournal[]
+  feePayments        FranchisePayment[]
+  agreements         FranchiseAgreement[]
+  settlementBatches  SettlementBatch[]
+  schedules          SettlementSchedule[]
+  tdsDeductions      TdsDeduction[]
+  gstInvoices        GstInvoice[]
+  privacyAcceptances FranchisePrivacyNoticeAcceptance[]
 
   @@unique([domain, version])
   @@index([domain, status])
@@ -1143,7 +1157,11 @@ model AdminApprovalRequest {
   requestedBy User  @relation("ApprovalRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
   decidedBy   User? @relation("ApprovalDecidedBy", fields: [decidedById], references: [id], onDelete: Restrict)
 
-  policy PolicyVersion?
+  policy           PolicyVersion?
+  /// The student link an executed STUDENT_REASSIGN request created.
+  studentLink      FranchiseStudent?
+  /// The student link an executed STUDENT_REASSIGN or STUDENT_ASSIGNMENT_END request ended.
+  endedStudentLink FranchiseStudent? @relation("StudentLinkEndApproval")
 
   @@index([status, action])
   @@index([targetType, targetId])
@@ -1160,8 +1178,10 @@ model IndiaState {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  districts    District[]
-  applications FranchiseApplication[]
+  districts        District[]
+  applications     FranchiseApplication[]
+  allocations      StateAllocation[]
+  allocationEvents StateAllocationEvent[]
 }
 
 model District {
@@ -1215,6 +1235,56 @@ model DistrictAllocation {
 }
 
 /// Append-only history of every allocation change.
+/// State-level exclusivity (replaces district exclusivity as the business rule): one PRIMARY franchise per
+/// Indian state. RESERVED, ALLOCATED and SUSPENDED hold the state — enforced by a partial unique index —
+/// and RELEASED frees it, only through a two-admin release with a reason. Rows are never deleted.
+model StateAllocation {
+  id                String                   @id @default(cuid())
+  stateId           String
+  role              DistrictAllocationRole   @default(PRIMARY)
+  status            DistrictAllocationStatus
+  applicationId     String?
+  partnerId         String?
+  reservedAt        DateTime?
+  reservedUntil     DateTime?
+  allocatedAt       DateTime?
+  suspendedAt       DateTime?
+  releasedAt        DateTime?
+  releaseReason     String?
+  createdById       String
+  approvalRequestId String?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  state       IndiaState             @relation(fields: [stateId], references: [id], onDelete: Restrict)
+  application FranchiseApplication?  @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  partner     FranchisePartner?      @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  events      StateAllocationEvent[]
+
+  @@index([stateId, status])
+  @@index([partnerId])
+  @@index([applicationId])
+}
+
+/// Append-only history of every state allocation change.
+model StateAllocationEvent {
+  id                String                    @id @default(cuid())
+  allocationId      String
+  stateId           String
+  fromStatus        DistrictAllocationStatus?
+  toStatus          DistrictAllocationStatus
+  actorId           String?
+  approvalRequestId String?
+  reason            String?
+  createdAt         DateTime                  @default(now())
+
+  allocation StateAllocation @relation(fields: [allocationId], references: [id], onDelete: Restrict)
+  state      IndiaState      @relation(fields: [stateId], references: [id], onDelete: Restrict)
+
+  @@index([stateId, createdAt])
+  @@index([allocationId, createdAt])
+}
+
 model DistrictAllocationEvent {
   id                String                    @id @default(cuid())
   allocationId      String
@@ -1257,9 +1327,10 @@ model FranchiseApplication {
   /// Document requirements in force when the application was submitted.
   requiredDocumentKinds FranchiseDocumentKind[]
   /// The exact refund policy the applicant acknowledged when submitting.
-  refundPolicyVersion   Int
-  refundPolicyText      String
-  refundPolicySha256    String
+  /// Optional since 2026-11: no customer-facing refund policy. Older applications keep what they recorded.
+  refundPolicyVersion   Int?
+  refundPolicyText      String?
+  refundPolicySha256    String?
   rejectionReason       String?
   rejectedAt            DateTime?
   approvedAt            DateTime?
@@ -1269,23 +1340,51 @@ model FranchiseApplication {
   submittedAt           DateTime                   @default(now())
   updatedAt             DateTime                   @updatedAt
 
-  user             User                                @relation(fields: [userId], references: [id], onDelete: Restrict)
-  state            IndiaState                          @relation(fields: [stateId], references: [id], onDelete: Restrict)
-  district         District                            @relation(fields: [districtId], references: [id], onDelete: Restrict)
-  documents        FranchiseApplicationDocument[]
-  documentRequests FranchiseDocumentRequest[]
-  history          FranchiseApplicationStatusHistory[]
-  notes            FranchiseApplicationNote[]
-  interviews       FranchiseInterview[]
-  payments         FranchisePayment[]
-  agreement        FranchiseAgreement?
-  partner          FranchisePartner?
-  notifications    FranchiseNotification[]
-  allocations      DistrictAllocation[]
+  user               User                                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  state              IndiaState                          @relation(fields: [stateId], references: [id], onDelete: Restrict)
+  district           District                            @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  documents          FranchiseApplicationDocument[]
+  documentRequests   FranchiseDocumentRequest[]
+  history            FranchiseApplicationStatusHistory[]
+  notes              FranchiseApplicationNote[]
+  interviews         FranchiseInterview[]
+  payments           FranchisePayment[]
+  agreement          FranchiseAgreement?
+  partner            FranchisePartner?
+  notifications      FranchiseNotification[]
+  allocations        DistrictAllocation[]
+  stateAllocations   StateAllocation[]
+  privacyAcceptances FranchisePrivacyNoticeAcceptance[]
 
   @@index([userId])
   @@index([status, submittedAt])
   @@index([stateId, districtId, status])
+}
+
+/// Append-only evidence that the applicant explicitly accepted a specific privacy notice version when
+/// applying. The notice text lives in the (immutable) COMMERCIAL policy version referenced here; its
+/// SHA-256 pins the exact wording accepted. A later notice is a new row — rows are never changed or
+/// deleted. No IP address or device data is stored.
+model FranchisePrivacyNoticeAcceptance {
+  id              String   @id @default(cuid())
+  applicationId   String
+  userId          String
+  policyVersionId String
+  /// The COMMERCIAL policy version number that carried the accepted notice.
+  noticeVersion   Int
+  noticeSha256    String
+  /// How acceptance was given: the applicant ticked the unticked-by-default acceptance box.
+  method          String   @default("EXPLICIT_CHECKBOX")
+  /// Server time of acceptance (stored in UTC).
+  acceptedAt      DateTime @default(now())
+
+  application   FranchiseApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  policyVersion PolicyVersion        @relation(fields: [policyVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([applicationId, policyVersionId])
+  @@index([userId])
+  @@index([policyVersionId])
 }
 
 /// Append-only: a replacement is a new row. Files live only in the private Blob store.
@@ -1603,25 +1702,26 @@ model FranchisePartner {
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
 
-  user            User                        @relation(fields: [userId], references: [id], onDelete: Restrict)
-  application     FranchiseApplication        @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  district        District                    @relation(fields: [districtId], references: [id], onDelete: Restrict)
-  events          FranchisePartnerEvent[]
-  allocations     DistrictAllocation[]
-  renewals        FranchiseRenewal[]
-  students        FranchiseStudent[]
-  studentInvites  FranchiseStudentInvite[]
-  supportTickets  SupportTicket[]
-  attributions    FranchiseOrderAttribution[]
-  ledgerAccounts  LedgerAccount[]
-  earningsLots    EarningsLot[]
-  reserveLots     ReserveLot[]
-  taxProfile      PartnerTaxProfile?
-  tdsDeductions   TdsDeduction[]
-  tdsCertificates TdsCertificate[]
-  beneficiaries   PayoutBeneficiary[]
-  settlementLines SettlementLine[]
-  payouts         FranchisePayout[]
+  user             User                        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  application      FranchiseApplication        @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  district         District                    @relation(fields: [districtId], references: [id], onDelete: Restrict)
+  events           FranchisePartnerEvent[]
+  allocations      DistrictAllocation[]
+  stateAllocations StateAllocation[]
+  renewals         FranchiseRenewal[]
+  students         FranchiseStudent[]
+  studentInvites   FranchiseStudentInvite[]
+  supportTickets   SupportTicket[]
+  attributions     FranchiseOrderAttribution[]
+  ledgerAccounts   LedgerAccount[]
+  earningsLots     EarningsLot[]
+  reserveLots      ReserveLot[]
+  taxProfile       PartnerTaxProfile?
+  tdsDeductions    TdsDeduction[]
+  tdsCertificates  TdsCertificate[]
+  beneficiaries    PayoutBeneficiary[]
+  settlementLines  SettlementLine[]
+  payouts          FranchisePayout[]
 
   @@index([districtId, status])
   @@index([status])
@@ -1649,21 +1749,27 @@ model FranchisePartnerEvent {
 /// Which partner a student belongs to (scope and transfer rules PENDING). A transfer ends one row
 /// and starts another; only one ACTIVE row per student (partial unique index).
 model FranchiseStudent {
-  id            String                     @id @default(cuid())
-  partnerId     String
-  studentUserId String
-  status        FranchiseAttributionStatus @default(ACTIVE)
-  source        String
-  startsAt      DateTime                   @default(now())
-  endsAt        DateTime?
-  endReason     String?
-  createdById   String
-  createdAt     DateTime                   @default(now())
+  id                   String                     @id @default(cuid())
+  partnerId            String
+  studentUserId        String
+  status               FranchiseAttributionStatus @default(ACTIVE)
+  source               String
+  startsAt             DateTime                   @default(now())
+  endsAt               DateTime?
+  endReason            String?
+  createdById          String
+  createdAt            DateTime                   @default(now())
+  /// Set only on links created by a two-admin STUDENT_REASSIGN (source ADMIN_REASSIGNMENT); checked by a trigger.
+  approvalRequestId    String?                    @unique
+  /// The two-admin request that ended this link (a trigger requires one for every ACTIVE → ENDED move).
+  endApprovalRequestId String?                    @unique
 
-  partner      FranchisePartner            @relation(fields: [partnerId], references: [id], onDelete: Restrict)
-  student      User                        @relation("FranchiseStudentUser", fields: [studentUserId], references: [id], onDelete: Restrict)
-  attributions FranchiseOrderAttribution[]
-  invite       FranchiseStudentInvite?
+  partner            FranchisePartner            @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  approvalRequest    AdminApprovalRequest?       @relation(fields: [approvalRequestId], references: [id], onDelete: Restrict)
+  endApprovalRequest AdminApprovalRequest?       @relation("StudentLinkEndApproval", fields: [endApprovalRequestId], references: [id], onDelete: Restrict)
+  student            User                        @relation("FranchiseStudentUser", fields: [studentUserId], references: [id], onDelete: Restrict)
+  attributions       FranchiseOrderAttribution[]
+  invite             FranchiseStudentInvite?
 
   @@index([partnerId, status])
   @@index([studentUserId])
@@ -2170,4 +2276,42 @@ model SupportTicketEvent {
   actor  User          @relation("TicketEventActor", fields: [actorId], references: [id], onDelete: Restrict)
 
   @@index([ticketId, createdAt])
+}
+
+// ---------- Admin two-factor authentication (TOTP, RFC 6238) ----------
+
+/// One enrolment of an authenticator app for an ADMIN. The shared secret is stored only encrypted
+/// (AES-256-GCM with APP_ENCRYPTION_KEY). A row is pending until enabledAt is set and is retired (never
+/// deleted) by disabledAt; a partial unique index allows one not-disabled factor per user.
+model AdminMfaFactor {
+  id              String    @id @default(cuid())
+  userId          String
+  secretEncrypted String
+  createdAt       DateTime  @default(now())
+  enabledAt       DateTime?
+  disabledAt      DateTime?
+  disabledReason  String?
+  /// The last accepted 30-second time step; a code from this step or earlier is refused (no replay).
+  lastUsedStep    Int?
+  failedAttempts  Int       @default(0)
+  lockedUntil     DateTime?
+
+  user          User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  recoveryCodes AdminMfaRecoveryCode[]
+
+  @@index([userId])
+}
+
+/// One-time recovery codes for a factor; only a SHA-256 hash is stored. Used or revoked codes are kept.
+model AdminMfaRecoveryCode {
+  id        String    @id @default(cuid())
+  factorId  String
+  codeHash  String    @unique
+  createdAt DateTime  @default(now())
+  usedAt    DateTime?
+  revokedAt DateTime?
+
+  factor AdminMfaFactor @relation(fields: [factorId], references: [id], onDelete: Restrict)
+
+  @@index([factorId])
 }

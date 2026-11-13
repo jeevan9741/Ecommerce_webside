@@ -11,8 +11,14 @@ import type { PolicyDomain } from "@prisma/client";
  * in a later schema version once the decision is approved.
  */
 
-/** 2: COMMERCIAL gains applicationIntake and documentRequirements (Phase 4). */
-export const POLICY_SCHEMA_VERSION = 2;
+/**
+ * 2: COMMERCIAL gains applicationIntake and documentRequirements (Phase 4).
+ * 3: COMMERCIAL gains privacyNotice — the versioned applicant privacy notice that must be accepted
+ *    before an application is accepted. Older payloads are upgraded with it PENDING (form stays closed).
+ * 4: territory rule becomes ONE_PRIMARY_PER_STATE (state-level exclusivity); older payloads' district rule
+ *    is upgraded to it. The fee refund policy is no longer required to open applications.
+ */
+export const POLICY_SCHEMA_VERSION = 4;
 export const PENDING = { status: "PENDING" } as const;
 export type Pending = typeof PENDING;
 
@@ -34,6 +40,8 @@ const commercial = z
     agreementTemplate: pending,
     eSignProvider: pending,
     feeRefundPolicy: pendingOr(z.object({ text: z.string().trim().min(20).max(20_000) }).strict()),
+    /** Applicant privacy notice, shown in full and explicitly accepted before applying. PENDING until approved. */
+    privacyNotice: pendingOr(z.object({ text: z.string().trim().min(20).max(20_000) }).strict()),
     /** Whether new franchise applications are accepted. PENDING or CLOSED keeps the form closed. */
     applicationIntake: pendingOr(z.enum(["OPEN", "CLOSED"])),
     /** ID proof is always required; these three are configurable by admins (PENDING until decided). */
@@ -46,7 +54,8 @@ const commercial = z
         })
         .strict()
     ),
-    districtAllocation: z.literal("ONE_PRIMARY_PER_DISTRICT"),
+    /** The territory rule (key kept for history): one primary franchise per Indian state. */
+    districtAllocation: z.literal("ONE_PRIMARY_PER_STATE"),
     districtReservationAndReassignment: pending,
     renewalTerms: pending,
   })
@@ -152,9 +161,10 @@ export const POLICY_FIELDS: Record<PolicyDomain, FieldDescriptor[]> = {
     d("agreementTemplate", "Agreement template", "pendingOnly", { help: "Pending legal approval" }),
     d("eSignProvider", "E-sign provider", "pendingOnly"),
     d("feeRefundPolicy", "Franchise fee refund policy (shown before application and payment)", "text", { pendingAllowed: true }),
+    d("privacyNotice", "Applicant privacy notice (read and accepted before applying)", "text", { pendingAllowed: true, help: "Pending legal approval" }),
     d("applicationIntake", "New franchise applications", "enum", { pendingAllowed: true, options: ["OPEN", "CLOSED"], help: "The application form stays closed unless this is OPEN" }),
     d("documentRequirements", "Application documents (ID proof is always required)", "documents", { pendingAllowed: true, options: ["REQUIRED", "OPTIONAL", "NOT_REQUESTED"] }),
-    d("districtAllocation", "District allocation", "fixed", { options: ["ONE_PRIMARY_PER_DISTRICT"] }),
+    d("districtAllocation", "Territory rule (one primary franchise per state)", "fixed", { options: ["ONE_PRIMARY_PER_STATE"] }),
     d("districtReservationAndReassignment", "District reservation and reassignment policy", "pendingOnly"),
     d("renewalTerms", "Renewal terms", "pendingOnly"),
   ],
@@ -202,9 +212,10 @@ export const APPROVED_STARTING_VALUES: Record<PolicyDomain, Record<string, unkno
     agreementTemplate: PENDING,
     eSignProvider: PENDING,
     feeRefundPolicy: PENDING,
+    privacyNotice: PENDING,
     applicationIntake: PENDING,
     documentRequirements: PENDING,
-    districtAllocation: "ONE_PRIMARY_PER_DISTRICT",
+    districtAllocation: "ONE_PRIMARY_PER_STATE",
     districtReservationAndReassignment: PENDING,
     renewalTerms: PENDING,
   },
@@ -261,7 +272,7 @@ export type GatedFeature = "FRANCHISE_APPLICATIONS" | "FRANCHISE_FEE_PAYMENT" | 
 
 export const FEATURE_REQUIREMENTS: Record<GatedFeature, { domain: PolicyDomain; fields: string[] }[]> = {
   // Also needs applicationIntake === "OPEN" (checked by the application service).
-  FRANCHISE_APPLICATIONS: [{ domain: "COMMERCIAL", fields: ["applicationIntake", "documentRequirements", "feeRefundPolicy"] }],
+  FRANCHISE_APPLICATIONS: [{ domain: "COMMERCIAL", fields: ["applicationIntake", "documentRequirements", "privacyNotice"] }],
   FRANCHISE_FEE_PAYMENT: [{ domain: "COMMERCIAL", fields: ["franchiseFeeInPaise", "franchiseFeeGst", "feeRefundPolicy", "agreementTemplate"] }],
   REVENUE_SHARE_POSTING: [
     { domain: "REVENUE_SHARE", fields: ["partnerShareBps", "etaShareBps", "netDistributableRevenueFormula", "courseSaleGstTreatment", "referralOverlap", "studentAttributionScope", "refundChargebackDebtRecovery"] },
@@ -283,6 +294,8 @@ export const FEATURE_REQUIREMENTS: Record<GatedFeature, { domain: PolicyDomain; 
  */
 export function upgradePayload(domain: PolicyDomain, payload: Record<string, unknown>) {
   const upgraded: Record<string, unknown> = { ...payload };
+  // Schema 4: the territory rule moved from districts to states.
+  if (domain === "COMMERCIAL" && upgraded.districtAllocation === "ONE_PRIMARY_PER_DISTRICT") upgraded.districtAllocation = "ONE_PRIMARY_PER_STATE";
   for (const f of POLICY_FIELDS[domain]) if (!(f.key in upgraded) && f.pendingAllowed) upgraded[f.key] = PENDING;
   return upgraded;
 }

@@ -14,6 +14,9 @@ import * as policy from "../controllers/policy.controller.js";
 import * as franchise from "../controllers/franchise.controller.js";
 import * as franchiseReview from "../controllers/franchise-review.controller.js";
 import * as franchisePartner from "../controllers/franchise-partner.controller.js";
+import * as franchiseState from "../controllers/franchise-state.controller.js";
+import * as franchiseAdmin from "../controllers/franchise-admin.controller.js";
+import * as adminMfa from "../controllers/admin-mfa.controller.js";
 
 const router = Router();
 
@@ -67,6 +70,40 @@ router.post("/admin/franchise/partners/:id/requests", asyncHandler(franchisePart
 router.post("/admin/franchise/partner-requests/:id/approve", asyncHandler(franchisePartner.adminApprovePartnerAction));
 router.post("/admin/franchise/partner-requests/:id/reject", asyncHandler(franchisePartner.adminRejectPartnerAction));
 router.post("/admin/franchise/partner-requests/:id/cancel", asyncHandler(franchisePartner.adminCancelPartnerAction));
+// State-level exclusivity: availability, history, temporary reservations and the two-admin reopen.
+router.get("/admin/franchise/states", asyncHandler(franchiseState.listStates));
+router.get("/admin/franchise/states/:id/history", asyncHandler(franchiseState.getStateHistory));
+router.post("/admin/franchise/states/:id/reopen-requests", asyncHandler(franchiseState.requestReopen));
+router.get("/admin/franchise/state-reopen-requests", asyncHandler(franchiseState.listReopenRequests));
+router.post("/admin/franchise/state-reopen-requests/:id/approve", asyncHandler(franchiseState.approveReopen));
+router.post("/admin/franchise/state-reopen-requests/:id/reject", asyncHandler(franchiseState.rejectReopen));
+router.post("/admin/franchise/state-reopen-requests/:id/cancel", asyncHandler(franchiseState.cancelReopen));
+router.post("/admin/franchise/applications/:id/reserve-state", asyncHandler(franchiseState.reserveApplicationState));
+router.post("/admin/franchise/applications/:id/release-reservation", asyncHandler(franchiseState.releaseApplicationReservation));
+
+// Admin security (behind requireAdmin, so an MFA-verified admin session): own recovery codes, and the
+// two-admin reset of another admin's two-step verification.
+router.post("/admin/security/mfa/recovery-codes", asyncHandler(adminMfa.postRecoveryCodes));
+router.get("/admin/security/admins", asyncHandler(adminMfa.getAdmins));
+router.post("/admin/security/admins/:id/mfa-reset-requests", asyncHandler(adminMfa.postResetRequest));
+router.get("/admin/security/mfa-reset-requests", asyncHandler(adminMfa.getResetRequests));
+router.post("/admin/security/mfa-reset-requests/:id/approve", asyncHandler(adminMfa.postResetApprove));
+router.post("/admin/security/mfa-reset-requests/:id/reject", asyncHandler(adminMfa.postResetReject));
+router.post("/admin/security/mfa-reset-requests/:id/cancel", asyncHandler(adminMfa.postResetCancel));
+
+// Franchise Management control centre: overview, student assignments, audit history, partner support history.
+router.get("/admin/franchise/overview", asyncHandler(franchiseAdmin.getOverview));
+router.get("/admin/franchise/student-assignments", asyncHandler(franchiseAdmin.getAssignments));
+// Moving a student to another franchise, and ending a student's assignment, are both two-admin: one admin
+// requests (with a reason), a different admin approves. Students join only by accepting an invitation.
+router.post("/admin/franchise/student-assignments/:id/reassign-requests", asyncHandler(franchiseAdmin.postReassignRequest));
+router.post("/admin/franchise/student-assignments/:id/end-requests", asyncHandler(franchiseAdmin.postEndRequest));
+router.get("/admin/franchise/student-assignment-requests", asyncHandler(franchiseAdmin.getAssignmentRequests));
+router.post("/admin/franchise/student-assignment-requests/:id/approve", asyncHandler(franchiseAdmin.postApproveAssignmentRequest));
+router.post("/admin/franchise/student-assignment-requests/:id/reject", asyncHandler(franchiseAdmin.postRejectAssignmentRequest));
+router.post("/admin/franchise/student-assignment-requests/:id/cancel", asyncHandler(franchiseAdmin.postCancelAssignmentRequest));
+router.get("/admin/franchise/audit", asyncHandler(franchiseAdmin.getAudit));
+router.get("/admin/franchise/partners/:id/support", asyncHandler(franchiseAdmin.getPartnerSupport));
 
 // Franchise support tickets (Phase 5F-3): every franchise's tickets; replies, internal notes, status.
 router.get("/admin/franchise/tickets", asyncHandler(franchisePartner.adminTicketList));

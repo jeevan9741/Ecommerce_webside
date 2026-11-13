@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, Loader2, Search } from "lucide-react";
 import { api } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
@@ -45,7 +46,9 @@ const message = (err: unknown) => (err instanceof Error ? err.message : "Somethi
 
 /** Admin list of franchise applications: minimal fields only; contact details are in the (audited) detail view. */
 export default function FranchiseApplicationsPage() {
-  const [filters, setFilters] = useState<Filters>(EMPTY);
+  // A status in the address (from the Franchise Overview links) pre-selects that filter.
+  const initialStatus = useSearchParams().get("status") ?? "";
+  const [filters, setFilters] = useState<Filters>(() => ({ ...EMPTY, status: (REVIEW_STATUSES as readonly string[]).includes(initialStatus) ? initialStatus : "" }));
   const [search, setSearch] = useState("");
   const [data, setData] = useState<ListResponse | null>(null);
   const [counts, setCounts] = useState<Record<string, number> | null>(null);
@@ -83,7 +86,7 @@ export default function FranchiseApplicationsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="font-display text-2xl font-semibold text-parchment">Franchise Applications</h1>
-        <p className="mt-1 text-sm text-parchment-muted">Review applications and record decisions. Approving doesn&apos;t reserve or allocate a district.</p>
+        <p className="mt-1 text-sm text-parchment-muted">Review applications and record decisions. Approving doesn&apos;t reserve or close a state, and never activates a franchise.</p>
       </div>
 
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filter by status">

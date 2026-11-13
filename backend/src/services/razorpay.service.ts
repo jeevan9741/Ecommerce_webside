@@ -1,5 +1,6 @@
 import Razorpay from "razorpay";
 import crypto from "crypto";
+import { liveCredentialProblemNow } from "./payment-safety.js";
 
 export class RazorpayConfigError extends Error {}
 
@@ -21,8 +22,12 @@ export function getRazorpayClient() {
     );
   }
   if (!key_id.startsWith("rzp_")) {
-    throw new RazorpayConfigError(`RAZORPAY_KEY_ID does not look like a Razorpay key (got: "${key_id.slice(0, 8)}...")`);
+    throw new RazorpayConfigError("RAZORPAY_KEY_ID does not look like a Razorpay key (expected rzp_test_… or rzp_live_…)");
   }
+  // Every payment path (orders, fetches, captures) gets its client here: LIVE or unrecognised keys are
+  // refused outside production even if the startup check was skipped or the environment has changed.
+  const live = liveCredentialProblemNow(key_id);
+  if (live) throw new RazorpayConfigError(live);
   return new Razorpay({ key_id, key_secret });
 }
 
