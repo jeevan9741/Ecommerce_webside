@@ -1,7 +1,7 @@
 // Run with `npm test` (Node strips the TypeScript types of the imported module).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applicationStepIssue, checkFile, formatBytes, formatRupees, isValidMobile, isValidPincode, normalizeMobile, normalizePincode, parseInvestment, requirementFor, stepIndex, MAX_DOCUMENT_BYTES } from "../lib/franchise-form.ts";
+import { applicationStepIssue, checkFile, EMAIL_CHANGE_HINT, formatBytes, formatRupees, isValidMobile, isValidPincode, normalizeMobile, normalizePincode, parseInvestment, requirementFor, stepIndex, MAX_DOCUMENT_BYTES } from "../lib/franchise-form.ts";
 
 test("mobile numbers: 10 digits starting 6-9, typed the ways people type them", () => {
   assert.equal(isValidMobile("9876543210"), true);
@@ -70,4 +70,8 @@ test("formatting and status order", () => {
 test("PIN code: six digits, not starting with 0 (the backend's rule)", () => {
   for (const ok of ["500001", "110001", " 560001 ", "999999"]) assert.equal(isValidPincode(ok), true, ok);
   for (const bad of ["", "012345", "50001", "5000011", "50A001", "500 00", "+500001"]) assert.equal(isValidPincode(bad), false, bad);
+});
+
+test("the locked email field explains how to use a different email", () => {
+  assert.equal(EMAIL_CHANGE_HINT, "To use a different email, sign in with that account.");
 });

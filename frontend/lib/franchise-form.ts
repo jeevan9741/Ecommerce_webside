@@ -59,6 +59,8 @@ export function isValidPincode(v: string): boolean {
 }
 
 export const PINCODE_MESSAGE = "Enter a valid 6-digit PIN code.";
+/** Under the locked email field: the application always uses the signed-in account's verified email. */
+export const EMAIL_CHANGE_HINT = "To use a different email, sign in with that account.";
 export const MOBILE_MESSAGE = "Enter a 10-digit Indian mobile number (for example 98765 43210).";
 
 /** Whole rupees, 0 to ₹1,00,00,00,000; commas and a leading ₹ are allowed. Empty means not given. */

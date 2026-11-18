@@ -13,6 +13,7 @@ import {
   applicationStepIssue,
   checkFile,
   DOCUMENT_FIELDS,
+  EMAIL_CHANGE_HINT,
   formatBytes,
   isValidMobile,
   isValidPincode,
@@ -191,7 +192,10 @@ export function FranchiseApplyForm({ email, defaultName, states, requirements, p
         <div>
           <label className="label-field" htmlFor="email">Email</label>
           <input id="email" value={email} readOnly className="input-field opacity-70" aria-describedby="email-note" />
-          <p id="email-note" className="mt-1 text-xs text-parchment-muted">Your verified account email. We&apos;ll send updates here.</p>
+          <p id="email-note" className="mt-1 text-xs text-parchment-muted">
+            Your verified account email. We&apos;ll send updates here.
+            <span className="block">{EMAIL_CHANGE_HINT}</span>
+          </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
