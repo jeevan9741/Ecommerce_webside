@@ -1,7 +1,7 @@
 // Run with `npm test` (Node strips the TypeScript types of the imported modules).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEMO_DISTRICTS_NOTICE, districtSummary, isDraftPolicyText, showApplicationLinks, stateSummary } from "../lib/franchise-landing.ts";
+import { DEMO_DISTRICTS_NOTICE, districtSummary, isDraftPolicyText, landingHeroLine, showApplicationLinks, stateSummary } from "../lib/franchise-landing.ts";
 import { applicationStepProblem, formatShareBps, APPLICATION_STEPS } from "../lib/franchise-form.ts";
 
 test("district summary: counts per state, states with an open district first, then by name", () => {
@@ -64,4 +64,10 @@ test("the demonstration notice uses the agreed wording", () => {
 test("'Check my application' links appear only while applications are open", () => {
   assert.equal(showApplicationLinks(false), false, "closed: no link that only leads to sign-in");
   assert.equal(showApplicationLinks(true), true, "open: applicants can follow their application");
+});
+
+test("/franchise hero invites applying only while applications are open", () => {
+  assert.equal(landingHeroLine(false), "Applications open soon. Each state will have one franchise partner, and our team reviews every application.");
+  assert.doesNotMatch(landingHeroLine(false), /\bApply\b/, "closed: no invitation to apply");
+  assert.equal(landingHeroLine(true), "We work with one primary franchise partner in each state. Apply for a state that is open, and our team reviews every application.");
 });

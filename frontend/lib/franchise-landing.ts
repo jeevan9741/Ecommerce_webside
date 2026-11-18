@@ -25,6 +25,12 @@ export function isDraftPolicyText(text: string | null | undefined): boolean {
  */
 export const showApplicationLinks = (applicationsOpen: boolean) => applicationsOpen;
 
+/** The /franchise hero line after its first sentence: an invitation to apply only once applications are open. */
+export const landingHeroLine = (applicationsOpen: boolean) =>
+  applicationsOpen
+    ? "We work with one primary franchise partner in each state. Apply for a state that is open, and our team reviews every application."
+    : "Applications open soon. Each state will have one franchise partner, and our team reviews every application.";
+
 /** The notice shown wherever demonstration (not officially verified) districts are listed. */
 export const DEMO_DISTRICTS_NOTICE = "Demonstration data only — district availability is not verified for applications.";
 

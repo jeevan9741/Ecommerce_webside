@@ -23,7 +23,7 @@ import { telHref, type ShownContact } from "@/lib/contact-values";
 import { franchiseDemoData, franchisePublicEnabled } from "@/lib/feature-flags";
 import { STATE_CLOSED_MESSAGE, type FranchiseInfo, type FranchiseState } from "@/lib/franchise";
 import { formatShareBps } from "@/lib/franchise-form";
-import { DEMO_DISTRICTS_NOTICE, showApplicationLinks, stateSummary } from "@/lib/franchise-landing";
+import { DEMO_DISTRICTS_NOTICE, landingHeroLine, showApplicationLinks, stateSummary } from "@/lib/franchise-landing";
 import { formatPaise } from "@/lib/policy-format";
 
 export const metadata = { title: "Become a Franchise Partner" };
@@ -86,8 +86,7 @@ async function FranchiseContent() {
               Become an ETA <span className="gold-text">Franchise Partner</span>
             </h1>
             <p className="mt-6 text-base leading-relaxed text-parchment-muted">
-              Bring E-Commerce Training Academy&apos;s practical e-commerce training to your state. We work with one primary franchise
-              partner in each state. Apply for a state that is open, and our team reviews every application.
+              Bring E-Commerce Training Academy&apos;s practical e-commerce training to your state. {landingHeroLine(open)}
             </p>
             <div className="mt-8 flex flex-wrap justify-center gap-3">
               <ApplyButton open={open} />

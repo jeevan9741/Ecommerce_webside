@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import { getSession, hasCourseAccess, ownedPackageTypes } from "@/lib/session";
 import { DashboardShell } from "@/components/dashboard/shell";
-import { franchisePublicEnabled } from "@/lib/feature-flags";
+import { getApplicationsOpen } from "@/lib/franchise-intake";
+import { dashboardApplicationLink } from "@/lib/franchise-nav";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -11,6 +12,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   // E-Books and Live Zoom Training are listed only for buyers of those packages (the pages and
   // their APIs still check the purchase themselves).
   const owned = await ownedPackageTypes(session.user);
+  const applicationLink = dashboardApplicationLink(await getApplicationsOpen());
 
   return (
     <DashboardShell
@@ -29,7 +31,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         { href: "/dashboard/referral", label: "Referral & Earnings", icon: "users" },
         { href: "/dashboard/referral/claim", label: "Claim Partner Commission", icon: "handCoins" },
         { href: "/dashboard/activity", label: "Activity", icon: "receipt" },
-        ...(franchisePublicEnabled() ? [{ href: "/franchise/application", label: "Franchise Application", icon: "building" } as const] : []),
+        ...(applicationLink ? [{ ...applicationLink, icon: "building" } as const] : []),
       ]}
     >
       {children}

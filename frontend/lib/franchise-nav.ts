@@ -55,6 +55,13 @@ export const homeFranchiseClosing = (appsOpen: boolean) =>
 export const applyPageTitle = (appsOpen: boolean): string | { absolute: string } =>
   appsOpen ? "Apply for a Franchise" : { absolute: "Franchise Applications | Coming Soon" };
 
+/**
+ * Student dashboard sidebar: "Franchise Application" only while applications are genuinely open (see
+ * applicationsOpen). Before that nobody can have one, so it would advertise a feature nobody can use yet.
+ */
+export const DASHBOARD_APPLICATION_LINK: NavLink = { href: "/franchise/application", label: "Franchise Application" };
+export const dashboardApplicationLink = (appsOpen: boolean): NavLink | null => (appsOpen ? DASHBOARD_APPLICATION_LINK : null);
+
 /** Visitors: the call-to-action beside Login, only while the public franchise pages are switched on. */
 export const visitorFranchiseCta = (publicOn: boolean): NavLink | null => (publicOn ? BECOME_PARTNER_LINK : null);
 

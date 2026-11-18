@@ -1,7 +1,7 @@
 // Run with `npm test` (Node strips the TypeScript types of the imported module).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { APPLY_LINK, PARTNER_PAGE_APPLY_LINK, applicationsOpen, applyPageTitle, BECOME_PARTNER_LINK, FRANCHISE_DASHBOARD_LINK, FRANCHISE_LINK, homeFranchiseBadge, homeFranchiseClosing, PARTNER_LOGIN_LINK, partnerAreaNeedsSignIn, partnerAreaTitle, signedInFranchiseLink, visitorFranchiseCta } from "../lib/franchise-nav.ts";
+import { APPLY_LINK, PARTNER_PAGE_APPLY_LINK, DASHBOARD_APPLICATION_LINK, applicationsOpen, dashboardApplicationLink, applyPageTitle, BECOME_PARTNER_LINK, FRANCHISE_DASHBOARD_LINK, FRANCHISE_LINK, homeFranchiseBadge, homeFranchiseClosing, PARTNER_LOGIN_LINK, partnerAreaNeedsSignIn, partnerAreaTitle, signedInFranchiseLink, visitorFranchiseCta } from "../lib/franchise-nav.ts";
 import { franchisePartnerEnabled, franchisePublicEnabled } from "../lib/feature-flags.ts";
 
 test("visitors: 'Become a Franchise Partner' beside Login only while the public switch is on", () => {
@@ -81,4 +81,12 @@ test("apply page browser title: 'coming soon' until applications are open", () =
 test("partner page offers 'Apply for Franchise': the apply page, never a partner sign-up", () => {
   assert.deepEqual(PARTNER_PAGE_APPLY_LINK, { href: "/franchise/apply", label: "Apply for Franchise" });
   assert.equal(PARTNER_PAGE_APPLY_LINK.href, APPLY_LINK.href, "same intake-gated apply page as the homepage");
+});
+
+test("student dashboard: 'Franchise Application' only while applications are genuinely open", () => {
+  assert.equal(dashboardApplicationLink(false), null, "closed (incl. public switch on, intake closed): no link");
+  assert.deepEqual(dashboardApplicationLink(true), { href: "/franchise/application", label: "Franchise Application" });
+  assert.equal(dashboardApplicationLink(applicationsOpen(true, { open: false })), null, "launch configuration: public on, intake closed");
+  assert.equal(dashboardApplicationLink(applicationsOpen(false, { open: true })), null, "public switch off");
+  assert.deepEqual(dashboardApplicationLink(applicationsOpen(true, { open: true })), DASHBOARD_APPLICATION_LINK);
 });
