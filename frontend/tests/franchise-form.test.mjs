@@ -1,14 +1,32 @@
 // Run with `npm test` (Node strips the TypeScript types of the imported module).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkFile, formatBytes, formatRupees, isValidMobile, parseInvestment, requirementFor, stepIndex, MAX_DOCUMENT_BYTES } from "../lib/franchise-form.ts";
+import { applicationStepIssue, checkFile, formatBytes, formatRupees, isValidMobile, isValidPincode, normalizeMobile, normalizePincode, parseInvestment, requirementFor, stepIndex, MAX_DOCUMENT_BYTES } from "../lib/franchise-form.ts";
 
-test("mobile numbers: 10 digits starting 6-9", () => {
+test("mobile numbers: 10 digits starting 6-9, typed the ways people type them", () => {
   assert.equal(isValidMobile("9876543210"), true);
   assert.equal(isValidMobile(" 6000000000 "), true);
-  assert.equal(isValidMobile("5876543210"), false);
-  assert.equal(isValidMobile("987654321"), false);
-  assert.equal(isValidMobile("+919876543210"), false);
+  // Common Indian formats used to get cut off by the field's 10-character limit and then rejected.
+  for (const typed of ["+919876543210", "+91 98765 43210", "+91-98765-43210", "91 9876543210", "098765 43210", "98765 43210", "(98765) 43210"]) {
+    assert.equal(normalizeMobile(typed), "9876543210", typed);
+    assert.equal(isValidMobile(typed), true, typed);
+  }
+  for (const bad of ["5876543210", "987654321", "98765432100", "+92 98765 43210", "abcdefghij", ""]) assert.equal(isValidMobile(bad), false, bad);
+});
+
+test("PIN code spacing is accepted and normalised", () => {
+  for (const typed of ["500001", "500 001", "500-001", " 500001 "]) assert.equal(normalizePincode(typed), "500001", typed);
+  assert.equal(isValidPincode("500 001"), true);
+  assert.equal(isValidPincode("500 00"), false);
+});
+
+test("a step problem names the field to focus, so the reason is never off-screen", () => {
+  const ok = { applicantName: "Asha Rao", mobile: "+91 98765 43210", stateId: "s1", districtId: "d1", address: "12 Market Road, Anantapur", pincode: "515 001", investmentCapacityInr: "" };
+  assert.equal(applicationStepIssue(0, ok), null);
+  assert.equal(applicationStepIssue(0, { ...ok, mobile: "+91 98765 " })?.field, "mobile");
+  assert.equal(applicationStepIssue(0, { ...ok, pincode: "500 00" })?.field, "pincode");
+  assert.equal(applicationStepIssue(0, { ...ok, districtId: "" })?.field, "districtId");
+  assert.equal(applicationStepIssue(1, { ...ok, investmentCapacityInr: "1.5" })?.field, "investmentCapacityInr");
 });
 
 test("investment capacity: whole rupees up to ₹100 crore, empty allowed", () => {
@@ -47,4 +65,9 @@ test("formatting and status order", () => {
   assert.equal(stepIndex("APPLICATION_SUBMITTED"), 0);
   assert.equal(stepIndex("ACTIVE_FRANCHISE"), 6);
   assert.equal(stepIndex("REJECTED"), -1);
+});
+
+test("PIN code: six digits, not starting with 0 (the backend's rule)", () => {
+  for (const ok of ["500001", "110001", " 560001 ", "999999"]) assert.equal(isValidPincode(ok), true, ok);
+  for (const bad of ["", "012345", "50001", "5000011", "50A001", "500 00", "+500001"]) assert.equal(isValidPincode(bad), false, bad);
 });

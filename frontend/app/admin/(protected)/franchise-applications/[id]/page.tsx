@@ -18,7 +18,7 @@ interface Detail {
   statusLabel: string;
   version: number;
   submittedAt: string;
-  applicant: { name: string; email: string; mobile: string; address: string; emailVerified: boolean; accountCreatedAt: string };
+  applicant: { name: string; email: string; mobile: string; address: string; pincode: string | null; emailVerified: boolean; accountCreatedAt: string };
   location: { state: string; district: string; districtCode: string | null };
   answers: { education: string | null; businessExperience: string | null; officeAvailable: boolean | null; investmentCapacityInr: number | null; businessPlanText: string | null };
   /** Only on applications submitted while a refund acknowledgement was still collected. */
@@ -79,6 +79,7 @@ export default function FranchiseApplicationDetailPage() {
               <Item label="Email" value={`${app.applicant.email}${app.applicant.emailVerified ? " (verified)" : " (not verified)"}`} />
               <Item label="Account created" value={formatDateTime(app.applicant.accountCreatedAt)} />
               <Item label="Address" value={app.applicant.address} wide />
+              <Item label="PIN code" value={app.applicant.pincode} />
               <Item label="State (franchise territory)" value={app.location.state} />
               <Item label="Training centre district" value={`${app.location.district}${app.location.districtCode ? ` (LGD ${app.location.districtCode})` : ""}`} />
             </dl>

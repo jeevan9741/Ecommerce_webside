@@ -380,6 +380,48 @@ describe("state rule on approval (approval never reserves or closes a state)", (
   });
 });
 
+describe("no admin decides on their own application", () => {
+  test("an admin's own application: review, approval, rejection and state reservation are refused and audited", async () => {
+    // Admins can't apply any more; this covers an application made before the account became an admin.
+    const self = await makeUser(`selfadm${++seq}`, "ADMIN");
+    const districtId = await districtInNewState("self");
+    const app = await prisma.franchiseApplication.create({
+      data: {
+        applicationNo: `ZZ-${short}-S${String(seq).padStart(3, "0")}`, userId: self.id, applicantName: "Self Applicant", mobile: `9${String(710000000 + seq)}`, email: self.email,
+        stateId: await stateOf(districtId), districtId, address: "1, Self Street, Test Town", requiredDocumentKinds: ["ID_PROOF"],
+        history: { create: { toStatus: "APPLICATION_SUBMITTED", actorId: self.id, actorType: "APPLICANT", applicantNote: "Application submitted" } },
+      },
+    });
+    for (const to of ["UNDER_REVIEW", "REJECTED"]) {
+      const r = await move(self, app.id, { to, expectedVersion: 0, ...(to === "REJECTED" ? { rejectionReason: "Not suitable for this state" } : {}) });
+      assert.deepEqual([r.status, r.body.code], [403, "SELF_REVIEW"], r.text);
+    }
+    assert.equal((await prisma.franchiseApplication.findUniqueOrThrow({ where: { id: app.id } })).status, "APPLICATION_SUBMITTED", "nothing changed");
+    // Another admin can move it on; the owner still can't approve it.
+    assert.equal((await move(people.admA, app.id, { to: "UNDER_REVIEW", expectedVersion: 0 })).status, 200);
+    const own = await move(self, app.id, { to: "APPROVED", expectedVersion: 1 });
+    assert.deepEqual([own.status, own.body.code], [403, "SELF_REVIEW"], own.text);
+    assert.equal((await move(people.admA, app.id, { to: "APPROVED", expectedVersion: 1 })).status, 200);
+    const reserve = await call("POST", `${A}/${app.id}/reserve-state`, self, { reason: "Holding the state for the applicant", days: 7 });
+    assert.deepEqual([reserve.status, reserve.body.code], [403, "SELF_REVIEW"], reserve.text);
+    const release = await call("POST", `${A}/${app.id}/release-reservation`, self, { reason: "Releasing the state again now" });
+    assert.deepEqual([release.status, release.body.code], [403, "SELF_REVIEW"], release.text);
+    const after = await prisma.franchiseApplication.findUniqueOrThrow({ where: { id: app.id } });
+    assert.equal(after.approvedById, people.admA.id, "approved by the other admin");
+    assert.equal(await prisma.stateAllocation.count({ where: { applicationId: app.id } }), 0, "no reservation made");
+    const blocked = await prisma.auditLog.findMany({ where: { actorId: self.id, action: "FRANCHISE_SELF_REVIEW_BLOCKED", target: app.id } });
+    assert.deepEqual(blocked.map((b) => (b.metadata as { attempted: string }).attempted).sort(), ["RELEASE_STATE", "RESERVE_STATE", "TRANSITION_APPROVED", "TRANSITION_REJECTED", "TRANSITION_UNDER_REVIEW"]);
+  });
+
+  test("the detail view shows the PIN code to admins", async () => {
+    const { app } = await makeApp(loc.d1, "pin");
+    await prisma.franchiseApplication.update({ where: { id: app.id }, data: { pincode: "560001" } });
+    const r = await call("GET", `${A}/${app.id}`, people.admA);
+    assert.equal(r.status, 200, r.text);
+    assert.equal(r.body.application.applicant.pincode, "560001");
+  });
+});
+
 describe("internal notes", () => {
   test("create-only, audited, admin-only and never shown to the applicant", async () => {
     const { app } = await makeApp(loc.d1, "notes");

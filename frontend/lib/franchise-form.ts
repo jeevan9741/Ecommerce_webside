@@ -32,9 +32,34 @@ export function requirementFor(kind: string, reqs: DocumentRequirements | null):
   return reqs?.[kind as keyof DocumentRequirements] ?? "NOT_REQUESTED";
 }
 
-export function isValidMobile(v: string): boolean {
-  return /^[6-9]\d{9}$/.test(v.trim());
+/**
+ * The 10-digit number from how people actually type an Indian mobile: spaces, dashes, dots or brackets,
+ * and a +91, 91 or 0 prefix ("+91 98765 43210" → "9876543210"). The backend normalises the same way.
+ */
+export function normalizeMobile(v: string): string {
+  const digits = v.replace(/[\s\-().]/g, "");
+  if (/^\+91\d{10}$/.test(digits)) return digits.slice(3);
+  if (/^91\d{10}$/.test(digits)) return digits.slice(2);
+  if (/^0\d{10}$/.test(digits)) return digits.slice(1);
+  return digits;
 }
+
+export function isValidMobile(v: string): boolean {
+  return /^[6-9]\d{9}$/.test(normalizeMobile(v));
+}
+
+/** A PIN code without the spaces or dash people sometimes type ("500 001" → "500001"). */
+export function normalizePincode(v: string): string {
+  return v.replace(/[\s-]/g, "");
+}
+
+/** Indian PIN code: six digits, never starting with 0 (the backend applies the same rule). */
+export function isValidPincode(v: string): boolean {
+  return /^[1-9]\d{5}$/.test(normalizePincode(v));
+}
+
+export const PINCODE_MESSAGE = "Enter a valid 6-digit PIN code.";
+export const MOBILE_MESSAGE = "Enter a 10-digit Indian mobile number (for example 98765 43210).";
 
 /** Whole rupees, 0 to ₹1,00,00,00,000; commas and a leading ₹ are allowed. Empty means not given. */
 export function parseInvestment(v: string): { ok: true; value: string | null } | { ok: false } {
@@ -75,6 +100,7 @@ export interface StepValues {
   stateId: string;
   districtId: string;
   address: string;
+  pincode: string;
   investmentCapacityInr: string;
 }
 
@@ -83,14 +109,20 @@ export interface StepValues {
  * submit), or null. Step 2 (documents) is checked on submit, where the files are.
  */
 export function applicationStepProblem(step: number, v: StepValues): string | null {
+  return applicationStepIssue(step, v)?.message ?? null;
+}
+
+/** The same check, with the field to put the cursor on (its input id), so the problem is never off-screen. */
+export function applicationStepIssue(step: number, v: StepValues): { field: keyof StepValues; message: string } | null {
   if (step === 0) {
-    if (v.applicantName.trim().length < 2) return "Enter your full name.";
-    if (!isValidMobile(v.mobile)) return "Enter a 10-digit Indian mobile number.";
-    if (!v.stateId) return "Choose your state or union territory.";
-    if (!v.districtId) return "Choose the district you want to serve.";
-    if (v.address.trim().length < 10) return "Enter your full address (at least 10 characters).";
+    if (v.applicantName.trim().length < 2) return { field: "applicantName", message: "Enter your full name." };
+    if (!isValidMobile(v.mobile)) return { field: "mobile", message: MOBILE_MESSAGE };
+    if (!v.stateId) return { field: "stateId", message: "Choose your state or union territory." };
+    if (!v.districtId) return { field: "districtId", message: "Choose the district you want to serve." };
+    if (v.address.trim().length < 10) return { field: "address", message: "Enter your full address (at least 10 characters)." };
+    if (!isValidPincode(v.pincode)) return { field: "pincode", message: PINCODE_MESSAGE };
   }
-  if (step === 1 && !parseInvestment(v.investmentCapacityInr).ok) return "Investment capacity must be a whole number of rupees, up to ₹100 crore.";
+  if (step === 1 && !parseInvestment(v.investmentCapacityInr).ok) return { field: "investmentCapacityInr", message: "Investment capacity must be a whole number of rupees, up to ₹100 crore." };
   return null;
 }
 

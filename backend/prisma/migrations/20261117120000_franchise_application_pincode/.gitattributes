@@ -1,0 +1,2 @@
+# Prisma checksums migrations by their exact bytes: keep this one LF on every checkout.
+migration.sql text eol=lf

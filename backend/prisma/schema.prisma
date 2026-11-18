@@ -1318,6 +1318,8 @@ model FranchiseApplication {
   stateId               String
   districtId            String
   address               String
+  /// 6-digit Indian PIN code. Required for new applications; null on applications made before it existed.
+  pincode               String?
   education             String?
   businessExperience    String?
   officeAvailable       Boolean?
@@ -1359,6 +1361,8 @@ model FranchiseApplication {
   @@index([userId])
   @@index([status, submittedAt])
   @@index([stateId, districtId, status])
+  /// The one-open-application-per-mobile check.
+  @@index([mobile])
 }
 
 /// Append-only evidence that the applicant explicitly accepted a specific privacy notice version when

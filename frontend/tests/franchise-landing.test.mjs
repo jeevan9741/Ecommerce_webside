@@ -37,12 +37,14 @@ test("revenue shares are shown as percentages from basis points", () => {
 
 test("application steps: three steps; steps 1 and 2 stop on the backend's own rules", () => {
   assert.equal(APPLICATION_STEPS.length, 3);
-  const ok = { applicantName: "Asha Rao", mobile: "9876543210", stateId: "s1", districtId: "d1", address: "12 Market Road, Anantapur", investmentCapacityInr: "" };
+  const ok = { applicantName: "Asha Rao", mobile: "9876543210", stateId: "s1", districtId: "d1", address: "12 Market Road, Anantapur", pincode: "515001", investmentCapacityInr: "" };
   assert.equal(applicationStepProblem(0, ok), null);
   assert.match(applicationStepProblem(0, { ...ok, applicantName: " A " }) ?? "", /full name/);
   assert.match(applicationStepProblem(0, { ...ok, mobile: "12345" }) ?? "", /mobile/);
   assert.match(applicationStepProblem(0, { ...ok, stateId: "" }) ?? "", /state/);
   assert.match(applicationStepProblem(0, { ...ok, districtId: "" }) ?? "", /district/);
+  assert.match(applicationStepProblem(0, { ...ok, pincode: "012345" }) ?? "", /PIN code/);
+  assert.match(applicationStepProblem(0, { ...ok, pincode: "" }) ?? "", /PIN code/);
   assert.match(applicationStepProblem(0, { ...ok, address: "short" }) ?? "", /address/);
   assert.equal(applicationStepProblem(1, ok), null);
   assert.equal(applicationStepProblem(1, { ...ok, investmentCapacityInr: "₹5,00,000" }), null);

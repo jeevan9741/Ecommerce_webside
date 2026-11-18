@@ -121,6 +121,7 @@ export default async function MyFranchiseApplicationPage({ searchParams }: { sea
             <Item label="Investment capacity" value={app.investmentCapacityInr !== null ? formatRupees(app.investmentCapacityInr) : null} />
             <Item label="Office or training space" value={app.officeAvailable === null ? null : app.officeAvailable ? "Yes" : "Not yet"} />
             <Item label="Address" value={app.address} wide />
+            <Item label="PIN code" value={app.pincode} />
             <Item label="Business experience" value={app.businessExperience} wide />
             <Item label="Business plan" value={app.businessPlanText} wide />
           </dl>

@@ -6,6 +6,7 @@ import { HttpError } from "../utils/http.js";
 import { sendEmail } from "./email.service.js";
 import { STATUS_LABEL } from "./franchise-application.service.js";
 import { expireReservations, holdingAllocation, lockState, releaseReservationFor } from "./franchise-state.service.js";
+import { refuseOwnApplication } from "./franchise-admin-guard.js";
 
 /**
  * Admin review of franchise applications (Phase 5A): list and search, an audited detail view,
@@ -170,6 +171,7 @@ export async function applicationDetail(actorId: string, id: string) {
       email: app.email,
       mobile: app.mobile,
       address: app.address,
+      pincode: app.pincode,
       emailVerified: Boolean(app.user.emailVerified),
       accountCreatedAt: app.user.createdAt,
     },
@@ -237,6 +239,7 @@ export async function transitionApplication(actorId: string, id: string, input: 
     await requireAdminInTx(tx, actorId);
     const app = await tx.franchiseApplication.findUnique({ where: { id }, select: { id: true, status: true, version: true, districtId: true, stateId: true, userId: true, email: true, applicationNo: true } });
     if (!app) throw new HttpError(404, "Not found");
+    await refuseOwnApplication(actorId, app, `TRANSITION_${t.to}`);
     if (!allowedTransitions(app.status).includes(t.to)) {
       throw new HttpError(409, `An application that is "${STATUS_LABEL[app.status]}" can't move to "${STATUS_LABEL[t.to]}".`, { code: "INVALID_TRANSITION", status: app.status });
     }

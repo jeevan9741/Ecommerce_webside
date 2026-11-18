@@ -93,13 +93,17 @@ const JPG = () => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), randomBy
 type FilePart = { field: string; name: string; type: string; body: Buffer };
 const file = (field: string, body: Buffer, type: string, name = `${field}.${type.split("/")[1]}`): FilePart => ({ field, name, type, body });
 
+/** A valid Indian mobile number, different per application (one open application per mobile number). */
+const uniqueMobile = () => `9${String(randomBytes(4).readUInt32BE(0) % 1_000_000_000).padStart(9, "0")}`;
+
 function fields(over: Record<string, string | undefined> = {}) {
   const base: Record<string, string | undefined> = {
     applicantName: "Test Applicant",
-    mobile: "9876543210",
+    mobile: uniqueMobile(),
     stateId: loc.stateId,
     districtId: loc.d1,
-    address: "12, Test Street, Test Nagar, 500001",
+    address: "12, Test Street, Test Nagar",
+    pincode: "500001",
     education: "B.Com",
     businessExperience: "Five years running a training centre",
     officeAvailable: "true",
@@ -326,6 +330,11 @@ describe("submission", () => {
       assert.deepEqual([r.status, r.body.code], [status, code], `${label}: ${JSON.stringify(r.body)}`);
     };
     await expect("mobile", fields({ mobile: "1234567890" }), undefined, 400, "INVALID_APPLICATION");
+    for (const [label, pincode] of [["pincode missing", undefined], ["pincode blank", "  "], ["pincode leading zero", "012345"], ["pincode 5 digits", "50001"], ["pincode 7 digits", "5000011"], ["pincode letters", "50A001"]] as const) {
+      const r = await apply(await makeUser(`v-${label.replace(/\W+/g, "-")}`), fields({ pincode }));
+      assert.deepEqual([r.status, r.body.code], [400, "INVALID_APPLICATION"], `${label}: ${JSON.stringify(r.body)}`);
+      assert.equal(r.body.issues?.[0]?.path, "pincode", label);
+    }
     await expect("investment float", fields({ investmentCapacityInr: "1000.50" }), undefined, 400, "INVALID_APPLICATION");
     await expect("investment cap", fields({ investmentCapacityInr: "1000000001" }), undefined, 400, "INVALID_APPLICATION");
     await expect("district of another state", fields({ districtId: loc.dOther }), undefined, 400, "INVALID_LOCATION");
@@ -368,6 +377,7 @@ describe("submission", () => {
     assert.deepEqual([...app.requiredDocumentKinds].sort(), ["ID_PROOF", "PHOTO"]);
     assert.deepEqual([app.refundPolicyVersion, app.refundPolicyText, app.refundPolicySha256], [null, null, null], "no refund acknowledgement is recorded");
     assert.equal(app.investmentCapacityInr, 500000);
+    assert.equal(app.pincode, "500001");
     assert.equal(app.documents.length, 3);
     for (const d of app.documents) {
       assert.match(d.storageKey, new RegExp(`^franchise-applications/${app.id}/[a-z_]+-[0-9a-f]{16}\\.(pdf|jpg|png)$`));
@@ -402,6 +412,57 @@ describe("submission", () => {
     assert.deepEqual(codes, [201, 409, 409], JSON.stringify(results.map((r) => r.body)));
     assert.equal(await prisma.franchiseApplication.count({ where: { userId: u.id } }), 1);
     assert.equal(store.size, before + 3, "only the winner's three documents remain");
+  });
+
+  test("one open application per mobile number: another account is refused without learning whose it is", async () => {
+    const mobile = uniqueMobile();
+    const first = await apply(await makeUser("mob-first"), fields({ mobile, districtId: loc.d2 }));
+    assert.equal(first.status, 201, JSON.stringify(first.body));
+    const before = store.size;
+    const second = await makeUser("mob-second");
+    const r = await apply(second, fields({ mobile: ` ${mobile} `, districtId: loc.d2 }));
+    assert.deepEqual([r.status, r.body.code], [409, "DUPLICATE_MOBILE"], JSON.stringify(r.body));
+    assert.doesNotMatch(JSON.stringify(r.body), new RegExp(`${first.body.applicationNo}|Test Applicant|@example`), "no detail of the other application");
+    assert.equal(store.size, before, "no files kept");
+    assert.equal(await prisma.franchiseApplication.count({ where: { userId: second.id } }), 0);
+    // Once the open application is withdrawn, the number can be used again.
+    const w = await call("POST", "/franchise/applications/me/withdraw", people["mob-first"], {});
+    assert.equal(w.status, 200, JSON.stringify(w.body));
+    const again = await apply(second, fields({ mobile, districtId: loc.d2 }));
+    assert.equal(again.status, 201, JSON.stringify(again.body));
+  });
+
+  test("mobile and PIN code typed with spaces, dashes or +91 are accepted and stored normalised", async () => {
+    const digits = uniqueMobile();
+    const typed = `+91 ${digits.slice(0, 5)}-${digits.slice(5)}`;
+    const r = await apply(await makeUser("norm-typed"), fields({ mobile: typed, pincode: "500 001", districtId: loc.d2 }));
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    const app = await prisma.franchiseApplication.findUniqueOrThrow({ where: { id: r.body.id } });
+    assert.deepEqual([app.mobile, app.pincode], [digits, "500001"]);
+    // The duplicate check compares normalised numbers: the plain form of the same number is refused.
+    const dup = await apply(await makeUser("norm-dup"), fields({ mobile: `0${digits}`, districtId: loc.d2 }));
+    assert.deepEqual([dup.status, dup.body.code], [409, "DUPLICATE_MOBILE"], JSON.stringify(dup.body));
+  });
+
+  test("concurrent submissions with one mobile number from different accounts: exactly one wins", async () => {
+    const mobile = uniqueMobile();
+    const us = [await makeUser("mobrace-a"), await makeUser("mobrace-b"), await makeUser("mobrace-c")];
+    const before = store.size;
+    const rs = await Promise.all(us.map((u) => apply(u, fields({ mobile, districtId: loc.d2 }))));
+    assert.deepEqual(rs.map((r) => r.status).sort(), [201, 409, 409], JSON.stringify(rs.map((r) => r.body)));
+    assert.deepEqual(rs.filter((r) => r.status === 409).map((r) => r.body.code), ["DUPLICATE_MOBILE", "DUPLICATE_MOBILE"]);
+    assert.equal(await prisma.franchiseApplication.count({ where: { mobile } }), 1);
+    assert.equal(store.size, before + 3, "only the winner's documents remain");
+  });
+
+  test("admin accounts can't apply: refused before any upload, nothing stored, attempt audited", async () => {
+    const admin = await makeUser("adm-applicant", "ADMIN");
+    const before = store.size;
+    const r = await apply(admin, fields({ districtId: loc.d2 }));
+    assert.deepEqual([r.status, r.body.code], [403, "ADMIN_CANNOT_APPLY"], JSON.stringify(r.body));
+    assert.equal(store.size, before);
+    assert.equal(await prisma.franchiseApplication.count({ where: { userId: admin.id } }), 0);
+    assert.equal(await prisma.auditLog.count({ where: { actorId: admin.id, action: "FRANCHISE_APPLICATION_BLOCKED" } }), 1);
   });
 
   test("concurrent submissions by different accounts get distinct sequential numbers", async () => {

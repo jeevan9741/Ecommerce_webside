@@ -4,7 +4,7 @@ import { Footer } from "@/components/footer";
 import { FranchiseComingSoon } from "@/components/franchise/coming-soon";
 import { franchisePartnerEnabled } from "@/lib/feature-flags";
 import { requirePartnerProfile } from "@/lib/franchise-partner";
-import { partnerAreaTitle } from "@/lib/franchise-nav";
+import { PARTNER_PAGE_APPLY_LINK, partnerAreaTitle } from "@/lib/franchise-nav";
 
 export const metadata = { title: partnerAreaTitle(franchisePartnerEnabled()) };
 
@@ -20,8 +20,9 @@ export default async function FranchisePartnerLayout({ children }: { children: R
       <>
         <Navbar />
         <main className="flex-1">
-          <FranchiseComingSoon title="Franchise Partner Login is coming soon">
+          <FranchiseComingSoon title="Franchise Partner Login is coming soon" action={PARTNER_PAGE_APPLY_LINK}>
             <p>The ETA Franchise Partner dashboard isn&apos;t open yet. Partner accounts will be able to sign in here once the programme launches.</p>
+            <p>Want to run an ETA franchise? Use Apply for Franchise. Every application is reviewed by our team before any partner account is set up.</p>
             <p>Students can keep using the Login button for their courses.</p>
           </FranchiseComingSoon>
         </main>

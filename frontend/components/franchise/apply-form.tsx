@@ -10,12 +10,17 @@ import { STATE_CLOSED_MESSAGE, STATE_RESERVED_MESSAGE, type FranchiseState } fro
 import {
   ACCEPT_ATTR,
   APPLICATION_STEPS,
-  applicationStepProblem,
+  applicationStepIssue,
   checkFile,
   DOCUMENT_FIELDS,
   formatBytes,
   isValidMobile,
+  isValidPincode,
+  MOBILE_MESSAGE,
+  normalizeMobile,
+  normalizePincode,
   parseInvestment,
+  PINCODE_MESSAGE,
   requirementFor,
   type DocumentRequirements,
 } from "@/lib/franchise-form";
@@ -53,22 +58,32 @@ export function FranchiseApplyForm({ email, defaultName, states, requirements, p
   function values() {
     const form = new FormData(formRef.current ?? undefined);
     const get = (k: string) => String(form.get(k) ?? "");
-    return { applicantName: get("applicantName"), mobile: get("mobile"), stateId: get("stateId"), districtId: get("districtId"), address: get("address"), investmentCapacityInr: get("investmentCapacityInr") };
+    return { applicantName: get("applicantName"), mobile: get("mobile"), stateId: get("stateId"), districtId: get("districtId"), address: get("address"), pincode: get("pincode"), investmentCapacityInr: get("investmentCapacityInr") };
   }
 
   function goTo(next: number) {
     // Moving forward checks every step being left; going back never blocks.
     for (let s = step; s < next; s++) {
-      const problem = applicationStepProblem(s, values());
-      if (problem) {
+      const issue = applicationStepIssue(s, values());
+      if (issue) {
         setStep(s);
-        setError(problem);
+        setError(issue.message);
+        showField(issue.field);
         return;
       }
     }
     setError(null);
     setStep(next);
     formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  /** Puts the cursor on the field that needs attention (after its step is shown), so the reason is in view. */
+  function showField(id: string) {
+    requestAnimationFrame(() => {
+      const el = document.getElementById(id);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      el?.focus({ preventScroll: true });
+    });
   }
 
   function pickFile(field: string, input: HTMLInputElement) {
@@ -84,15 +99,18 @@ export function FranchiseApplyForm({ email, defaultName, states, requirements, p
     if (step < last) return goTo(step + 1); // Enter in an earlier step moves on instead of submitting
     setError(null);
     for (let s = 0; s < last; s++) {
-      const problem = applicationStepProblem(s, values());
-      if (problem) {
+      const issue = applicationStepIssue(s, values());
+      if (issue) {
         setStep(s);
-        return setError(problem);
+        showField(issue.field);
+        return setError(issue.message);
       }
     }
     const form = new FormData(e.currentTarget);
     const mobile = String(form.get("mobile") ?? "");
-    if (!isValidMobile(mobile)) return setError("Enter a 10-digit Indian mobile number.");
+    if (!isValidMobile(mobile)) return setError(MOBILE_MESSAGE);
+    const pincode = String(form.get("pincode") ?? "");
+    if (!isValidPincode(pincode)) return setError(PINCODE_MESSAGE);
     const investment = parseInvestment(String(form.get("investmentCapacityInr") ?? ""));
     if (!investment.ok) return setError("Investment capacity must be a whole number of rupees, up to ₹100 crore.");
     for (const d of docs) if (d.requirement === "REQUIRED" && !files[d.field] && !(d.kind === "BUSINESS_PLAN" && String(form.get("businessPlanText") ?? "").trim())) return setError(`${d.label} is required.`);
@@ -100,7 +118,8 @@ export function FranchiseApplyForm({ email, defaultName, states, requirements, p
 
     const body = new FormData();
     for (const key of ["applicantName", "stateId", "districtId", "address", "education", "businessExperience", "officeAvailable", "businessPlanText"]) body.set(key, String(form.get(key) ?? ""));
-    body.set("mobile", mobile.trim());
+    body.set("mobile", normalizeMobile(mobile));
+    body.set("pincode", normalizePincode(pincode));
     body.set("investmentCapacityInr", investment.value ?? "");
     body.set("privacyNoticeAccepted", privacyAccepted ? "true" : "false");
     body.set("privacyNoticeVersion", String(privacyNotice.version));
@@ -166,7 +185,7 @@ export function FranchiseApplyForm({ email, defaultName, states, requirements, p
           </div>
           <div>
             <label className="label-field" htmlFor="mobile">Mobile number</label>
-            <input id="mobile" name="mobile" required inputMode="numeric" maxLength={10} autoComplete="tel-national" className="input-field" placeholder="9876543210" />
+            <input id="mobile" name="mobile" type="tel" required inputMode="tel" maxLength={20} autoComplete="tel-national" className="input-field" placeholder="e.g. 98765 43210" />
           </div>
         </div>
         <div>
@@ -214,6 +233,10 @@ export function FranchiseApplyForm({ email, defaultName, states, requirements, p
         <div>
           <label className="label-field" htmlFor="address">Full address</label>
           <textarea id="address" name="address" required minLength={10} maxLength={500} rows={3} autoComplete="street-address" className="input-field resize-none" />
+        </div>
+        <div className="sm:max-w-xs">
+          <label className="label-field" htmlFor="pincode">PIN code</label>
+          <input id="pincode" name="pincode" required inputMode="numeric" maxLength={10} autoComplete="postal-code" className="input-field" placeholder="e.g. 500001" title="A 6-digit PIN code" />
         </div>
       </section>
 

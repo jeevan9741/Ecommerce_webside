@@ -3,7 +3,7 @@ import type { FranchiseApplicationStatus, Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
 import { HttpError } from "../utils/http.js";
 import { canonicalSha256 } from "../utils/canonical-json.js";
-import { requireAdminRead } from "./franchise-admin-guard.js";
+import { refuseOwnApplication, requireAdminRead } from "./franchise-admin-guard.js";
 
 /**
  * State-level franchise exclusivity: one PRIMARY franchise per Indian state (IndiaState.id — the official
@@ -174,8 +174,9 @@ export async function reserveState(actorId: string, applicationId: string, input
   const now = new Date();
   return prisma.$transaction(async (tx) => {
     await requireAdminInTx(tx, actorId);
-    const app = await tx.franchiseApplication.findUnique({ where: { id: applicationId }, select: { id: true, stateId: true, status: true, applicationNo: true } });
+    const app = await tx.franchiseApplication.findUnique({ where: { id: applicationId }, select: { id: true, stateId: true, status: true, applicationNo: true, userId: true } });
     if (!app) throw new HttpError(404, "Not found");
+    await refuseOwnApplication(actorId, app, "RESERVE_STATE");
     if (!PIPELINE.includes(app.status)) throw new HttpError(409, "Only an approved application can have its state reserved.", { code: "NOT_APPROVED" });
     await lockState(tx, app.stateId);
     await expireReservations(tx, app.stateId, now);
@@ -196,8 +197,9 @@ export async function releaseReservation(actorId: string, applicationId: string,
   const now = new Date();
   return prisma.$transaction(async (tx) => {
     await requireAdminInTx(tx, actorId);
-    const app = await tx.franchiseApplication.findUnique({ where: { id: applicationId }, select: { id: true, stateId: true } });
+    const app = await tx.franchiseApplication.findUnique({ where: { id: applicationId }, select: { id: true, stateId: true, applicationNo: true, userId: true } });
     if (!app) throw new HttpError(404, "Not found");
+    await refuseOwnApplication(actorId, app, "RELEASE_STATE");
     await lockState(tx, app.stateId);
     const r = await tx.stateAllocation.findFirst({ where: { applicationId: app.id, status: "RESERVED" } });
     if (!r) throw new HttpError(409, "There's no reservation for this application.", { code: "NO_RESERVATION" });

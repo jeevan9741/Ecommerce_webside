@@ -57,7 +57,7 @@ const JPG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), randomBytes(25
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), randomBytes(256)]);
 const part = (fieldname: string, buffer: Buffer, mimetype: string): UploadedFile => ({ fieldname, originalname: `${fieldname}.bin`, mimetype, size: buffer.length, buffer });
 const files = () => [part("idProof", PDF, "application/pdf"), part("photo", JPG, "image/jpeg"), part("addressProof", PNG, "image/png")];
-const body = () => ({ applicantName: "Blob Test", mobile: "9876543210", stateId: loc.stateId, districtId: loc.districtId, address: "1, Test Street, Test Town", refundPolicyVersion: refund.version, refundPolicySha256: refund.sha256, privacyNoticeAccepted: "true", privacyNoticeVersion: refund.version, privacyNoticeSha256: privacy.sha256 });
+const body = () => ({ applicantName: "Blob Test", mobile: `9${String(randomBytes(4).readUInt32BE(0) % 1_000_000_000).padStart(9, "0")}`, stateId: loc.stateId, districtId: loc.districtId, address: "1, Test Street, Test Town", pincode: "500001", refundPolicyVersion: refund.version, refundPolicySha256: refund.sha256, privacyNoticeAccepted: "true", privacyNoticeVersion: refund.version, privacyNoticeSha256: privacy.sha256 });
 const sha = (b: Buffer | Uint8Array) => createHash("sha256").update(b).digest("hex");
 const status = (code: number) => (e: { status?: number }) => e.status === code;
 async function keysUnderPrefix() {

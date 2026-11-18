@@ -1,19 +1,24 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { api } from "@/lib/api";
-import { franchiseDemoData, franchisePublicEnabled } from "@/lib/feature-flags";
+import { franchiseDemoData } from "@/lib/feature-flags";
 import { getSession } from "@/lib/session";
 import type { FranchiseInfo, FranchiseState, MyFranchiseApplication } from "@/lib/franchise";
 import { FranchiseApplyForm } from "@/components/franchise/apply-form";
 import { FranchiseComingSoon } from "@/components/franchise/coming-soon";
+import { applyPageTitle } from "@/lib/franchise-nav";
+import { getApplicationsOpen } from "@/lib/franchise-intake";
 
-export const metadata = { title: "Apply for a Franchise" };
+export async function generateMetadata() {
+  return { title: applyPageTitle(await getApplicationsOpen({ fresh: true })) };
+}
 export const dynamic = "force-dynamic";
 
 export default async function FranchiseApplyPage() {
-  // Until NEXT_PUBLIC_FRANCHISE_PUBLIC_ENABLED=true the homepage link lands on a "coming soon" notice:
-  // no sign-in, no form, and no franchise API is called.
-  if (!franchisePublicEnabled()) {
+  // Until applications are genuinely open (public switch on AND the server's intake check), everyone gets a
+  // "coming soon" notice: no sign-in, no form. Checked before the session so a closed programme never sends
+  // visitors to the login page. Fails closed; with the switch off no franchise API is called.
+  if (!(await getApplicationsOpen({ fresh: true }))) {
     return (
       <FranchiseComingSoon title="Franchise applications are coming soon">
         <p>We&apos;re preparing the ETA Franchise Partner programme. Applications aren&apos;t open yet, so there is nothing to fill in or pay today.</p>

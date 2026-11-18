@@ -18,6 +18,8 @@ export const FRANCHISE_DASHBOARD_LINK: NavLink = { href: "/franchise-partner", l
  */
 export const PARTNER_LOGIN_LINK: NavLink = { href: "/franchise-partner", label: "Franchise Partner Login" };
 export const APPLY_LINK: NavLink = { href: "/franchise/apply", label: "Become a Franchise Partner" };
+/** On the partner page: the same apply page, which shows "coming soon" until applications are genuinely open. */
+export const PARTNER_PAGE_APPLY_LINK: NavLink = { href: "/franchise/apply", label: "Apply for Franchise" };
 
 /**
  * The partner area asks visitors to sign in only while the partner dashboard is switched on; otherwise it
@@ -31,6 +33,27 @@ export const partnerAreaNeedsSignIn = (partnerOn: boolean) => partnerOn;
  */
 export const partnerAreaTitle = (partnerOn: boolean): string | { absolute: string } =>
   partnerOn ? "Franchise Dashboard" : { absolute: "Franchise Partner Login | Coming Soon" };
+
+/**
+ * Are franchise applications genuinely open? Only when the public pages are switched on AND the server's
+ * intake check says so (GET /api/franchise/info `open`: the published COMMERCIAL policy has
+ * applicationIntake = OPEN with document requirements and privacy notice decided — the same check the
+ * submit API enforces). The public switch alone only makes the pages visible. Anything else (switch off,
+ * API down, unexpected answer) counts as closed. Display only: the submit API decides for itself.
+ */
+export const applicationsOpen = (publicOn: boolean, info: { open?: unknown } | null | undefined) => publicOn && info?.open === true;
+
+/**
+ * Homepage franchise section copy. Until applications are genuinely open it says they aren't, so the
+ * section doesn't read as "apply now"; once open, the approved launch wording. Display only.
+ */
+export const homeFranchiseBadge = (appsOpen: boolean) => (appsOpen ? "Franchise opportunity" : "Applications opening soon");
+export const homeFranchiseClosing = (appsOpen: boolean) =>
+  appsOpen ? ", and our team reviews every application." : ". Applications aren't open yet. We'll announce here when they open.";
+
+/** Browser title for /franchise/apply: "coming soon" (absolute: no site-name suffix) until applications are genuinely open. */
+export const applyPageTitle = (appsOpen: boolean): string | { absolute: string } =>
+  appsOpen ? "Apply for a Franchise" : { absolute: "Franchise Applications | Coming Soon" };
 
 /** Visitors: the call-to-action beside Login, only while the public franchise pages are switched on. */
 export const visitorFranchiseCta = (publicOn: boolean): NavLink | null => (publicOn ? BECOME_PARTNER_LINK : null);

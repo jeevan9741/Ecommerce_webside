@@ -1,8 +1,8 @@
 // Run with `npm test` (Node strips the TypeScript types of the imported module).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { APPLY_LINK, BECOME_PARTNER_LINK, FRANCHISE_DASHBOARD_LINK, FRANCHISE_LINK, PARTNER_LOGIN_LINK, partnerAreaNeedsSignIn, partnerAreaTitle, signedInFranchiseLink, visitorFranchiseCta } from "../lib/franchise-nav.ts";
-import { franchisePartnerEnabled } from "../lib/feature-flags.ts";
+import { APPLY_LINK, PARTNER_PAGE_APPLY_LINK, applicationsOpen, applyPageTitle, BECOME_PARTNER_LINK, FRANCHISE_DASHBOARD_LINK, FRANCHISE_LINK, homeFranchiseBadge, homeFranchiseClosing, PARTNER_LOGIN_LINK, partnerAreaNeedsSignIn, partnerAreaTitle, signedInFranchiseLink, visitorFranchiseCta } from "../lib/franchise-nav.ts";
+import { franchisePartnerEnabled, franchisePublicEnabled } from "../lib/feature-flags.ts";
 
 test("visitors: 'Become a Franchise Partner' beside Login only while the public switch is on", () => {
   assert.equal(visitorFranchiseCta(false), null);
@@ -43,4 +43,42 @@ test("partner area browser title: 'coming soon' while switched off, the dashboar
   assert.deepEqual(partnerAreaTitle(false), { absolute: "Franchise Partner Login | Coming Soon" });
   assert.equal(partnerAreaTitle(true), "Franchise Dashboard");
   assert.deepEqual(partnerAreaTitle(franchisePartnerEnabled(undefined)), { absolute: "Franchise Partner Login | Coming Soon" }, "default (unset) is off");
+});
+
+test("applications count as open only when the public switch is on AND the server's intake check says open", () => {
+  assert.equal(applicationsOpen(true, { open: true }), true);
+  // Approved launch configuration: public pages on, intake closed → closed.
+  assert.equal(applicationsOpen(true, { open: false }), false, "public on, intake closed");
+  assert.equal(applicationsOpen(false, { open: true }), false, "public switch off");
+  assert.equal(applicationsOpen(false, { open: false }), false);
+  // Fail closed: API down, unexpected answer, or switch unset.
+  assert.equal(applicationsOpen(true, null), false, "API unreachable");
+  assert.equal(applicationsOpen(true, undefined), false);
+  assert.equal(applicationsOpen(true, {}), false, "no open field");
+  assert.equal(applicationsOpen(true, { open: "true" }), false, "only a real boolean true counts");
+  assert.equal(applicationsOpen(franchisePublicEnabled(undefined), { open: true }), false, "default (unset) public switch is off");
+});
+
+test("homepage franchise copy: 'opening soon' until applications are open, the approved wording once open", () => {
+  assert.equal(homeFranchiseBadge(false), "Applications opening soon");
+  assert.equal(homeFranchiseBadge(true), "Franchise opportunity");
+  assert.equal(homeFranchiseClosing(false), ". Applications aren't open yet. We'll announce here when they open.");
+  assert.equal(homeFranchiseClosing(true), ", and our team reviews every application.");
+  // Launch configuration: public on, intake closed.
+  assert.equal(homeFranchiseBadge(applicationsOpen(true, { open: false })), "Applications opening soon");
+  assert.equal(homeFranchiseClosing(applicationsOpen(true, { open: false })), ". Applications aren't open yet. We'll announce here when they open.");
+  assert.equal(homeFranchiseBadge(applicationsOpen(true, { open: true })), "Franchise opportunity");
+});
+
+test("apply page browser title: 'coming soon' until applications are open", () => {
+  assert.deepEqual(applyPageTitle(false), { absolute: "Franchise Applications | Coming Soon" });
+  assert.equal(applyPageTitle(true), "Apply for a Franchise");
+  assert.deepEqual(applyPageTitle(applicationsOpen(true, { open: false })), { absolute: "Franchise Applications | Coming Soon" }, "public on, intake closed");
+  assert.deepEqual(applyPageTitle(applicationsOpen(false, { open: true })), { absolute: "Franchise Applications | Coming Soon" }, "public off");
+  assert.equal(applyPageTitle(applicationsOpen(true, { open: true })), "Apply for a Franchise");
+});
+
+test("partner page offers 'Apply for Franchise': the apply page, never a partner sign-up", () => {
+  assert.deepEqual(PARTNER_PAGE_APPLY_LINK, { href: "/franchise/apply", label: "Apply for Franchise" });
+  assert.equal(PARTNER_PAGE_APPLY_LINK.href, APPLY_LINK.href, "same intake-gated apply page as the homepage");
 });

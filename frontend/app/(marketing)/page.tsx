@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { BarChart3, Building2, GraduationCap, Globe2, Handshake, Headset, Mail, PlayCircle, Settings, UserPlus } from "lucide-react";
 import { BrandLogo } from "@/components/logo";
-import { APPLY_LINK, PARTNER_LOGIN_LINK } from "@/lib/franchise-nav";
+import { APPLY_LINK, PARTNER_LOGIN_LINK, homeFranchiseBadge, homeFranchiseClosing } from "@/lib/franchise-nav";
+import { getApplicationsOpen } from "@/lib/franchise-intake";
 import {
   DemoLanguagePicker,
   DemoLanguageProvider,
@@ -24,7 +25,8 @@ const FEATURES = [
   { icon: Headset, title: "Lifetime Support", subtitle: "Get guidance anytime" },
 ];
 
-export default function HomePage() {
+export default async function HomePage() {
+  const franchiseAppsOpen = await getApplicationsOpen();
   return (
     <DemoLanguageProvider>
       {/* Hero */}
@@ -186,11 +188,11 @@ export default function HomePage() {
               <Handshake className="h-8 w-8" aria-hidden="true" />
             </span>
             <div className="min-w-0 flex-1">
-              <span className="badge-pill">Franchise opportunity</span>
+              <span className="badge-pill">{homeFranchiseBadge(franchiseAppsOpen)}</span>
               <h2 className="font-display mt-3 text-2xl font-bold text-parchment sm:text-3xl">Become a Franchise Partner</h2>
               <p className="mt-3 max-w-2xl text-sm leading-relaxed text-parchment-muted sm:text-base">
                 Bring E-Commerce Training Academy&apos;s practical e-commerce training to your state. We work with one primary
-                franchise partner in each state, and our team reviews every application.
+                franchise partner in each state{homeFranchiseClosing(franchiseAppsOpen)}
               </p>
             </div>
             <div className="flex w-full shrink-0 flex-col gap-3 sm:w-auto sm:flex-row lg:flex-col">

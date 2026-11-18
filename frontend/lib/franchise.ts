@@ -45,6 +45,8 @@ export interface MyFranchiseApplication {
   state: string;
   district: string;
   address: string;
+  /** Null on applications made before the PIN code was collected. */
+  pincode: string | null;
   education: string | null;
   businessExperience: string | null;
   officeAvailable: boolean | null;

@@ -105,6 +105,19 @@ export async function publishedRevenueShare(now = new Date()) {
 // ---------- Submission ----------
 
 const MOBILE = /^[6-9]\d{9}$/;
+/** Indian PIN code: six digits, never starting with 0. */
+const PINCODE = /^[1-9]\d{5}$/;
+/** "+91 98765 43210", "098765-43210" → "9876543210" (the form normalises the same way); stored and compared like this. */
+export function normalizeMobile(v: string): string {
+  const digits = v.replace(/[\s\-().]/g, "");
+  if (/^\+91\d{10}$/.test(digits)) return digits.slice(3);
+  if (/^91\d{10}$/.test(digits)) return digits.slice(2);
+  if (/^0\d{10}$/.test(digits)) return digits.slice(1);
+  return digits;
+}
+export const normalizePincode = (v: string) => v.replace(/[\s-]/g, "");
+/** An application that still holds its place: anything not rejected or withdrawn. */
+const CLOSED_STATUSES: FranchiseApplicationStatus[] = ["REJECTED", "WITHDRAWN"];
 const optionalText = (max: number) =>
   z
     .string()
@@ -115,10 +128,11 @@ const optionalText = (max: number) =>
 
 const submissionSchema = z.object({
   applicantName: z.string().trim().min(2, "Enter your full name").max(100),
-  mobile: z.string().trim().regex(MOBILE, "Enter a 10-digit Indian mobile number"),
+  mobile: z.string().transform(normalizeMobile).pipe(z.string().regex(MOBILE, "Enter a 10-digit Indian mobile number")),
   stateId: z.string().min(1, "Choose a state"),
   districtId: z.string().min(1, "Choose a district"),
   address: z.string().trim().min(10, "Enter your full address").max(500),
+  pincode: z.string().transform(normalizePincode).pipe(z.string().regex(PINCODE, "Enter a valid 6-digit PIN code")),
   education: optionalText(100),
   businessExperience: optionalText(2000),
   officeAvailable: z
@@ -144,10 +158,18 @@ async function nextApplicationNo(tx: Prisma.TransactionClient, now: Date) {
   return `${prefix}${String(n).padStart(6, "0")}`;
 }
 
+/** Says only that the number is in use — never whose application it is. */
+const duplicateMobile = () => new HttpError(409, "An open franchise application already uses this mobile number.", { code: "DUPLICATE_MOBILE" });
+
 export async function submitApplication(input: { userId: string; body: Record<string, unknown>; files: UploadedFile[]; now?: Date }) {
   const now = input.now ?? new Date();
-  const user = await prisma.user.findUnique({ where: { id: input.userId }, select: { id: true, email: true, emailVerified: true, name: true } });
+  const user = await prisma.user.findUnique({ where: { id: input.userId }, select: { id: true, email: true, emailVerified: true, name: true, role: true } });
   if (!user) throw new HttpError(401, "Sign in required");
+  // Admins decide on applications, so they can never make one (no one approves their own).
+  if (user.role !== "USER") {
+    await prisma.auditLog.create({ data: { actorId: user.id, action: "FRANCHISE_APPLICATION_BLOCKED", target: user.id, metadata: { reason: "ADMIN_ACCOUNT" } } });
+    throw new HttpError(403, "Admin accounts can't apply for a franchise.", { code: "ADMIN_CANNOT_APPLY" });
+  }
   if (!user.emailVerified) throw new HttpError(403, "Verify your email address before applying.", { code: "EMAIL_NOT_VERIFIED" });
 
   const intake = await intakeStatus(now);
@@ -198,9 +220,11 @@ export async function submitApplication(input: { userId: string; body: Record<st
   }
   const checked = [...byField.entries()].map(([field, file]) => ({ field, file, type: checkFile(file) }));
 
-  if (await prisma.franchiseApplication.count({ where: { userId: user.id, status: { notIn: ["REJECTED", "WITHDRAWN"] } } })) {
+  if (await prisma.franchiseApplication.count({ where: { userId: user.id, status: { notIn: CLOSED_STATUSES } } })) {
     throw new HttpError(409, "You already have an open franchise application.", { code: "APPLICATION_EXISTS" });
   }
+  // Checked again inside the transaction, under a lock on the number, before anything is written.
+  if (await prisma.franchiseApplication.count({ where: { mobile: f.mobile, status: { notIn: CLOSED_STATUSES } } })) throw duplicateMobile();
 
   // Upload first (private store), then write everything in one transaction; on failure, remove the files.
   const applicationId = `fa${randomUUID().replace(/-/g, "")}`;
@@ -232,6 +256,9 @@ export async function submitApplication(input: { userId: string; body: Record<st
     }
     const requiredKinds: FranchiseDocumentKind[] = ["ID_PROOF", ...(["PHOTO", "ADDRESS_PROOF", "BUSINESS_PLAN"] as const).filter((k) => requirements[k] === "REQUIRED")];
     application = await prisma.$transaction(async (tx) => {
+      // One open application per mobile number: the lock serialises concurrent submissions with the same number.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"eta-franchise-mobile:" + f.mobile}))`;
+      if (await tx.franchiseApplication.count({ where: { mobile: f.mobile, status: { notIn: CLOSED_STATUSES } } })) throw duplicateMobile();
       const applicationNo = await nextApplicationNo(tx, now);
       const created = await tx.franchiseApplication.create({
         data: {
@@ -244,6 +271,7 @@ export async function submitApplication(input: { userId: string; body: Record<st
           stateId: f.stateId,
           districtId: f.districtId,
           address: f.address,
+          pincode: f.pincode,
           education: f.education,
           businessExperience: f.businessExperience,
           officeAvailable: f.officeAvailable,
@@ -344,6 +372,7 @@ export async function myApplication(userId: string) {
     state: app.state.name,
     district: app.district.name,
     address: app.address,
+    pincode: app.pincode,
     education: app.education,
     businessExperience: app.businessExperience,
     officeAvailable: app.officeAvailable,
