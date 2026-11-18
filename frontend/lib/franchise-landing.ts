@@ -19,6 +19,12 @@ export function isDraftPolicyText(text: string | null | undefined): boolean {
   return /^\s*(?:draft|local preview sample|sample|placeholder)\b/i.test(text ?? "");
 }
 
+/**
+ * Links to "My franchise application" only while applications are open: before that nobody can have one,
+ * and the link would just send visitors to sign in (or towards creating an account) for nothing.
+ */
+export const showApplicationLinks = (applicationsOpen: boolean) => applicationsOpen;
+
 /** The notice shown wherever demonstration (not officially verified) districts are listed. */
 export const DEMO_DISTRICTS_NOTICE = "Demonstration data only — district availability is not verified for applications.";
 

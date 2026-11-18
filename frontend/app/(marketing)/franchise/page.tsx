@@ -23,7 +23,7 @@ import { telHref, type ShownContact } from "@/lib/contact-values";
 import { franchiseDemoData, franchisePublicEnabled } from "@/lib/feature-flags";
 import { STATE_CLOSED_MESSAGE, type FranchiseInfo, type FranchiseState } from "@/lib/franchise";
 import { formatShareBps } from "@/lib/franchise-form";
-import { DEMO_DISTRICTS_NOTICE, stateSummary } from "@/lib/franchise-landing";
+import { DEMO_DISTRICTS_NOTICE, showApplicationLinks, stateSummary } from "@/lib/franchise-landing";
 import { formatPaise } from "@/lib/policy-format";
 
 export const metadata = { title: "Become a Franchise Partner" };
@@ -91,9 +91,11 @@ async function FranchiseContent() {
             </p>
             <div className="mt-8 flex flex-wrap justify-center gap-3">
               <ApplyButton open={open} />
-              <Link href="/franchise/application" className="btn-outline btn-lg">
-                Check my application
-              </Link>
+              {showApplicationLinks(open) && (
+                <Link href="/franchise/application" className="btn-outline btn-lg">
+                  Check my application
+                </Link>
+              )}
             </div>
             <p className="mt-4 text-xs text-parchment-muted">Applying is free. It doesn&apos;t reserve a state or guarantee that one will be allocated to you.</p>
           </div>
@@ -219,14 +221,20 @@ async function FranchiseContent() {
             <Faq q="Who can see my documents?">Your documents are stored privately. Only you and our review team can open them.</Faq>
             <Faq q="What if my state already has a franchise?">It is shown as closed, and it can&apos;t be chosen on the form. You can apply for another state that is open.</Faq>
             <Faq q="How do I follow my application?">
-              Sign in and open <Link href="/franchise/application" className="text-gold-400 underline-offset-4 hover:underline">My franchise application</Link> to see each step.
+              {showApplicationLinks(open) ? (
+                <>
+                  Sign in and open <Link href="/franchise/application" className="text-gold-400 underline-offset-4 hover:underline">My franchise application</Link> to see each step.
+                </>
+              ) : (
+                "Once applications open and you have applied, sign in and open My franchise application to see each step."
+              )}
             </Faq>
           </div>
         </Section>
 
         {/* Contact */}
         <Section eyebrow="Contact and support" title="Talk to us about the franchise">
-          <Contact contact={contact} />
+          <Contact contact={contact} showApplicationLink={showApplicationLinks(open)} />
         </Section>
 
         {/* Closing call to action */}
@@ -355,7 +363,7 @@ function States({ states, demo }: { states: FranchiseState[] | null; demo: boole
 }
 
 /** Only real, admin-saved contact details (see shownContact); nothing is shown as a link that goes nowhere. */
-function Contact({ contact }: { contact: ShownContact }) {
+function Contact({ contact, showApplicationLink }: { contact: ShownContact; showApplicationLink: boolean }) {
   const items = [
     contact.email && { icon: Mail, label: "Email", value: contact.email, href: `mailto:${contact.email}` },
     contact.phone && { icon: Phone, label: "Phone", value: contact.phone, href: telHref(contact.phone) },
@@ -387,14 +395,16 @@ function Contact({ contact }: { contact: ShownContact }) {
           );
         })}
       </div>
-      <p className="mt-6 text-center text-sm text-parchment-muted">
-        <ShieldCheck className="mr-2 inline h-4 w-4 align-[-2px] text-gold-500" aria-hidden="true" />
-        Already applied? Follow your application under{" "}
-        <Link href="/franchise/application" className="text-gold-400 underline-offset-4 hover:underline">
-          My franchise application
-        </Link>
-        .
-      </p>
+      {showApplicationLink && (
+        <p className="mt-6 text-center text-sm text-parchment-muted">
+          <ShieldCheck className="mr-2 inline h-4 w-4 align-[-2px] text-gold-500" aria-hidden="true" />
+          Already applied? Follow your application under{" "}
+          <Link href="/franchise/application" className="text-gold-400 underline-offset-4 hover:underline">
+            My franchise application
+          </Link>
+          .
+        </p>
+      )}
     </div>
   );
 }

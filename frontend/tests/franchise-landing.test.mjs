@@ -1,7 +1,7 @@
 // Run with `npm test` (Node strips the TypeScript types of the imported modules).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEMO_DISTRICTS_NOTICE, districtSummary, isDraftPolicyText, stateSummary } from "../lib/franchise-landing.ts";
+import { DEMO_DISTRICTS_NOTICE, districtSummary, isDraftPolicyText, showApplicationLinks, stateSummary } from "../lib/franchise-landing.ts";
 import { applicationStepProblem, formatShareBps, APPLICATION_STEPS } from "../lib/franchise-form.ts";
 
 test("district summary: counts per state, states with an open district first, then by name", () => {
@@ -59,4 +59,9 @@ test("policy text that marks itself as a draft or sample is recognised; ordinary
 
 test("the demonstration notice uses the agreed wording", () => {
   assert.equal(DEMO_DISTRICTS_NOTICE, "Demonstration data only — district availability is not verified for applications.");
+});
+
+test("'Check my application' links appear only while applications are open", () => {
+  assert.equal(showApplicationLinks(false), false, "closed: no link that only leads to sign-in");
+  assert.equal(showApplicationLinks(true), true, "open: applicants can follow their application");
 });
