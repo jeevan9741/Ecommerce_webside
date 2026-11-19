@@ -65,6 +65,7 @@ router.get("/admin/franchise/applications", asyncHandler(franchiseReview.listFra
 router.get("/admin/franchise/applications/:id", asyncHandler(franchiseReview.getFranchiseApplication));
 router.post("/admin/franchise/applications/:id/transition", asyncHandler(franchiseReview.transitionFranchiseApplication));
 router.post("/admin/franchise/applications/:id/notes", asyncHandler(franchiseReview.addFranchiseApplicationNote));
+router.post("/admin/franchise/applications/:id/documents/:documentId/url", asyncHandler(franchiseReview.franchiseApplicationDocumentUrl));
 
 // Franchise partners (Phase 5F-1): suspension is immediate (one admin); reinstating and deactivating
 // need a second admin to approve the exact request.

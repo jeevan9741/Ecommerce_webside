@@ -7,9 +7,10 @@ import { AlertTriangle, ArrowLeft, Loader2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { DOCUMENT_KIND_LABEL, formatBytes, formatRupees } from "@/lib/franchise-form";
-import { ACTION, REJECTION_REASON_MAX, isReviewAction, rejectionReasonError, type ReviewAction } from "@/lib/franchise-review";
+import { ACTION, REJECTION_REASON_MAX, adminDocumentUrlPath, isReviewAction, rejectionReasonError, type ReviewAction } from "@/lib/franchise-review";
 import { StatusBadge } from "@/components/franchise/status-badge";
 import { AdminUnavailableSystems } from "@/components/franchise/admin-unavailable-systems";
+import { DocumentLink } from "@/components/franchise/document-link";
 
 interface Detail {
   id: string;
@@ -99,12 +100,15 @@ export default function FranchiseApplicationDetailPage() {
 
           <section className="card p-6">
             <h2 className="font-display text-lg font-semibold text-parchment">Documents</h2>
-            <p className="mt-1 text-xs text-parchment-muted">Opening documents arrives with the document-review phase; only the list is shown here.</p>
+            <p className="mt-1 text-xs text-parchment-muted">Each View opens a private link that works for 5 minutes. Every view is recorded in the audit history.</p>
             <ul className="mt-3 divide-y divide-white/5 text-sm">
               {app.documents.map((d) => (
-                <li key={d.id} className="py-2">
-                  <span className="text-parchment">{DOCUMENT_KIND_LABEL[d.kind] ?? d.kind}</span>
-                  <span className="text-xs text-parchment-muted"> · {d.originalName} · {formatBytes(d.sizeBytes)} · {formatDateTime(d.createdAt)}</span>
+                <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <span>
+                    <span className="text-parchment">{DOCUMENT_KIND_LABEL[d.kind] ?? d.kind}</span>
+                    <span className="text-xs text-parchment-muted"> · {d.originalName} · {formatBytes(d.sizeBytes)} · {formatDateTime(d.createdAt)}</span>
+                  </span>
+                  <DocumentLink documentId={d.id} request={() => api.post<{ url: string }>(adminDocumentUrlPath(app.id, d.id))} />
                 </li>
               ))}
               {app.documents.length === 0 && <li className="py-2 text-parchment-muted">No documents.</li>}

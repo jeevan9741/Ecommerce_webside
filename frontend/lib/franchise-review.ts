@@ -72,3 +72,7 @@ export function listQuery(f: { status?: string; q?: string; stateId?: string; di
 }
 
 export const pageCount = (total: number, pageSize: number) => Math.max(1, Math.ceil(total / pageSize));
+
+/** API path that hands an admin a fresh 5-minute signed link to one applicant document (POST, audited). */
+export const adminDocumentUrlPath = (applicationId: string, documentId: string) =>
+  `/admin/franchise/applications/${encodeURIComponent(applicationId)}/documents/${encodeURIComponent(documentId)}/url`;

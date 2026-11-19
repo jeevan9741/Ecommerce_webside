@@ -4,8 +4,11 @@ import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 
-/** Asks for a fresh 60-second signed link only when clicked; links are never rendered into the page. */
-export function DocumentLink({ documentId }: { documentId: string }) {
+/**
+ * Asks for a fresh short-lived signed link only when clicked; links are never rendered into the page.
+ * By default it is the applicant's own document; the admin review page passes its own request.
+ */
+export function DocumentLink({ documentId, request }: { documentId: string; request?: () => Promise<{ url: string }> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -13,7 +16,7 @@ export function DocumentLink({ documentId }: { documentId: string }) {
     setBusy(true);
     setError(null);
     try {
-      const { url } = await api.get<{ url: string }>(`/franchise/applications/me/documents/${encodeURIComponent(documentId)}/url`);
+      const { url } = request ? await request() : await api.get<{ url: string }>(`/franchise/applications/me/documents/${encodeURIComponent(documentId)}/url`);
       window.open(url, "_blank", "noopener,noreferrer");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't open the document.");

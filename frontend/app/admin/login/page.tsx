@@ -1,11 +1,12 @@
 "use client";
 
-import { Suspense, useState, FormEvent } from "react";
+import { Suspense, useEffect, useState, FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { LogoMark } from "@/components/logo";
 import { PasswordInput } from "@/components/password-input";
 import { useAuth } from "@/contexts/auth-context";
+import { takeAdminLoginIdentifier } from "@/lib/admin-login-handoff";
 
 /**
  * Admin sign-in: password, then the 6-digit code from the admin's authenticator app (or a one-time recovery
@@ -22,6 +23,13 @@ function AdminLogin() {
   const [busy, setBusy] = useState(false);
   const reason = useSearchParams().get("reason");
   const [error, setError] = useState<string | null>(reason === "mfa" ? "Please sign in again with your authenticator code." : null);
+
+  // Arriving from the student login's "Go to admin login": prefill the email/username (read once).
+  useEffect(() => {
+    const remembered = takeAdminLoginIdentifier(window.sessionStorage);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sessionStorage exists only after mount (no hydration mismatch)
+    if (remembered) setIdentifier((current) => current || remembered);
+  }, []);
 
   async function onPassword(e: FormEvent) {
     e.preventDefault();

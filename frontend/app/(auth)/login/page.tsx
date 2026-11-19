@@ -3,10 +3,11 @@
 import { useState, FormEvent, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2, LogIn } from "lucide-react";
+import { Loader2, LogIn, ShieldCheck } from "lucide-react";
 import { PasswordInput } from "@/components/password-input";
 import { useAuth } from "@/contexts/auth-context";
 import { postLoginPath } from "@/lib/routes";
+import { offerAdminLogin, saveAdminLoginIdentifier } from "@/lib/admin-login-handoff";
 
 function LoginForm() {
   const router = useRouter();
@@ -18,16 +19,19 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [adminLogin, setAdminLogin] = useState(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setAdminLogin(false);
     setBusy(true);
     const res = await login(identifier, password);
     setBusy(false);
     if (!res.ok) {
       // Admin accounts finish signing in (with their authenticator) on the admin login page.
       setError(res.mfaRequired ? "This account uses two-step verification. Please sign in on the admin login page." : res.error);
+      setAdminLogin(offerAdminLogin(res));
       return;
     }
     router.push(postLoginPath(res.user.role, callbackUrl));
@@ -67,6 +71,19 @@ function LoginForm() {
           />
         </div>
         {error && <p className="text-sm text-danger">{error}</p>}
+        {adminLogin && (
+          <button
+            type="button"
+            className="btn-outline w-full"
+            onClick={() => {
+              // Only the email/username goes along (this tab's storage, never the URL); the password stays here.
+              saveAdminLoginIdentifier(typeof window === "undefined" ? null : window.sessionStorage, identifier);
+              router.push("/admin/login");
+            }}
+          >
+            <ShieldCheck className="h-4 w-4" /> Go to admin login
+          </button>
+        )}
         <button type="submit" disabled={busy} className="btn-gold w-full">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
           Login

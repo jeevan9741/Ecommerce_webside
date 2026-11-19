@@ -4,6 +4,7 @@ import { prisma } from "../config/prisma.js";
 import { env } from "../config/env.js";
 import { HttpError } from "../utils/http.js";
 import { sendEmail } from "./email.service.js";
+import { getDownloadUrl } from "./storage.service.js";
 import { STATUS_LABEL } from "./franchise-application.service.js";
 import { expireReservations, holdingAllocation, lockState, releaseReservationFor } from "./franchise-state.service.js";
 import { refuseOwnApplication } from "./franchise-admin-guard.js";
@@ -210,6 +211,30 @@ export async function addNote(actorId: string, id: string, input: unknown) {
     await tx.auditLog.create({ data: { actorId, action: "FRANCHISE_APPLICATION_NOTE_ADDED", target: id, metadata: { noteId: note.id, length: body.length } } });
     return { id: note.id, createdAt: note.createdAt };
   });
+}
+
+// ---------- Documents ----------
+
+/** How long an admin's signed link to an applicant's document works. */
+export const ADMIN_DOCUMENT_URL_SECONDS = 300;
+
+/**
+ * A fresh short-lived signed link to one document of one application, for an admin who asked for it.
+ * Nothing permanent is stored or returned; every link handed out is audited (ids and kind only).
+ */
+export async function adminDocumentUrl(actorId: string, applicationId: string, documentId: string) {
+  await requireAdmin(actorId);
+  const doc = await prisma.franchiseApplicationDocument.findFirst({
+    where: { id: documentId, applicationId },
+    select: { id: true, kind: true, storageKey: true, originalName: true, application: { select: { applicationNo: true } } },
+  });
+  if (!doc) throw new HttpError(404, "Not found");
+  const url = await getDownloadUrl(doc.storageKey, ADMIN_DOCUMENT_URL_SECONDS);
+  // Recorded before the link is returned: a view that can't be audited isn't handed out.
+  await prisma.auditLog.create({
+    data: { actorId, action: "FRANCHISE_DOCUMENT_VIEWED", target: applicationId, metadata: { applicationNo: doc.application.applicationNo, documentId: doc.id, kind: doc.kind, expiresInSeconds: ADMIN_DOCUMENT_URL_SECONDS } },
+  });
+  return { url, fileName: doc.originalName, expiresInSeconds: ADMIN_DOCUMENT_URL_SECONDS };
 }
 
 // ---------- Status transitions ----------

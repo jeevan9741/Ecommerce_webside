@@ -1,7 +1,7 @@
 // Run with `npm test` (Node strips the TypeScript types of the imported module).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ACTION, REVIEW_STATUSES, STATUS_LABEL, isReviewAction, listQuery, pageCount, rejectionReasonError, statusTone } from "../lib/franchise-review.ts";
+import { ACTION, REVIEW_STATUSES, STATUS_LABEL, adminDocumentUrlPath, isReviewAction, listQuery, pageCount, rejectionReasonError, statusTone } from "../lib/franchise-review.ts";
 
 test("every status has a label; only the four review moves are actions", () => {
   for (const s of REVIEW_STATUSES) assert.ok(STATUS_LABEL[s], s);
@@ -28,4 +28,9 @@ test("list query keeps only set filters; page count never drops below 1", () => 
   assert.equal(pageCount(26, 25), 2);
   assert.equal(statusTone("REJECTED"), "bad");
   assert.equal(statusTone("APPROVED"), "good");
+});
+
+test("admin document View asks the admin-only endpoint for one document of one application", () => {
+  assert.equal(adminDocumentUrlPath("app1", "doc1"), "/admin/franchise/applications/app1/documents/doc1/url");
+  assert.equal(adminDocumentUrlPath("a/b", "c?d"), "/admin/franchise/applications/a%2Fb/documents/c%3Fd/url", "ids are encoded");
 });
