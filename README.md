@@ -68,6 +68,7 @@ cache. The build fails if `NEXT_PUBLIC_API_URL` is missing — there is no hardc
 | `EMAIL_PROVIDER`                | yes      | `resend`                                                                                |
 | `RESEND_API_KEY`                | yes      | `re_...` (Resend → API Keys)                                                            |
 | `EMAIL_FROM`                    | yes      | `E-Commerce Training Academy <no-reply@ecommercetrainingacademyeta.com>` — verified domain |
+| `ADMIN_NOTIFY_EMAIL`            | no       | `ecommercetrainingacademyeta@gmail.com` — admin notification emails (comma-separated list allowed, max 5); unset = off. Test from Admin → Settings |
 | `RAZORPAY_KEY_ID`               | yes      | `rzp_live_...` — TEST keys are refused in production, LIVE keys outside production     |
 | `RAZORPAY_KEY_SECRET`           | yes      | live key secret                                                                         |
 | `RAZORPAY_WEBHOOK_SECRET`       | yes      | from the webhook below                                                                  |

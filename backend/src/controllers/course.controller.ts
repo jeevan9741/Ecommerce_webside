@@ -3,6 +3,7 @@ import { prisma } from "../config/prisma.js";
 import { getDownloadUrl, uploadBuffer, buildStorageKey } from "../services/storage.service.js";
 import { jobApplicationSchema } from "../utils/validation.js";
 import { rateLimit } from "../utils/rate-limit.js";
+import { notifyAdmins } from "../services/admin-notify.service.js";
 import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError, param } from "../utils/http.js";
 import { homepageDemoVideo } from "./video.controller.js";
@@ -252,6 +253,7 @@ export async function applyToJob(req: Request, res: Response) {
       resumeStorageKey,
     },
   });
+  notifyAdmins({ kind: "JOB_APPLICATION", applicationId: application.id, jobTitle: job.title, applicantName: application.applicantName, hasResume: Boolean(resumeStorageKey) });
   res.json({ ok: true, applicationId: application.id });
 }
 

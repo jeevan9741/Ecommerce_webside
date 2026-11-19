@@ -5,6 +5,7 @@ import { backendFetch } from "@/lib/api";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Loader2, Save, Video } from "lucide-react";
+import { AdminNotificationsCard } from "@/components/admin/admin-notifications-card";
 
 interface AboutSettings {
   intro: string;
@@ -188,6 +189,8 @@ export default function AdminSettingsPage() {
         <label className="label-field">Note shown near certificates (e.g. registration number)</label>
         <textarea className="input-field min-h-20" value={legal.note} onChange={(e) => setLegal({ ...legal, note: e.target.value })} />
       </SettingSection>
+
+      <AdminNotificationsCard />
 
       <div className="card flex flex-wrap items-center justify-between gap-3 p-6">
         <div>

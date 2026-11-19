@@ -40,7 +40,21 @@ mock.module("../src/services/storage.service.js", {
   },
 });
 
+// ---- Captured email (never sent) ----
+const realEmail = await import("../src/services/email.service.js");
+const sentEmails: { to: string; subject: string; html: string }[] = [];
+mock.module("../src/services/email.service.js", {
+  namedExports: {
+    ...realEmail,
+    sendEmail: async (m: { to: string; subject: string; html: string }) => {
+      sentEmails.push(m);
+    },
+  },
+});
+const ADMIN_INBOX = "zz-admin-inbox@example.test";
+
 const { createApp } = await import("../src/app.js");
+const { flushAdminNotifications } = await import("../src/services/admin-notify.service.js");
 const { prisma } = await import("../src/config/prisma.js");
 const { signSessionToken } = await import("../src/utils/tokens.js");
 const { APPROVED_STARTING_VALUES } = await import("../src/services/policy-schemas.js");
@@ -146,6 +160,7 @@ const DOCS = { PHOTO: "REQUIRED", ADDRESS_PROOF: "OPTIONAL", BUSINESS_PLAN: "OPT
 const PRIVACY_TEXT = `DRAFT ${tag}: test-only privacy notice placeholder, pending legal approval (automated test text).`;
 
 before(async () => {
+  process.env.ADMIN_NOTIFY_EMAIL = ADMIN_INBOX;
   server = createApp().listen(0);
   await new Promise((r) => server.once("listening", r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -176,6 +191,8 @@ before(async () => {
 });
 
 after(async () => {
+  delete process.env.ADMIN_NOTIFY_EMAIL;
+  await flushAdminNotifications();
   try {
     await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SET LOCAL eta.financial_maintenance = 'on'`; // test cleanup only (logged)
@@ -394,6 +411,26 @@ describe("submission", () => {
     for (const pii of ["Applicant One", "9876543210", u.email, "Test Street"]) assert.equal(meta.includes(pii), false, `audit must not contain ${pii}`);
     const n = await prisma.franchiseNotification.findFirstOrThrow({ where: { applicationId: app.id } });
     assert.deepEqual([n.kind, n.status, n.recipientUserId], ["APPLICATION_SUBMITTED", "SENT", u.id]);
+  });
+
+  test("admins get one email per new application: number, name, state, district — no contact details or documents", async () => {
+    const u = await makeUser("admin-mail-applicant");
+    sentEmails.length = 0;
+    const mobile = uniqueMobile();
+    const r = await apply(u, fields({ applicantName: "Mail Applicant", mobile, address: "77, Secret Lane", pincode: "560034" }));
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    await flushAdminNotifications();
+    const mails = sentEmails.filter((m) => m.to === ADMIN_INBOX);
+    assert.equal(mails.length, 1, JSON.stringify(sentEmails.map((m) => [m.to, m.subject])));
+    const { subject, html } = mails[0];
+    assert.match(subject, /^\[ETA admin\] New franchise application /);
+    for (const expected of [r.body.applicationNo, "Mail Applicant", `${tag} State`, `${tag} d1`, `/admin/franchise-applications/${r.body.id}`]) {
+      assert.ok(html.includes(expected) || subject.includes(expected), `admin email shows ${expected}`);
+    }
+    const app = await prisma.franchiseApplication.findUniqueOrThrow({ where: { id: r.body.id }, include: { documents: true } });
+    for (const secret of [mobile, "Secret Lane", "560034", u.email, "blob.invalid", ...app.documents.map((d) => d.storageKey)]) {
+      assert.equal(html.includes(secret) || subject.includes(secret), false, `admin email must not contain ${secret}`);
+    }
   });
 
   test("one open application per account: a second submission is refused and leaves no files", async () => {

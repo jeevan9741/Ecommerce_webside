@@ -6,6 +6,7 @@ import { env } from "../config/env.js";
 import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError, param } from "../utils/http.js";
 import { rateLimit } from "../utils/rate-limit.js";
+import { notifyAdmins } from "../services/admin-notify.service.js";
 import { getRazorpayClient, RazorpayConfigError } from "../services/razorpay.service.js";
 import {
   PARTNER_CARD_SETTINGS_KEY,
@@ -209,6 +210,7 @@ export async function requestPartnerCard(req: Request, res: Response) {
   }
 
   await audit(session.id, existing ? "PARTNER_CARD_RESUBMITTED" : "PARTNER_CARD_REQUESTED", card.id);
+  notifyAdmins({ kind: "PARTNER_CARD_REQUEST", userName: session.name, request: existing ? "RESUBMITTED" : "NEW" });
   res.status(existing ? 200 : 201).json(await partnerView(session.id));
 }
 
@@ -267,6 +269,8 @@ export async function requestPartnerCardReissue(req: Request, res: Response) {
     .catch(duplicateOpenRequest);
 
   await audit(session.id, "PARTNER_CARD_REISSUE_REQUESTED", request.id, { feeInPaise: request.feeInPaise });
+  // A free reissue goes straight to review; a paid one is announced once its fee is paid.
+  if (request.status === "PENDING") notifyAdmins({ kind: "PARTNER_CARD_REQUEST", userName: session.name, request: "REISSUE" });
   res.status(201).json(await partnerView(session.id));
 }
 

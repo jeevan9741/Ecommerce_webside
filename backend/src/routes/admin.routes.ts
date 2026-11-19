@@ -17,12 +17,17 @@ import * as franchisePartner from "../controllers/franchise-partner.controller.j
 import * as franchiseState from "../controllers/franchise-state.controller.js";
 import * as franchiseAdmin from "../controllers/franchise-admin.controller.js";
 import * as adminMfa from "../controllers/admin-mfa.controller.js";
+import * as adminNotify from "../controllers/admin-notify.controller.js";
 
 const router = Router();
 
 // Every route below requires an ADMIN session.
 router.use("/admin", requireAdmin);
 router.use("/upload", requireAdmin);
+
+// Admin notification emails (ADMIN_NOTIFY_EMAIL): status and a test send.
+router.get("/admin/notifications/status", asyncHandler(adminNotify.adminNotifyStatus));
+router.post("/admin/notifications/test", asyncHandler(adminNotify.sendTestAdminNotification));
 
 // Analytics
 router.get("/admin/analytics/sales", asyncHandler(ops.salesAnalytics));

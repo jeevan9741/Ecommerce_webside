@@ -6,6 +6,7 @@ import { getPartnerBalance, getPartnerEarningsBreakdown } from "../services/comm
 import { rateLimit } from "../utils/rate-limit.js";
 import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError } from "../utils/http.js";
+import { notifyAdmins } from "../services/admin-notify.service.js";
 
 export async function partnerStats(req: Request, res: Response) {
   const user = currentUser(req);
@@ -115,6 +116,7 @@ export async function createWithdrawal(req: Request, res: Response) {
   await prisma.auditLog.create({
     data: { actorId: user.id, action: "WITHDRAWAL_REQUESTED", target: withdrawal.id, metadata: { amountInPaise } },
   });
+  notifyAdmins({ kind: "WITHDRAWAL_REQUESTED", withdrawalId: withdrawal.id, userName: user.name, amountInPaise, requestedAt: withdrawal.requestedAt });
 
   res.json({ withdrawal });
 }
@@ -151,6 +153,7 @@ export async function createReferralClaim(req: Request, res: Response) {
   await prisma.auditLog.create({
     data: { actorId: user.id, action: "REFERRAL_CLAIM_SUBMITTED", target: claim.id, metadata: { utr } },
   });
+  notifyAdmins({ kind: "REFERRAL_CLAIM", claimId: claim.id, partnerName: user.name, courseTitle: claim.course.title, submittedAt: claim.createdAt });
 
   res.status(201).json({ claim });
 }

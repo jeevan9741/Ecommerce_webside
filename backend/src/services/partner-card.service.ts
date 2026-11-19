@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { notifyAdmins } from "./admin-notify.service.js";
 import type { PartnerCard, PartnerCardRequest, Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
 import { getRazorpayClient } from "./razorpay.service.js";
@@ -157,6 +158,12 @@ export async function markRequestPaid(params: { razorpayOrderId: string; payment
         metadata: { razorpayPaymentId: payment.id, amountInPaise: payment.amountInPaise },
       },
     });
+    if (latest.status === "PENDING") {
+      notifyAdmins(async () => {
+        const user = await prisma.user.findUnique({ where: { id: request.userId }, select: { name: true } });
+        return { kind: "PARTNER_CARD_REQUEST", userName: user?.name ?? "A partner", request: "REISSUE_PAID", feeInPaise: request.feeInPaise };
+      });
+    }
   }
   return { ok: true as const, alreadyProcessed: count === 0, request: latest };
 }

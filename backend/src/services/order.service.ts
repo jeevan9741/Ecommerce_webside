@@ -4,6 +4,7 @@ import type { Order } from "@prisma/client";
 import { paymentMismatch, paymentSafetyProblem, type RazorpayPaymentFacts } from "./payment-safety.js";
 import { env } from "../config/env.js";
 import { sendEmail, purchaseConfirmationTemplate } from "./email.service.js";
+import { notifyOrderEvent } from "./admin-notify.service.js";
 
 /** Stable, human-readable invoice number for a paid order, e.g. ETA-202610-3F9K2Q7A. */
 export function invoiceNumber(order: Pick<Order, "id" | "paidAt" | "createdAt">) {
@@ -165,7 +166,10 @@ export async function markOrderPaid(params: {
   });
 
   // Exactly once: only the call that actually flipped the order to PAID sends the receipt.
-  if (result.ok && !result.alreadyProcessed && "orderId" in result && result.orderId) void sendPurchaseConfirmation(result.orderId);
+  if (result.ok && !result.alreadyProcessed && "orderId" in result && result.orderId) {
+    void sendPurchaseConfirmation(result.orderId);
+    notifyOrderEvent("COURSE_PAID", result.orderId, invoiceNumber);
+  }
   return result;
 }
 
@@ -258,7 +262,7 @@ export async function markOrderFailed(razorpayOrderId: string) {
  * result: the access row ends on a still-PAID order, or revoked when none is left.
  */
 export async function reverseOrder(razorpayPaymentId: string, reason: string) {
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const found = await tx.order.findUnique({ where: { razorpayPaymentId }, select: { id: true, userId: true, courseId: true } });
     if (!found) return { ok: false as const };
 
@@ -295,6 +299,9 @@ export async function reverseOrder(razorpayPaymentId: string, reason: string) {
       data: { action: "ORDER_REFUNDED", target: order.id, metadata: { reason } },
     });
 
-    return { ok: true as const };
+    return { ok: true as const, orderId: order.id };
   });
+  // After the commit, and only for the call that actually refunded it.
+  if (result.ok) notifyOrderEvent("ORDER_REFUNDED", result.orderId, invoiceNumber);
+  return result;
 }

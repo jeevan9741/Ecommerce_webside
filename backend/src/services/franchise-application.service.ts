@@ -9,6 +9,7 @@ import { sendEmail } from "./email.service.js";
 import { resolvePolicy } from "./policy.service.js";
 import { isPending } from "./policy-schemas.js";
 import { holdingAllocation, lockState, releaseReservationFor } from "./franchise-state.service.js";
+import { notifyAdmins } from "./admin-notify.service.js";
 
 /**
  * Franchise applications (Phase 4: submission and the applicant's own view). Applicants are signed-in,
@@ -312,6 +313,16 @@ export async function submitApplication(input: { userId: string; body: Record<st
   }
   // After the commit and outside the cleanup path: a notification problem must never touch saved documents.
   await notify(application.id, user.id, user.email, application.applicationNo).catch((e) => console.error("[FRANCHISE] notification record failed", { applicationId: application.id, error: String(e) }));
+  notifyAdmins({
+    kind: "FRANCHISE_APPLICATION",
+    applicationId: application.id,
+    applicationNo: application.applicationNo,
+    applicantName: application.applicantName,
+    state: district.state.name,
+    district: district.name,
+    submittedAt: application.submittedAt,
+    documents: documents.length,
+  });
   return application;
 }
 

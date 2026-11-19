@@ -1,3 +1,5 @@
+import { adminNotifyStatusLine } from "../utils/admin-notify-config.js";
+
 interface SendEmailInput {
   to: string;
   subject: string;
@@ -82,6 +84,7 @@ export async function checkEmailOnStartup() {
   } else if (process.env.NODE_ENV !== "production") {
     lines.push("[EMAIL] Development mode: emails (including OTP codes) are printed to this console, not sent.");
   }
+  lines.push(adminNotifyStatusLine());
   for (const line of lines) console.log(line);
 
   if (provider !== "smtp") return;
