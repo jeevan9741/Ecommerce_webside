@@ -42,21 +42,11 @@ export async function packagesById(ids: Iterable<string>) {
 // ---------- E-book languages ----------
 
 /**
- * Legacy compatibility rule. Before e-book languages were enforced, the checkout recorded no
- * language for e-book packages, and those buyers could open every language. A PAID order with no
- * selectedLanguage, for an EBOOK-type package, created before this instant keeps that all-language
- * access. It is decided when access is checked — historical orders are never rewritten. Checkout
- * now always records a validated language for EBOOK packages, so no new order can qualify.
+ * Which e-book languages of one package a student may open: exactly the languages of their PAID
+ * orders. There is no "every language" case for students (the pre-release all-language exception was
+ * retired once its one buyer's purchased language was recorded on the order); admins bypass this check.
  */
-export const LEGACY_ALL_LANGUAGE_ORDERS_BEFORE = new Date("2026-10-27T00:00:00.000Z");
-
-export function isLegacyAllLanguageOrder(order: { selectedLanguage: string | null; createdAt: Date; course: { type: string } }) {
-  return !order.selectedLanguage && order.course.type === "EBOOK" && order.createdAt < LEGACY_ALL_LANGUAGE_ORDERS_BEFORE;
-}
-
-/** Which e-book languages of one package a student may open: every language, or these codes. */
 export interface EBookLanguageAccess {
-  all: boolean;
   codes: Set<string>;
 }
 
@@ -71,24 +61,21 @@ export async function ebookLanguageAccess(userId: string, courseIds?: Iterable<s
     where: { userId, ...PAID_ACCESS, ...(courseIds ? { courseId: { in: [...courseIds] } } : {}) },
     select: { courseId: true },
   });
-  const access = new Map<string, EBookLanguageAccess>(owned.map((r) => [r.courseId, { all: false, codes: new Set<string>() }]));
+  const access = new Map<string, EBookLanguageAccess>(owned.map((r) => [r.courseId, { codes: new Set<string>() }]));
   if (access.size === 0) return access;
 
   const orders = await prisma.order.findMany({
     where: { userId, courseId: { in: [...access.keys()] }, status: "PAID" },
-    select: { courseId: true, selectedLanguage: true, createdAt: true, course: { select: { type: true } } },
+    select: { courseId: true, selectedLanguage: true },
   });
-  for (const order of orders) {
-    const entry = access.get(order.courseId)!;
-    if (order.selectedLanguage) entry.codes.add(order.selectedLanguage);
-    else if (isLegacyAllLanguageOrder(order)) entry.all = true;
-  }
+  // An order without a language opens no e-book language.
+  for (const order of orders) if (order.selectedLanguage) access.get(order.courseId)!.codes.add(order.selectedLanguage);
   return access;
 }
 
 /** Whether that access opens an e-book in `languageCode`. E-books without a language never open. */
 export function opensLanguage(access: EBookLanguageAccess | undefined, languageCode: string | null | undefined) {
-  return Boolean(access && languageCode && (access.all || access.codes.has(languageCode)));
+  return Boolean(access && languageCode && access.codes.has(languageCode));
 }
 
 /** Active languages of a package's published e-books — what its checkout must choose from. */

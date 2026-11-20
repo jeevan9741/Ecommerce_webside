@@ -9,9 +9,8 @@ export interface PackageSummary {
   priceInPaise: number;
 }
 
-/** Which languages of a package the student's PAID orders cover (`allLanguages`: legacy rule only). */
+/** Which languages of a package the student's PAID orders cover. */
 export interface LanguageAccess {
-  allLanguages: boolean;
   languages: string[];
 }
 

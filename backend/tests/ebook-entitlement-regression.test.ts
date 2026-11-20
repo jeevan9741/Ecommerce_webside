@@ -32,7 +32,8 @@ const { createApp } = await import("../src/app.js");
 const { prisma } = await import("../src/config/prisma.js");
 const { signSessionToken } = await import("../src/utils/tokens.js");
 const { markOrderPaid } = await import("../src/services/order.service.js");
-const { LEGACY_ALL_LANGUAGE_ORDERS_BEFORE } = await import("../src/services/package-access.service.js");
+// The pre-release checkout (before 27 Oct 2026) recorded no language on e-book orders.
+const RELEASE = new Date("2026-10-27T00:00:00.000Z");
 
 const tag = `zz-test-${randomBytes(4).toString("hex")}`;
 // Letters only: language codes must look like ISO codes.
@@ -113,9 +114,9 @@ before(async () => {
     await prisma.courseAccess.create({ data: { userId: users[user].id, courseId: pkg, orderId: o.id } });
   };
   const DAY = 86_400_000;
-  await legacy("legacy", new Date(LEGACY_ALL_LANGUAGE_ORDERS_BEFORE.getTime() - 2 * DAY), null);
-  await legacy("legacyLate", new Date(LEGACY_ALL_LANGUAGE_ORDERS_BEFORE.getTime() + DAY), null);
-  await legacy("legacyBlank", new Date(LEGACY_ALL_LANGUAGE_ORDERS_BEFORE.getTime() + DAY), "");
+  await legacy("legacy", new Date(RELEASE.getTime() - 2 * DAY), null);
+  await legacy("legacyLate", new Date(RELEASE.getTime() + DAY), null);
+  await legacy("legacyBlank", new Date(RELEASE.getTime() + DAY), "");
 });
 
 after(async () => {
@@ -139,7 +140,7 @@ describe("a Telugu purchase", () => {
     assert.deepEqual([order.status, order.selectedLanguage], ["PAID", code("te")]);
     const { view, res } = await library("telugu");
     assert.deepEqual(view, { te: "download", kn: "locked", en: "locked", hi: "locked" });
-    assert.deepEqual(res.body.languageAccess[pkg], { allLanguages: false, languages: [code("te")] });
+    assert.deepEqual(res.body.languageAccess[pkg], { languages: [code("te")] });
     assert.equal(res.headers.get("cache-control"), "private, no-store", "entitlements are never cached");
   });
 
@@ -193,7 +194,7 @@ describe("download audit trail", () => {
       ["EBOOK_DOWNLOAD_DENIED", ebook.kn, "LANGUAGE_NOT_PURCHASED", code("kn")],
     ]);
     await download("legacy", "hi");
-    assert.deepEqual((await decisions("legacy")).at(-1), ["EBOOK_DOWNLOAD_GRANTED", ebook.hi, "legacy-all-languages", code("hi")]);
+    assert.deepEqual((await decisions("legacy")).at(-1), ["EBOOK_DOWNLOAD_DENIED", ebook.hi, "LANGUAGE_NOT_PURCHASED", code("hi")], "no all-language exception any more");
     await download("admin", "en");
     assert.deepEqual((await decisions("admin")).at(-1), ["EBOOK_DOWNLOAD_GRANTED", ebook.en, "admin", code("en")]);
     await download("stranger", "te");
@@ -266,7 +267,7 @@ describe("a second, separate purchase", () => {
     await buy("telugu", "kn");
     const { view, res } = await library("telugu");
     assert.deepEqual(view, { te: "download", kn: "download", en: "locked", hi: "locked" });
-    assert.deepEqual(res.body.languageAccess[pkg], { allLanguages: false, languages: [code("kn"), code("te")].sort() });
+    assert.deepEqual(res.body.languageAccess[pkg], { languages: [code("kn"), code("te")].sort() });
     assert.equal((await download("telugu", "kn")).status, 200);
     for (const l of ["en", "hi"] as const) assert.equal((await download("telugu", l)).status, 403);
     const again = await call("POST", "/checkout/create-order", "telugu", { courseId: pkg, selectedLanguage: code("te") });
@@ -274,18 +275,12 @@ describe("a second, separate purchase", () => {
   });
 });
 
-describe("the documented legacy rule", () => {
-  test("a pre-cutoff paid order with no language keeps every language — and says why", async () => {
-    const { view, res } = await library("legacy");
-    assert.deepEqual(view, { te: "download", kn: "download", en: "download", hi: "download" });
-    assert.deepEqual(res.body.languageAccess[pkg], { allLanguages: true, languages: [] });
-  });
-
-  test("no language after the cutoff (null or empty) never falls back to all languages", async () => {
-    for (const user of ["legacyLate", "legacyBlank"]) {
+describe("orders without a language", () => {
+  test("no language on a paid order (null or empty, before or after the release) never opens any language", async () => {
+    for (const user of ["legacy", "legacyLate", "legacyBlank"]) {
       const { view, res } = await library(user);
       assert.deepEqual(view, { te: "locked", kn: "locked", en: "locked", hi: "locked" }, user);
-      assert.deepEqual(res.body.languageAccess[pkg], { allLanguages: false, languages: [] }, user);
+      assert.deepEqual(res.body.languageAccess[pkg], { languages: [] }, user);
       for (const l of Object.keys(LANGS) as L[]) assert.equal((await download(user, l)).status, 403, `${user} ${l}`);
     }
   });

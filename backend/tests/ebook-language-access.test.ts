@@ -33,7 +33,6 @@ const { createApp } = await import("../src/app.js");
 const { prisma } = await import("../src/config/prisma.js");
 const { signSessionToken } = await import("../src/utils/tokens.js");
 const { markOrderPaid, reverseOrder } = await import("../src/services/order.service.js");
-const { LEGACY_ALL_LANGUAGE_ORDERS_BEFORE, isLegacyAllLanguageOrder } = await import("../src/services/package-access.service.js");
 
 const tag = `zz-test-${randomBytes(4).toString("hex")}`;
 // Letters only: language codes must look like ISO codes (a-z and "-").
@@ -49,8 +48,9 @@ let video = ""; // VIDEO package with e-books and a legacy per-language e-book f
 let empty = ""; // EBOOK package whose only e-book has no language yet
 const PRICE = 34900;
 const COMMISSION = 5000;
-const legacyDate = new Date(LEGACY_ALL_LANGUAGE_ORDERS_BEFORE.getTime() - 24 * 3600_000);
-const afterCutoff = new Date(LEGACY_ALL_LANGUAGE_ORDERS_BEFORE.getTime() + 24 * 3600_000);
+// Orders without a language, as the pre-release checkout (before 27 Oct 2026) left them, and one from later.
+const legacyDate = new Date("2026-10-24T09:00:00.000Z");
+const afterCutoff = new Date("2026-10-28T09:00:00.000Z");
 
 async function makeUser(name: string, role: "USER" | "ADMIN" = "USER") {
   const u = await prisma.user.create({
@@ -139,12 +139,12 @@ before(async () => {
   await makeUser("admin", "ADMIN");
 
   await order("hiBuyer", pkg, "PAID", code.hi);
-  await order("legacy", pkg, "PAID", null, legacyDate); // grandfathered: before the cutoff, no language
+  await order("legacy", pkg, "PAID", null, legacyDate); // pre-release order with no language recorded
   await order("legacyLate", pkg, "PAID", null, afterCutoff); // no language but after the cutoff: nothing
   await order("pending", pkg, "CREATED", code.hi);
   await order("failed", pkg, "FAILED", code.hi);
   await order("videoBuyer", video, "PAID", code.en);
-  await order("videoLegacy", video, "PAID", null, legacyDate); // legacy rule is EBOOK-only
+  await order("videoLegacy", video, "PAID", null, legacyDate); // no language: no e-book link
   // Access points at the hi order; a cancelled te order alongside it must add nothing.
   await order("mixed", pkg, "PAID", code.hi);
   await prisma.order.create({ data: { userId: users.mixed.id, courseId: pkg, amountInPaise: PRICE, status: "CANCELLED", selectedLanguage: code.te, razorpayOrderId: `${tag}-mixed-te`, paidAt: new Date() } });
@@ -217,30 +217,23 @@ describe("listing and download", () => {
   });
 });
 
-describe("legacy orders (no language, before the cutoff)", () => {
-  test("the rule: PAID-only is checked elsewhere; here no language + EBOOK + before cutoff", () => {
-    const o = (selectedLanguage: string | null, createdAt: Date, type = "EBOOK") => isLegacyAllLanguageOrder({ selectedLanguage, createdAt, course: { type } });
-    assert.equal(o(null, legacyDate), true);
-    assert.equal(o(null, afterCutoff), false);
-    assert.equal(o(null, LEGACY_ALL_LANGUAGE_ORDERS_BEFORE), false, "the cutoff itself is excluded");
-    assert.equal(o(code.hi, legacyDate), false, "an order with a language is never all-language");
-    assert.equal(o(null, legacyDate, "VIDEO"), false, "only e-book packages");
+describe("orders without a language (the all-language exception is retired)", () => {
+  test("a paid order with no language opens no e-book language, however old", async () => {
+    for (const user of ["legacy", "legacyLate"]) {
+      assert.deepEqual((await library(user)).locked, { [ebook.en]: true, [ebook.hi]: true, [ebook.te]: true }, user);
+      for (const id of [ebook.en, ebook.hi, ebook.te]) assert.equal((await download(user, id)).body.code, "LANGUAGE_NOT_PURCHASED", `${user} ${id}`);
+    }
   });
 
-  test("a grandfathered buyer keeps every language", async () => {
-    assert.deepEqual((await library("legacy")).locked, { [ebook.en]: false, [ebook.hi]: false, [ebook.te]: false });
-    for (const id of [ebook.en, ebook.hi, ebook.te]) assert.equal((await download("legacy", id)).status, 200);
-  });
-
-  test("the same kind of order after the cutoff opens nothing", async () => {
-    assert.deepEqual((await library("legacyLate")).locked, { [ebook.en]: true, [ebook.hi]: true, [ebook.te]: true });
-    assert.equal((await download("legacyLate", ebook.hi)).body.code, "LANGUAGE_NOT_PURCHASED");
-  });
-
-  test("historical orders are only read, never rewritten", async () => {
-    const legacyOrder = await prisma.order.findFirstOrThrow({ where: { userId: users.legacy.id } });
-    assert.equal(legacyOrder.selectedLanguage, null);
-    assert.equal(legacyOrder.createdAt.getTime(), legacyDate.getTime());
+  test("recording the purchased language on such an order (the one-off fix) opens exactly that language", async () => {
+    const o = await prisma.order.findFirstOrThrow({ where: { userId: users.legacy.id, courseId: pkg } });
+    await prisma.order.update({ where: { id: o.id }, data: { selectedLanguage: code.te } });
+    await prisma.courseAccess.updateMany({ where: { orderId: o.id }, data: { languageGranted: code.te } });
+    assert.deepEqual((await library("legacy")).locked, { [ebook.en]: true, [ebook.hi]: true, [ebook.te]: false });
+    assert.equal((await download("legacy", ebook.te)).status, 200);
+    for (const id of [ebook.en, ebook.hi]) assert.equal((await download("legacy", id)).body.code, "LANGUAGE_NOT_PURCHASED");
+    const after = await prisma.order.findUniqueOrThrow({ where: { id: o.id } });
+    assert.deepEqual([after.status, after.amountInPaise, after.createdAt.getTime()], [o.status, o.amountInPaise, o.createdAt.getTime()], "only the language changed");
   });
 });
 
@@ -254,7 +247,7 @@ describe("legacy per-language e-book links (course player)", () => {
     assert.ok(byCode[code.hi].videoUrl, "videos are not language-restricted");
 
     const legacy = await call("GET", `/courses/${video}/content`, users.videoLegacy.token);
-    assert.ok((legacy.body.languages as { ebookUrl: string | null }[]).every((l) => l.ebookUrl === null), "legacy rule doesn't apply to VIDEO packages");
+    assert.ok((legacy.body.languages as { ebookUrl: string | null }[]).every((l) => l.ebookUrl === null), "an order without a language gets no e-book link");
   });
 });
 

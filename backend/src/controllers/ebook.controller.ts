@@ -324,12 +324,8 @@ export async function listMyEBooks(req: Request, res: Response) {
     ebooks: ebooks.map((e) => ({ ...studentView(e), locked: languages ? !opensLanguage(languages.get(e.courseId), e.language?.code) : false })),
     packages,
     unlock,
-    // Per owned package: which languages this student's PAID orders cover. `allLanguages` is only
-    // ever true for the documented legacy rule (a pre-cutoff e-book order with no language), so the
-    // UI can say why every language is open. Admins see everything and get no entry.
-    languageAccess: languages
-      ? Object.fromEntries([...languages].map(([courseId, a]) => [courseId, { allLanguages: a.all, languages: [...a.codes].sort() }]))
-      : {},
+    // Per owned package: which languages this student's PAID orders cover. Admins see everything and get no entry.
+    languageAccess: languages ? Object.fromEntries([...languages].map(([courseId, a]) => [courseId, { languages: [...a.codes].sort() }])) : {},
   });
 }
 
@@ -365,7 +361,7 @@ export async function downloadEBook(req: Request, res: Response) {
         language: { code: ebook.language!.code, name: ebook.language!.name },
       });
     }
-    basis = access.all ? "legacy-all-languages" : "purchased-language";
+    basis = "purchased-language";
   }
   await audit("EBOOK_DOWNLOAD_GRANTED", basis);
   const url = await getDownloadUrl(ebook.storageKey, DOWNLOAD_TTL);

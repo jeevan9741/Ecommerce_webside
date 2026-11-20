@@ -1,7 +1,7 @@
 // Run with `npm test` (Node strips the TypeScript types of the imported module).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { adminLibraryNote, downloadFailure, ebookCardAction, legacyAllLanguagesNote } from "../lib/ebook-card.ts";
+import { adminLibraryNote, downloadFailure, ebookCardAction } from "../lib/ebook-card.ts";
 
 const pkg = { id: "starter", type: "EBOOK" };
 const book = (code, name, locked) => ({ locked, language: { code, name }, course: { id: "starter" } });
@@ -23,12 +23,6 @@ test("other packages' locked e-books can't be bought per language", () => {
   assert.deepEqual(ebookCardAction(book("kn", "Kannada", true), { id: "starter", type: "VIDEO" }), { kind: "not-included", languageName: "Kannada" });
   assert.equal(ebookCardAction(book("kn", "Kannada", true), undefined).kind, "not-included");
   assert.equal(ebookCardAction(book("kn", "Kannada", true), { id: "other", type: "EBOOK" }).kind, "not-included");
-});
-
-test("the legacy note appears only for an all-languages purchase", () => {
-  assert.match(legacyAllLanguagesNote({ allLanguages: true }), /before e-books were sold per language/);
-  assert.equal(legacyAllLanguagesNote({ allLanguages: false }), null);
-  assert.equal(legacyAllLanguagesNote(undefined), null);
 });
 
 test("a refused download explains itself and reloads entitlements (e.g. a stale tab)", () => {

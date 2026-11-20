@@ -8,7 +8,7 @@ import { formatInr } from "@/lib/format";
 import { formatBytes } from "@/services/videoService";
 import { BuyCourseButton } from "@/components/buy-course-button";
 import { learningService, openAfter, type LanguageAccess, type PackageSummary, type StudentEBook } from "@/services/learningService";
-import { adminLibraryNote, downloadFailure, ebookCardAction, legacyAllLanguagesNote } from "@/lib/ebook-card";
+import { adminLibraryNote, downloadFailure, ebookCardAction } from "@/lib/ebook-card";
 import { useAuth } from "@/contexts/auth-context";
 
 type Data = { ebooks: StudentEBook[]; packages: PackageSummary[]; unlock: PackageSummary[]; languageAccess?: Record<string, LanguageAccess> };
@@ -63,18 +63,9 @@ export function EBookLibrary({ courseId }: { courseId?: string }) {
     // Available e-books first; the server's order is kept within each group. Only an e-book the
     // server explicitly marks unlocked is downloadable (and the server re-checks every download).
     const ebooks = [...data.ebooks.filter((e) => e.locked === false), ...data.ebooks.filter((e) => e.locked !== false)];
-    const notes = data.packages
-      .map((p) => ({ id: p.id, title: p.title, note: legacyAllLanguagesNote(data.languageAccess?.[p.id]) }))
-      .filter((n) => n.note);
     return (
       <div className="space-y-4">
         {adminNote && <p className="card p-4 text-sm text-parchment-muted">{adminNote}</p>}
-        {notes.map((n) => (
-          <p key={n.id} className="card p-4 text-sm text-parchment-muted">
-            {data.packages.length > 1 && <span className="font-medium text-parchment">{n.title}: </span>}
-            {n.note}
-          </p>
-        ))}
         <div className="grid gap-4 md:grid-cols-2">
           {ebooks.map((e) => (
             <EBookCard

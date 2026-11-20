@@ -30,13 +30,6 @@ export function adminLibraryNote(role: string | null | undefined) {
     : null;
 }
 
-/** The note shown above a package's e-books when a legacy purchase includes every language. */
-export function legacyAllLanguagesNote(access: { allLanguages: boolean } | undefined) {
-  return access?.allLanguages
-    ? "Your purchase was made before e-books were sold per language, so it includes every language."
-    : null;
-}
-
 /**
  * Message for a failed download, and whether the page must reload entitlements. A 403 means the
  * server refused it — e.g. a tab opened before a change still showing an old Download button — so
