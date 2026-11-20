@@ -49,10 +49,6 @@ export const env = {
     provider: process.env.EMAIL_PROVIDER ?? "console",
     resendApiKey: process.env.RESEND_API_KEY ?? "",
     from: process.env.EMAIL_FROM ?? "",
-    smtpHost: process.env.SMTP_HOST ?? "",
-    smtpPort: Number(process.env.SMTP_PORT ?? 587),
-    smtpUser: process.env.SMTP_USER ?? "",
-    smtpPassword: process.env.SMTP_PASSWORD ?? "",
   },
 
   blobToken: process.env.BLOB_READ_WRITE_TOKEN ?? "",
@@ -87,7 +83,7 @@ export function productionConfigProblems(): string[] {
     if (/@resend\.dev>?\s*$/i.test(process.env.EMAIL_FROM ?? "")) {
       problems.push("EMAIL_FROM uses resend.dev — OTP emails will only reach the Resend account owner; use an address on your verified domain");
     }
-  } else if (provider !== "smtp") {
+  } else {
     problems.push(`EMAIL_PROVIDER is "${provider}" — set it to "resend" or verification emails will fail`);
   }
   if (env.corsOrigins.some((o) => o.includes("localhost"))) {

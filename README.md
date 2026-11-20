@@ -80,7 +80,6 @@ cache. The build fails if `NEXT_PUBLIC_API_URL` is missing — there is no hardc
 | `PRODUCTION_DATABASE_ENDPOINTS` | no       | extra Neon endpoint id(s) of the prod DB, comma-separated — **set before moving the DB**, or the server refuses to start |
 | `PRODUCTION_BLOB_STORE_IDS`     | no       | extra production Blob store id(s), comma-separated, with or without `store_` (adds to the built-in list) |
 | `RAZORPAYX_ENABLED`, `RAZORPAYX_ACCOUNT_NUMBER` | no | automated payouts, leave off until KYC is done                            |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` | no | only with `EMAIL_PROVIDER=smtp`                                     |
 
 At boot the backend logs `CORS origins:`, `[EMAIL]`, `[PAYMENT]`, `[BLOB]` and a `[CONFIG]` line for
 every missing or suspicious production setting — check the Render logs after each deploy. A healthy
