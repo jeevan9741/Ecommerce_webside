@@ -1422,6 +1422,11 @@ model FranchiseDocumentRequest {
   createdAt     DateTime                  @default(now())
   fulfilledAt   DateTime?
   cancelledAt   DateTime?
+  /// The applicant's reply (optional with files; required for a message-only request). Shown to admins.
+  responseText  String?
+  cancelledById String?
+  /// Why it was cancelled (admins only; automatic on rejection or withdrawal).
+  cancelReason  String?
 
   application FranchiseApplication           @relation(fields: [applicationId], references: [id], onDelete: Restrict)
   documents   FranchiseApplicationDocument[]

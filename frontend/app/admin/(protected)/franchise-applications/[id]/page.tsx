@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { AlertTriangle, ArrowLeft, Loader2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Loader2, MessageSquareWarning } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { DOCUMENT_KIND_LABEL, formatBytes, formatRupees } from "@/lib/franchise-form";
@@ -11,6 +11,7 @@ import { ACTION, REJECTION_REASON_MAX, adminDocumentUrlPath, isReviewAction, rej
 import { StatusBadge } from "@/components/franchise/status-badge";
 import { AdminUnavailableSystems } from "@/components/franchise/admin-unavailable-systems";
 import { DocumentLink } from "@/components/franchise/document-link";
+import { MESSAGE_MAX, REQUEST_KINDS, REQUEST_STATUS_LABEL, groupDocuments, kindLabel, requestEvents, requestFormError, type DocRequest } from "@/lib/franchise-doc-request";
 
 interface Detail {
   id: string;
@@ -25,7 +26,11 @@ interface Detail {
   /** Only on applications submitted while a refund acknowledgement was still collected. */
   refundPolicy: { version: number } | null;
   requiredDocumentKinds: string[];
-  documents: { id: string; kind: string; originalName: string; mimeType: string; sizeBytes: number; createdAt: string }[];
+  documents: { id: string; kind: string; originalName: string; mimeType: string; sizeBytes: number; documentRequestId: string | null; createdAt: string }[];
+  /** Requests for more information, newest first. */
+  documentRequests: (DocRequest & { requestedBy: string | null; cancelledBy: string | null; cancelReason: string | null })[];
+  /** Before a decision and with no open request. */
+  canRequestInfo: boolean;
   decision: { approvedAt: string | null; approvedBy: string | null; rejectedAt: string | null; rejectionReason: string | null };
   history: { id: string; fromLabel: string | null; toLabel: string; toStatus: string; actorName: string | null; applicantNote: string | null; internalNote: string | null; createdAt: string }[];
   notes: { id: string; body: string; author: string | null; createdAt: string }[];
@@ -102,13 +107,29 @@ export default function FranchiseApplicationDetailPage() {
             <h2 className="font-display text-lg font-semibold text-parchment">Documents</h2>
             <p className="mt-1 text-xs text-parchment-muted">Each View opens a private link that works for 5 minutes. Every view is recorded in the audit history.</p>
             <ul className="mt-3 divide-y divide-white/5 text-sm">
-              {app.documents.map((d) => (
-                <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                  <span>
-                    <span className="text-parchment">{DOCUMENT_KIND_LABEL[d.kind] ?? d.kind}</span>
-                    <span className="text-xs text-parchment-muted"> · {d.originalName} · {formatBytes(d.sizeBytes)} · {formatDateTime(d.createdAt)}</span>
-                  </span>
-                  <DocumentLink documentId={d.id} request={() => api.post<{ url: string }>(adminDocumentUrlPath(app.id, d.id))} />
+              {groupDocuments(app.documents).map(({ kind, current: d, earlier }) => (
+                <li key={d.id} className="py-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      <span className="text-parchment">{kind === "ADDITIONAL" ? kindLabel(kind) : (DOCUMENT_KIND_LABEL[kind] ?? kind)}</span>
+                      <span className="text-xs text-parchment-muted"> · {d.originalName} · {formatBytes(d.sizeBytes)} · {formatDateTime(d.createdAt)}</span>
+                      {d.documentRequestId && <span className="ml-2 rounded-full border border-gold-500/40 px-2 py-0.5 text-[11px] text-gold-400">Sent in reply</span>}
+                    </span>
+                    <DocumentLink documentId={d.id} request={() => api.post<{ url: string }>(adminDocumentUrlPath(app.id, d.id))} />
+                  </div>
+                  {earlier.length > 0 && (
+                    <details className="mt-2 text-xs text-parchment-muted">
+                      <summary className="cursor-pointer">Earlier versions ({earlier.length})</summary>
+                      <ul className="mt-2 space-y-2">
+                        {earlier.map((e) => (
+                          <li key={e.id} className="flex flex-wrap items-center justify-between gap-2">
+                            <span>{e.originalName} · {formatBytes(e.sizeBytes)} · {formatDateTime(e.createdAt)}</span>
+                            <DocumentLink documentId={e.id} request={() => api.post<{ url: string }>(adminDocumentUrlPath(app.id, e.id))} />
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
                 </li>
               ))}
               {app.documents.length === 0 && <li className="py-2 text-parchment-muted">No documents.</li>}
@@ -118,14 +139,24 @@ export default function FranchiseApplicationDetailPage() {
           <section className="card p-6">
             <h2 className="font-display text-lg font-semibold text-parchment">History</h2>
             <ol className="mt-4 space-y-4 text-sm">
-              {app.history.map((h) => (
-                <li key={h.id} className="border-l-2 border-white/10 pl-3">
-                  <p className="text-parchment">{h.fromLabel ? `${h.fromLabel} → ` : ""}{h.toLabel}</p>
-                  <p className="text-xs text-parchment-muted">{formatDateTime(h.createdAt)} · {h.actorName ?? "System"}</p>
-                  {h.applicantNote && <p className="mt-1 text-xs text-parchment-muted">To applicant: {h.applicantNote}</p>}
-                  {h.internalNote && <p className="mt-1 text-xs text-gold-400">Internal: {h.internalNote}</p>}
-                </li>
-              ))}
+              {[
+                ...app.history.map((h) => ({ key: h.id, at: h.createdAt, node: (
+                  <>
+                    <p className="text-parchment">{h.fromLabel ? `${h.fromLabel} → ` : ""}{h.toLabel}</p>
+                    <p className="text-xs text-parchment-muted">{formatDateTime(h.createdAt)} · {h.actorName ?? "System"}</p>
+                    {h.applicantNote && <p className="mt-1 text-xs text-parchment-muted">To applicant: {h.applicantNote}</p>}
+                    {h.internalNote && <p className="mt-1 text-xs text-gold-400">Internal: {h.internalNote}</p>}
+                  </>
+                ) })),
+                ...requestEvents(app.documentRequests).map((e, i) => ({ key: `req-${i}`, at: e.at, node: (
+                  <>
+                    <p className="text-parchment">{e.title}</p>
+                    <p className="text-xs text-parchment-muted">{formatDateTime(e.at)}{e.detail ? ` · ${e.detail}` : ""}</p>
+                  </>
+                ) })),
+              ]
+                .sort((a, b) => a.at.localeCompare(b.at))
+                .map((x) => <li key={x.key} className="border-l-2 border-white/10 pl-3">{x.node}</li>)}
             </ol>
             {app.decision.rejectionReason && <p className="mt-4 text-sm text-parchment-muted">Reason shown to the applicant: <span className="text-parchment">{app.decision.rejectionReason}</span></p>}
           </section>
@@ -133,12 +164,113 @@ export default function FranchiseApplicationDetailPage() {
 
         <div className="space-y-6">
           <Actions app={app} onDone={async (msg) => { setNotice(msg); await reload(); }} />
+          <InfoRequests app={app} onDone={async (msg) => { setNotice(msg); await reload(); }} />
           <StateReservation app={app} onDone={async (msg) => { setNotice(msg); await reload(); }} />
           <AdminUnavailableSystems note="Approval never activates a franchise; activation needs all of these." />
           <Notes app={app} onAdded={reload} />
         </div>
       </div>
     </div>
+  );
+}
+
+/** Ask the applicant for documents and/or information; follow and cancel the open request; past requests. */
+function InfoRequests({ app, onDone }: { app: Detail; onDone: (msg: string) => Promise<void> }) {
+  const [composing, setComposing] = useState(false);
+  const [kinds, setKinds] = useState<string[]>([]);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const open = app.documentRequests.find((r) => r.status === "OPEN") ?? null;
+  const past = app.documentRequests.filter((r) => r.status !== "OPEN");
+  if (!app.canRequestInfo && !open && past.length === 0) return null;
+
+  async function send() {
+    const problem = requestFormError(text);
+    if (problem) return setError(problem);
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(`/admin/franchise/applications/${encodeURIComponent(app.id)}/document-requests`, { kinds, message: text.trim() });
+      setComposing(false);
+      setKinds([]);
+      setText("");
+      await onDone("Request sent. The applicant has been emailed.");
+    } catch (err) {
+      setError(message(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function cancel(id: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(`/admin/franchise/applications/${encodeURIComponent(app.id)}/document-requests/${encodeURIComponent(id)}/cancel`, {});
+      await onDone("Request cancelled.");
+    } catch (err) {
+      setError(message(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="card p-6">
+      <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-parchment"><MessageSquareWarning className="h-5 w-5 text-gold-400" /> More information</h2>
+      {open ? (
+        <div className="mt-3 space-y-2 rounded-lg border border-gold-500/40 p-3 text-sm">
+          <p className="text-gold-400">Waiting for the applicant since {formatDateTime(open.createdAt)}</p>
+          {open.kinds.length > 0 && <p className="text-parchment">Asked for: {open.kinds.map(kindLabel).join(", ")}</p>}
+          <p className="whitespace-pre-line text-parchment-muted">{open.message}</p>
+          <p className="text-xs text-parchment-muted">Requested by {open.requestedBy ?? "an admin"}</p>
+          <button type="button" disabled={busy} onClick={() => cancel(open.id)} className="btn-ghost btn-sm text-danger">Cancel request</button>
+        </div>
+      ) : app.canRequestInfo && !composing ? (
+        <button type="button" onClick={() => { setComposing(true); setError(null); }} className="btn-outline btn-sm mt-3">Request more info</button>
+      ) : null}
+
+      {composing && (
+        <div className="mt-4 space-y-3 rounded-lg border border-white/10 p-4" role="dialog" aria-label="Request more info">
+          <fieldset>
+            <legend className="label-field">Documents needed (optional)</legend>
+            <div className="mt-1 grid gap-1 text-sm">
+              {REQUEST_KINDS.map((k) => (
+                <label key={k.kind} className="flex items-center gap-2 text-parchment">
+                  <input type="checkbox" checked={kinds.includes(k.kind)} onChange={(e) => setKinds((prev) => (e.target.checked ? [...prev, k.kind] : prev.filter((x) => x !== k.kind)))} />
+                  {k.label}{k.kind === "ADDITIONAL" ? " (up to 3 files)" : ""}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <div>
+            <label htmlFor="request-message" className="label-field">Message to the applicant (shown after sign-in)</label>
+            <textarea id="request-message" rows={4} maxLength={MESSAGE_MAX} className="input-field resize-none text-sm" value={text} onChange={(e) => setText(e.target.value)} />
+            <p className="mt-1 text-xs text-parchment-muted">{text.trim().length}/{MESSAGE_MAX} · at least 10 characters. The email lists only the document names.</p>
+          </div>
+          {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+          <div className="flex gap-2">
+            <button type="button" disabled={busy} onClick={send} className="btn-gold btn-sm">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Send request"}</button>
+            <button type="button" disabled={busy} onClick={() => setComposing(false)} className="btn-ghost btn-sm">Cancel</button>
+          </div>
+        </div>
+      )}
+      {!composing && error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
+
+      {past.length > 0 && (
+        <ul className="mt-4 space-y-3 text-sm">
+          {past.map((r) => (
+            <li key={r.id} className="border-l-2 border-white/10 pl-3">
+              <p className="text-parchment">{REQUEST_STATUS_LABEL[r.status] ?? r.status} · asked {formatDateTime(r.createdAt)}</p>
+              {r.kinds.length > 0 && <p className="text-xs text-parchment-muted">Asked for: {r.kinds.map(kindLabel).join(", ")}</p>}
+              <p className="text-xs text-parchment-muted">Message: {r.message}</p>
+              {r.repliedAt && <p className="mt-1 text-xs text-parchment">Replied {formatDateTime(r.repliedAt)}{r.responseText ? `: "${r.responseText}"` : " (files only)"}</p>}
+              {r.cancelledAt && <p className="mt-1 text-xs text-parchment-muted">Closed {formatDateTime(r.cancelledAt)}{r.cancelledBy ? ` by ${r.cancelledBy}` : ""}{r.cancelReason ? ` · ${r.cancelReason}` : ""}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

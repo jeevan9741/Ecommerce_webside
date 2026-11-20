@@ -61,7 +61,7 @@ export function statusTone(status: string): "neutral" | "info" | "good" | "bad" 
 }
 
 /** Query string for the list page; empty filters are left out. */
-export function listQuery(f: { status?: string; q?: string; stateId?: string; districtId?: string; from?: string; to?: string; page?: number; pageSize?: number }): string {
+export function listQuery(f: { status?: string; info?: string; q?: string; stateId?: string; districtId?: string; from?: string; to?: string; page?: number; pageSize?: number }): string {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(f)) {
     if (v === undefined || v === null || v === "") continue;

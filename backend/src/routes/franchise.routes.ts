@@ -1,9 +1,10 @@
-import { Router, type NextFunction, type Request, type Response } from "express";
+import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
 import multer from "multer";
 import { asyncHandler, HttpError } from "../utils/http.js";
 import { requireUser } from "../middleware/auth.middleware.js";
 import { franchisePublicEnabled } from "../utils/feature-flags.js";
 import { MAX_DOCUMENT_BYTES, UPLOAD_FIELDS } from "../services/franchise-application.service.js";
+import { MAX_ADDITIONAL_FILES, REPLY_FIELDS } from "../services/franchise-document-request.service.js";
 import * as franchise from "../controllers/franchise.controller.js";
 
 const router = Router();
@@ -23,8 +24,17 @@ const upload = multer({
   limits: { fileSize: MAX_DOCUMENT_BYTES, files: Object.keys(UPLOAD_FIELDS).length, fields: 30, fieldSize: 64 * 1024 },
 }).fields(Object.keys(UPLOAD_FIELDS).map((name) => ({ name, maxCount: 1 })));
 
-function documents(req: Request, res: Response, next: NextFunction) {
-  upload(req, res, (err?: unknown) => {
+// A reply to a request for more information: one file per requested kind, up to 3 "other" documents.
+const replyUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_DOCUMENT_BYTES, files: Object.keys(REPLY_FIELDS).length - 1 + MAX_ADDITIONAL_FILES, fields: 10, fieldSize: 8 * 1024 },
+}).fields(Object.keys(REPLY_FIELDS).map((name) => ({ name, maxCount: name === "additional" ? MAX_ADDITIONAL_FILES : 1 })));
+
+const documents = withUpload(upload);
+const replyDocuments = withUpload(replyUpload);
+
+function withUpload(handler: RequestHandler) {
+  return (req: Request, res: Response, next: NextFunction) => handler(req, res, (err?: unknown) => {
     if (!err) return next();
     if (err instanceof multer.MulterError) {
       if (err.code === "LIMIT_FILE_SIZE") return next(new HttpError(413, "Each document must be 5 MB or smaller.", { code: "FILE_TOO_LARGE", field: err.field }));
@@ -41,5 +51,6 @@ router.post("/franchise/applications", requireUser, documents, asyncHandler(fran
 router.get("/franchise/applications/me", requireUser, asyncHandler(franchise.myFranchiseApplication));
 router.post("/franchise/applications/me/withdraw", requireUser, asyncHandler(franchise.withdrawMyApplication));
 router.get("/franchise/applications/me/documents/:id/url", requireUser, asyncHandler(franchise.myFranchiseDocumentUrl));
+router.post("/franchise/applications/me/document-requests/:requestId/reply", requireUser, replyDocuments, asyncHandler(franchise.replyToFranchiseDocumentRequest));
 
 export default router;

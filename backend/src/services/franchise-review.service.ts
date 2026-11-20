@@ -8,6 +8,7 @@ import { getDownloadUrl } from "./storage.service.js";
 import { STATUS_LABEL } from "./franchise-application.service.js";
 import { expireReservations, holdingAllocation, lockState, releaseReservationFor } from "./franchise-state.service.js";
 import { refuseOwnApplication } from "./franchise-admin-guard.js";
+import { REQUESTABLE_STATUSES, cancelOpenRequestFor, requestView } from "./franchise-document-request.service.js";
 
 /**
  * Admin review of franchise applications (Phase 5A): list and search, an audited detail view,
@@ -62,9 +63,19 @@ const listSchema = z.object({
   q: z.string().trim().max(100).optional(),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Dates are YYYY-MM-DD").optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Dates are YYYY-MM-DD").optional(),
+  /** WAITING: an open request for more information. */
+  info: z.enum(["WAITING"]).optional(),
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
+
+/** List badge: waiting for the applicant, or a reply not yet followed by a status change. */
+function infoBadge(latest: { status: string; fulfilledAt: Date | null } | undefined, lastChange: Date | undefined): "WAITING" | "REPLIED" | null {
+  if (!latest) return null;
+  if (latest.status === "OPEN") return "WAITING";
+  if (latest.status === "FULFILLED" && latest.fulfilledAt && (!lastChange || latest.fulfilledAt > lastChange)) return "REPLIED";
+  return null;
+}
 
 /** Filter dates are whole days in IST (the business's day). */
 const istDay = (d: string, endOfDay: boolean) => new Date(`${d}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}+05:30`);
@@ -76,6 +87,7 @@ export async function listApplications(actorId: string, query: unknown) {
     ...(f.status ? { status: f.status } : {}),
     ...(f.stateId ? { stateId: f.stateId } : {}),
     ...(f.districtId ? { districtId: f.districtId } : {}),
+    ...(f.info === "WAITING" ? { documentRequests: { some: { status: "OPEN" } } } : {}),
     ...(f.from || f.to ? { submittedAt: { ...(f.from ? { gte: istDay(f.from, false) } : {}), ...(f.to ? { lte: istDay(f.to, true) } : {}) } } : {}),
     ...(f.q
       ? {
@@ -96,14 +108,36 @@ export async function listApplications(actorId: string, query: unknown) {
       skip: (f.page - 1) * f.pageSize,
       take: f.pageSize,
       // Minimal fields only: contact details, answers and documents are in the audited detail view.
-      select: { id: true, applicationNo: true, applicantName: true, status: true, submittedAt: true, version: true, state: { select: { name: true } }, district: { select: { name: true } } },
+      select: {
+        id: true,
+        applicationNo: true,
+        applicantName: true,
+        status: true,
+        submittedAt: true,
+        version: true,
+        state: { select: { name: true } },
+        district: { select: { name: true } },
+        documentRequests: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true, fulfilledAt: true } },
+        history: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
+      },
     }),
   ]);
   return {
     page: f.page,
     pageSize: f.pageSize,
     total,
-    applications: rows.map((r) => ({ id: r.id, applicationNo: r.applicationNo, applicantName: r.applicantName, state: r.state.name, district: r.district.name, status: r.status, statusLabel: STATUS_LABEL[r.status], submittedAt: r.submittedAt, version: r.version })),
+    applications: rows.map((r) => ({
+      id: r.id,
+      applicationNo: r.applicationNo,
+      applicantName: r.applicantName,
+      state: r.state.name,
+      district: r.district.name,
+      status: r.status,
+      statusLabel: STATUS_LABEL[r.status],
+      submittedAt: r.submittedAt,
+      version: r.version,
+      infoRequest: infoBadge(r.documentRequests[0], r.history[0]?.createdAt),
+    })),
   };
 }
 
@@ -145,14 +179,15 @@ export async function applicationDetail(actorId: string, id: string) {
       state: { select: { name: true } },
       district: { select: { name: true, code: true } },
       user: { select: { id: true, emailVerified: true, createdAt: true } },
-      documents: { orderBy: { createdAt: "asc" }, select: { id: true, kind: true, originalName: true, mimeType: true, sizeBytes: true, sha256: true, createdAt: true } },
+      documents: { orderBy: { createdAt: "asc" }, select: { id: true, kind: true, originalName: true, mimeType: true, sizeBytes: true, sha256: true, documentRequestId: true, createdAt: true } },
+      documentRequests: { orderBy: { createdAt: "desc" } },
       history: { orderBy: { createdAt: "asc" }, select: { id: true, fromStatus: true, toStatus: true, actorType: true, actorId: true, applicantNote: true, internalNote: true, createdAt: true } },
       notes: { orderBy: { createdAt: "asc" }, select: { id: true, body: true, authorId: true, createdAt: true } },
     },
   });
   if (!app) throw new HttpError(404, "Not found");
   const people = await prisma.user.findMany({
-    where: { id: { in: [...new Set([...app.history.map((h) => h.actorId), ...app.notes.map((n) => n.authorId), app.approvedById].filter((x): x is string => Boolean(x)))] } },
+    where: { id: { in: [...new Set([...app.history.map((h) => h.actorId), ...app.notes.map((n) => n.authorId), ...app.documentRequests.flatMap((r) => [r.requestedById, r.cancelledById]), app.approvedById].filter((x): x is string => Boolean(x)))] } },
     select: { id: true, name: true },
   });
   const nameOf = (uid: string | null) => (uid ? (people.find((p) => p.id === uid)?.name ?? "Unknown") : null);
@@ -186,8 +221,10 @@ export async function applicationDetail(actorId: string, id: string) {
     },
     refundPolicy: app.refundPolicyVersion ? { version: app.refundPolicyVersion, sha256: app.refundPolicySha256 } : null,
     requiredDocumentKinds: app.requiredDocumentKinds,
-    // Metadata only: document access arrives with the document-review phase.
+    // Metadata only; each file is opened through the audited 5-minute link (adminDocumentUrl).
     documents: app.documents,
+    documentRequests: app.documentRequests.map((r) => ({ ...requestView(r), requestedBy: nameOf(r.requestedById), cancelledBy: r.cancelledById === app.userId ? "Applicant" : nameOf(r.cancelledById), cancelReason: r.cancelReason })),
+    canRequestInfo: REQUESTABLE_STATUSES.includes(app.status) && !app.documentRequests.some((r) => r.status === "OPEN"),
     decision: { approvedAt: app.approvedAt, approvedBy: nameOf(app.approvedById), rejectedAt: app.rejectedAt, rejectionReason: app.rejectionReason },
     history: app.history.map((h) => ({ ...h, fromLabel: h.fromStatus ? STATUS_LABEL[h.fromStatus] : null, toLabel: STATUS_LABEL[h.toStatus], actorName: h.actorType === "ADMIN" ? nameOf(h.actorId) : h.actorType === "APPLICANT" ? "Applicant" : "System" })),
     notes: app.notes.map((n) => ({ id: n.id, body: n.body, author: nameOf(n.authorId), createdAt: n.createdAt })),
@@ -295,8 +332,11 @@ export async function transitionApplication(actorId: string, id: string, input: 
     await tx.franchiseApplicationStatusHistory.create({
       data: { applicationId: id, fromStatus: app.status, toStatus: t.to, actorId, actorType: "ADMIN", applicantNote: t.applicantNote || null, internalNote: t.internalNote || null },
     });
-    // A rejected application never keeps a state held.
-    if (t.to === "REJECTED") await releaseReservationFor(tx, id, actorId, "Application rejected", now);
+    // A rejected application never keeps a state held, nor an open request for more information.
+    if (t.to === "REJECTED") {
+      await releaseReservationFor(tx, id, actorId, "Application rejected", now);
+      await cancelOpenRequestFor(tx, id, actorId, "Application rejected", now);
+    }
     await tx.auditLog.create({
       data: { actorId, action: "FRANCHISE_APPLICATION_STATUS_CHANGED", target: id, metadata: { applicationNo: app.applicationNo, from: app.status, to: t.to, version: t.expectedVersion + 1 } },
     });

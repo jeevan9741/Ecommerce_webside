@@ -10,6 +10,7 @@ import { resolvePolicy } from "./policy.service.js";
 import { isPending } from "./policy-schemas.js";
 import { holdingAllocation, lockState, releaseReservationFor } from "./franchise-state.service.js";
 import { notifyAdmins } from "./admin-notify.service.js";
+import { cancelOpenRequestFor, requestView } from "./franchise-document-request.service.js";
 
 /**
  * Franchise applications (Phase 4: submission and the applicant's own view). Applicants are signed-in,
@@ -49,7 +50,7 @@ export function detectFileType(buf: Buffer): { mime: string; ext: string } | nul
 
 const MIME_ALIASES: Record<string, string> = { "image/jpg": "image/jpeg", "image/pjpeg": "image/jpeg" };
 
-function checkFile(file: UploadedFile) {
+export function checkFile(file: UploadedFile) {
   if (file.size === 0 || file.buffer.length === 0) throw new HttpError(400, `${file.originalname || file.fieldname} is empty.`, { code: "EMPTY_FILE", field: file.fieldname });
   if (file.size > MAX_DOCUMENT_BYTES) throw new HttpError(413, "Each document must be 5 MB or smaller.", { code: "FILE_TOO_LARGE", field: file.fieldname });
   const detected = detectFileType(file.buffer);
@@ -60,7 +61,7 @@ function checkFile(file: UploadedFile) {
 }
 
 /** Display-safe original name: no path, no control characters, at most 120 characters. */
-const safeName = (name: string) => (name.split(/[\\/]/).pop() ?? "document").replace(/[^\w.\- ()]/g, "_").slice(0, 120) || "document";
+export const safeName = (name: string) => (name.split(/[\\/]/).pop() ?? "document").replace(/[^\w.\- ()]/g, "_").slice(0, 120) || "document";
 
 // ---------- Intake ----------
 
@@ -366,8 +367,9 @@ export async function myApplication(userId: string) {
     include: {
       state: { select: { name: true } },
       district: { select: { name: true } },
-      documents: { orderBy: { createdAt: "asc" }, select: { id: true, kind: true, originalName: true, mimeType: true, sizeBytes: true, createdAt: true } },
+      documents: { orderBy: { createdAt: "asc" }, select: { id: true, kind: true, originalName: true, mimeType: true, sizeBytes: true, documentRequestId: true, createdAt: true } },
       history: { orderBy: { createdAt: "asc" }, select: { toStatus: true, applicantNote: true, createdAt: true } },
+      documentRequests: { orderBy: { createdAt: "desc" } },
     },
   });
   if (!app) return null;
@@ -392,6 +394,8 @@ export async function myApplication(userId: string) {
     rejectionReason: app.status === "REJECTED" ? app.rejectionReason : null,
     canWithdraw: WITHDRAWABLE.includes(app.status),
     documents: app.documents,
+    // Requests for more information (newest first); who asked or cancelled stays internal.
+    documentRequests: app.documentRequests.map(requestView),
     timeline: app.history.map((h) => ({ status: h.toStatus, label: STATUS_LABEL[h.toStatus] ?? h.toStatus, note: h.applicantNote, at: h.createdAt })),
   };
 }
@@ -414,6 +418,7 @@ export async function withdrawApplication(userId: string, input: unknown) {
     const { count } = await tx.franchiseApplication.updateMany({ where: { id: app.id, status: app.status, version: app.version }, data: { status: "WITHDRAWN", version: { increment: 1 } } });
     if (count !== 1) throw new HttpError(409, "Your application changed — reload and try again.", { code: "STALE" });
     const released = await releaseReservationFor(tx, app.id, userId, "Application withdrawn by the applicant", now);
+    await cancelOpenRequestFor(tx, app.id, userId, "Application withdrawn by the applicant", now);
     await tx.franchiseApplicationStatusHistory.create({ data: { applicationId: app.id, fromStatus: app.status, toStatus: "WITHDRAWN", actorId: userId, actorType: "APPLICANT", applicantNote: "You withdrew this application", internalNote: r.data.reason || null } });
     await tx.auditLog.create({ data: { actorId: userId, action: "FRANCHISE_APPLICATION_WITHDRAWN", target: app.id, metadata: { applicationNo: app.applicationNo, fromStatus: app.status, reservationReleased: Boolean(released) } } });
     return { id: app.id, status: "WITHDRAWN" as const };

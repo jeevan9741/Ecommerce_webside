@@ -15,6 +15,7 @@ import {
   updateState,
 } from "../services/franchise-location.service.js";
 import { requireAdminRead } from "../services/franchise-admin-guard.js";
+import { replyToDocumentRequest } from "../services/franchise-document-request.service.js";
 
 // ---------- Public ----------
 
@@ -38,6 +39,17 @@ export async function submitFranchiseApplication(req: Request, res: Response) {
   const files = (Array.isArray(req.files) ? req.files : Object.values(req.files ?? {}).flat()) as UploadedFile[];
   const application = await submitApplication({ userId: user.id, body: (req.body ?? {}) as Record<string, unknown>, files });
   res.status(201).json({ id: application.id, applicationNo: application.applicationNo, status: application.status });
+}
+
+/** The applicant answers an open request for more information (files and/or a written reply). */
+export async function replyToFranchiseDocumentRequest(req: Request, res: Response) {
+  const user = currentUser(req);
+  if (!rateLimit(`franchise-reply:${user.id}`, 10, 60 * 60 * 1000) || !rateLimit(`franchise-reply-ip:${req.ip}`, 30, 60 * 60 * 1000)) {
+    throw new HttpError(429, "Too many attempts. Please try again later.", { code: "RATE_LIMITED" });
+  }
+  const files = (Array.isArray(req.files) ? req.files : Object.values(req.files ?? {}).flat()) as UploadedFile[];
+  res.setHeader("Cache-Control", "no-store");
+  res.status(201).json(await replyToDocumentRequest({ userId: user.id, requestId: param(req, "requestId"), body: (req.body ?? {}) as Record<string, unknown>, files }));
 }
 
 export async function myFranchiseApplication(req: Request, res: Response) {

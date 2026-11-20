@@ -14,6 +14,7 @@ import { adminNotifyRecipients } from "../utils/admin-notify-config.js";
 
 export type AdminEvent =
   | { kind: "FRANCHISE_APPLICATION"; applicationId: string; applicationNo: string; applicantName: string; state: string; district: string; submittedAt: Date; documents: number }
+  | { kind: "FRANCHISE_DOCUMENTS_RECEIVED"; applicationId: string; applicationNo: string; applicantName: string; documentKinds: string[]; withMessage: boolean; receivedAt: Date }
   | { kind: "COURSE_PAID"; orderId: string; invoiceNumber: string; courseTitle: string; amountInPaise: number; customerName: string; paidAt: Date }
   | { kind: "ORDER_REFUNDED"; orderId: string; invoiceNumber: string; courseTitle: string; amountInPaise: number; customerName: string }
   | { kind: "WITHDRAWAL_REQUESTED"; withdrawalId: string; userName: string; amountInPaise: number; requestedAt: Date }
@@ -45,6 +46,19 @@ export function describeAdminEvent(e: AdminEvent): Built {
         heading: "A new franchise application was submitted",
         rows: [["Application", e.applicationNo], ["Applicant", e.applicantName], ["State", e.state], ["Training centre district", e.district], ["Submitted", ist(e.submittedAt)], ["Documents attached", String(e.documents)]],
         link: { href: admin(`/admin/franchise-applications/${encodeURIComponent(e.applicationId)}`), label: "Review the application" },
+      };
+    case "FRANCHISE_DOCUMENTS_RECEIVED":
+      return {
+        subject: `Reply received — ${e.applicationNo}`,
+        heading: "An applicant replied to your request for more information",
+        rows: [
+          ["Application", e.applicationNo],
+          ["Applicant", e.applicantName],
+          ["Files sent", e.documentKinds.length ? `${e.documentKinds.length} (${[...new Set(e.documentKinds)].join(", ")})` : "None"],
+          ["Written reply", e.withMessage ? "Yes (shown after sign-in)" : "No"],
+          ["Received", ist(e.receivedAt)],
+        ],
+        link: { href: admin(`/admin/franchise-applications/${encodeURIComponent(e.applicationId)}`), label: "Review the reply" },
       };
     case "COURSE_PAID":
       return {

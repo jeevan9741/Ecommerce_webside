@@ -18,6 +18,8 @@ interface Row {
   status: string;
   statusLabel: string;
   submittedAt: string;
+  /** WAITING: an open request for more information; REPLIED: a reply not yet followed by a status change. */
+  infoRequest: "WAITING" | "REPLIED" | null;
 }
 interface ListResponse {
   page: number;
@@ -32,6 +34,8 @@ interface Location {
 }
 interface Filters {
   status: string;
+  /** "WAITING": only applications with an open request for more information. */
+  info: string;
   q: string;
   stateId: string;
   districtId: string;
@@ -41,7 +45,7 @@ interface Filters {
 }
 
 const PAGE_SIZE = 25;
-const EMPTY: Filters = { status: "", q: "", stateId: "", districtId: "", from: "", to: "", page: 1 };
+const EMPTY: Filters = { status: "", info: "", q: "", stateId: "", districtId: "", from: "", to: "", page: 1 };
 const message = (err: unknown) => (err instanceof Error ? err.message : "Something went wrong.");
 
 /** Admin list of franchise applications: minimal fields only; contact details are in the (audited) detail view. */
@@ -103,6 +107,14 @@ export default function FranchiseApplicationsPage() {
             {counts && <span className="ml-1.5 opacity-70">{value ? (counts[value] ?? 0) : Object.values(counts).reduce((a, b) => a + b, 0)}</span>}
           </button>
         ))}
+        <button
+          type="button"
+          aria-pressed={filters.info === "WAITING"}
+          onClick={() => set({ info: filters.info === "WAITING" ? "" : "WAITING" })}
+          className={`rounded-full border px-3 py-1 text-xs ${filters.info === "WAITING" ? "border-gold-500 bg-gold-500/15 text-parchment" : "border-gold-500/30 text-gold-400 hover:text-parchment"}`}
+        >
+          Waiting for applicant
+        </button>
       </div>
 
       <form
@@ -164,7 +176,11 @@ export default function FranchiseApplicationsPage() {
                 </td>
                 <td className="px-4 py-3 text-parchment">{a.applicantName}</td>
                 <td className="px-4 py-3 text-parchment-muted">{a.district}, {a.state}</td>
-                <td className="px-4 py-3"><StatusBadge status={a.status} label={a.statusLabel} /></td>
+                <td className="px-4 py-3">
+                  <StatusBadge status={a.status} label={a.statusLabel} />
+                  {a.infoRequest === "WAITING" && <span className="ml-2 rounded-full border border-gold-500/40 px-2 py-0.5 text-[11px] text-gold-400">Waiting for applicant</span>}
+                  {a.infoRequest === "REPLIED" && <span className="ml-2 rounded-full border border-emerald/40 px-2 py-0.5 text-[11px] text-emerald">Reply received</span>}
+                </td>
                 <td className="px-4 py-3 text-parchment-muted">{formatDateTime(a.submittedAt)}</td>
               </tr>
             ))}

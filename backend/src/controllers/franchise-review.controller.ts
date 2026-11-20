@@ -3,6 +3,7 @@ import { currentUser } from "../middleware/auth.middleware.js";
 import { HttpError, param } from "../utils/http.js";
 import { rateLimit } from "../utils/rate-limit.js";
 import { addNote, adminDocumentUrl, applicationDetail, applicationSummary, listApplications, transitionApplication } from "../services/franchise-review.service.js";
+import { cancelDocumentRequest, createDocumentRequest } from "../services/franchise-document-request.service.js";
 
 // Every route here sits under /admin (requireAdmin); the service re-checks the role inside each write.
 // Responses hold applicant personal data, so none of them may be cached.
@@ -32,6 +33,19 @@ export async function franchiseApplicationDocumentUrl(req: Request, res: Respons
   if (!rateLimit(`franchise-admin-doc-url:${admin.id}`, 60, 60 * 1000)) throw new HttpError(429, "Too many requests.", { code: "RATE_LIMITED" });
   noStore(res);
   res.json(await adminDocumentUrl(admin.id, param(req, "id"), param(req, "documentId")));
+}
+
+/** Ask the applicant for more documents and/or information (one open request at a time). */
+export async function requestFranchiseDocuments(req: Request, res: Response) {
+  const admin = currentUser(req);
+  if (!rateLimit(`franchise-doc-request:${admin.id}`, 30, 60 * 60 * 1000)) throw new HttpError(429, "Too many requests.", { code: "RATE_LIMITED" });
+  noStore(res);
+  res.status(201).json(await createDocumentRequest(admin.id, param(req, "id"), req.body));
+}
+
+export async function cancelFranchiseDocumentRequest(req: Request, res: Response) {
+  noStore(res);
+  res.json(await cancelDocumentRequest(currentUser(req).id, param(req, "id"), param(req, "requestId"), req.body));
 }
 
 export async function transitionFranchiseApplication(req: Request, res: Response) {
