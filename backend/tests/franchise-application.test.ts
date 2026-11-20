@@ -469,6 +469,38 @@ describe("submission", () => {
     assert.equal(again.status, 201, JSON.stringify(again.body));
   });
 
+  test("after withdrawing, the same account can apply again; two open applications are still refused (API and database)", async () => {
+    const u = await makeUser("reapply");
+    const mobile = uniqueMobile();
+    const first = await apply(u, fields({ applicantName: "Reapply One", mobile, districtId: loc.d2 }));
+    assert.equal(first.status, 201, JSON.stringify(first.body));
+    const twice = await apply(u, fields({ applicantName: "Reapply One", mobile: uniqueMobile(), districtId: loc.d2 }));
+    assert.deepEqual([twice.status, twice.body.code], [409, "APPLICATION_EXISTS"], "a second open application is refused");
+    const w = await call("POST", "/franchise/applications/me/withdraw", u, {});
+    assert.equal(w.status, 200, JSON.stringify(w.body));
+    // The real re-application: a new application for the same account (and the same mobile number).
+    const again = await apply(u, fields({ applicantName: "Reapply One", mobile, districtId: loc.d2 }));
+    assert.equal(again.status, 201, JSON.stringify(again.body));
+    assert.notEqual(again.body.id, first.body.id);
+    assert.notEqual(again.body.applicationNo, first.body.applicationNo);
+    const mine = await prisma.franchiseApplication.findMany({ where: { userId: u.id }, orderBy: { submittedAt: "asc" }, select: { id: true, status: true } });
+    assert.deepEqual(mine.map((a) => a.status), ["WITHDRAWN", "APPLICATION_SUBMITTED"]);
+    const me = await call("GET", "/franchise/applications/me", u);
+    assert.deepEqual([me.body.application.id, me.body.application.status], [again.body.id, "APPLICATION_SUBMITTED"], "the applicant sees the new application");
+    // Still only one open application at a time: through the API...
+    const third = await apply(u, fields({ applicantName: "Reapply One", mobile: uniqueMobile(), districtId: loc.d2 }));
+    assert.deepEqual([third.status, third.body.code], [409, "APPLICATION_EXISTS"]);
+    // ...and in the database itself (the partial unique index), even if the API check were bypassed.
+    const open = await prisma.franchiseApplication.findUniqueOrThrow({ where: { id: again.body.id } });
+    await assert.rejects(
+      prisma.franchiseApplication.create({
+        data: { applicationNo: `ZZ-REAPPLY-${tag.slice(-6)}`, userId: u.id, applicantName: "Direct insert", mobile: uniqueMobile(), email: u.email, stateId: open.stateId, districtId: open.districtId, address: "x", requiredDocumentKinds: ["ID_PROOF"] },
+      }),
+      (e: { code?: string; meta?: unknown }) => e.code === "P2002",
+      "the database refuses a second open application for one account",
+    );
+  });
+
   test("mobile and PIN code typed with spaces, dashes or +91 are accepted and stored normalised", async () => {
     const digits = uniqueMobile();
     const typed = `+91 ${digits.slice(0, 5)}-${digits.slice(5)}`;
