@@ -223,7 +223,11 @@ describe("7–9: rejection, withdrawal and suspension never reopen or close a st
     assert.equal((await reserve(people.admA, app.id)).status, 201);
     assert.equal(await publicAvailability("Assam"), "RESERVED");
     assert.equal((await call("POST", "/franchise/applications/me/withdraw", people.student)).status, 409, "someone else has nothing to withdraw");
-    const w = await call("POST", "/franchise/applications/me/withdraw", user, { reason: "Changed my plans." });
+    // An approved application is given up only with an explicit confirmation; without it nothing changes.
+    const unconfirmed = await call("POST", "/franchise/applications/me/withdraw", user, { reason: "Changed my plans." });
+    assert.deepEqual([unconfirmed.status, unconfirmed.body.code], [409, "CONFIRMATION_REQUIRED"]);
+    assert.equal(await publicAvailability("Assam"), "RESERVED");
+    const w = await call("POST", "/franchise/applications/me/withdraw", user, { reason: "Changed my plans.", confirmApproved: true });
     assert.equal(w.status, 200, w.text);
     assert.equal((await prisma.franchiseApplication.findUniqueOrThrow({ where: { id: app.id } })).status, "WITHDRAWN");
     assert.equal(await publicAvailability("Assam"), "AVAILABLE");
@@ -279,7 +283,7 @@ describe("10–13: who may change states, and isolation", () => {
     assert.equal(await adminStatus("Karnataka"), "APPROVED_AWAITING_PAYMENT");
     assert.equal((await call("POST", `/admin/franchise/applications/${second.id}/release-reservation`, people.admB, { reason })).status, 200);
     // With the remaining applicants gone, the admin view shows the state as reopened.
-    assert.equal((await call("POST", "/franchise/applications/me/withdraw", people.secondK)).status, 200);
+    assert.equal((await call("POST", "/franchise/applications/me/withdraw", people.secondK, { confirmApproved: true })).status, 200);
     await prisma.franchiseApplication.update({ where: { id: (await prisma.franchiseApplication.findFirstOrThrow({ where: { userId: people.readyK.id } })).id }, data: { status: "REJECTED", rejectionReason: "test", rejectedAt: new Date() } }); // fixture shortcut
     assert.equal(await adminStatus("Karnataka"), "REOPENED_AVAILABLE");
     assert.equal(await adminStatus("Assam"), "AVAILABLE", "an ended reservation is not a reopening");

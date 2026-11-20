@@ -55,6 +55,8 @@ export interface MyFranchiseApplication {
   rejectionReason: string | null;
   /** The applicant may withdraw while the application is before activation. */
   canWithdraw: boolean;
+  /** Approved: withdrawing gives the approval up, so the form warns and asks for an acknowledgement. */
+  withdrawNeedsConfirmation: boolean;
   documents: { id: string; kind: string; originalName: string; mimeType: string; sizeBytes: number; documentRequestId: string | null; createdAt: string }[];
   /** Requests for more information, newest first. */
   documentRequests: import("./franchise-doc-request").DocRequest[];

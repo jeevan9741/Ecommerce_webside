@@ -14,6 +14,7 @@ import { adminNotifyRecipients } from "../utils/admin-notify-config.js";
 
 export type AdminEvent =
   | { kind: "FRANCHISE_APPLICATION"; applicationId: string; applicationNo: string; applicantName: string; state: string; district: string; submittedAt: Date; documents: number }
+  | { kind: "FRANCHISE_APPROVED_WITHDRAWN"; applicationId: string; applicationNo: string; applicantName: string; state: string; fromStatus: string; reservationReleased: boolean; withdrawnAt: Date }
   | { kind: "FRANCHISE_DOCUMENTS_RECEIVED"; applicationId: string; applicationNo: string; applicantName: string; documentKinds: string[]; withMessage: boolean; receivedAt: Date }
   | { kind: "COURSE_PAID"; orderId: string; invoiceNumber: string; courseTitle: string; amountInPaise: number; customerName: string; paidAt: Date }
   | { kind: "ORDER_REFUNDED"; orderId: string; invoiceNumber: string; courseTitle: string; amountInPaise: number; customerName: string }
@@ -46,6 +47,20 @@ export function describeAdminEvent(e: AdminEvent): Built {
         heading: "A new franchise application was submitted",
         rows: [["Application", e.applicationNo], ["Applicant", e.applicantName], ["State", e.state], ["Training centre district", e.district], ["Submitted", ist(e.submittedAt)], ["Documents attached", String(e.documents)]],
         link: { href: admin(`/admin/franchise-applications/${encodeURIComponent(e.applicationId)}`), label: "Review the application" },
+      };
+    case "FRANCHISE_APPROVED_WITHDRAWN":
+      return {
+        subject: `Approved application withdrawn — ${e.applicationNo}`,
+        heading: "An approved franchise application was withdrawn by the applicant",
+        rows: [
+          ["Application", e.applicationNo],
+          ["Applicant", e.applicantName],
+          ["State", e.state],
+          ["Status before withdrawal", e.fromStatus],
+          ["State reservation", e.reservationReleased ? "Released — the state is open to applicants again" : "None"],
+          ["Withdrawn", ist(e.withdrawnAt)],
+        ],
+        link: { href: admin(`/admin/franchise-applications/${encodeURIComponent(e.applicationId)}`), label: "Open the application" },
       };
     case "FRANCHISE_DOCUMENTS_RECEIVED":
       return {

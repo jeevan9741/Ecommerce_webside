@@ -187,7 +187,7 @@ export async function replyToDocumentRequest(input: { userId: string; requestId:
 }
 
 /** Email after the commit; the record keeps only the kind and SENT/FAILED (no addresses or bodies). */
-async function emailApplicant(applicationId: string, userId: string, to: string, kind: string, subject: string, html: string) {
+export async function emailApplicant(applicationId: string, userId: string, to: string, kind: string, subject: string, html: string) {
   let status = "SENT";
   let error: string | null = null;
   try {

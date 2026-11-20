@@ -105,7 +105,7 @@ export default async function MyFranchiseApplicationPage({ searchParams }: { sea
               ))}
             </ol>
           )}
-          {app.canWithdraw && <WithdrawApplication />}
+          {app.canWithdraw && <WithdrawApplication needsConfirmation={app.withdrawNeedsConfirmation} />}
         </section>
 
         <section className="card p-6 sm:p-8">

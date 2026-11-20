@@ -10,7 +10,8 @@ import { resolvePolicy } from "./policy.service.js";
 import { isPending } from "./policy-schemas.js";
 import { holdingAllocation, lockState, releaseReservationFor } from "./franchise-state.service.js";
 import { notifyAdmins } from "./admin-notify.service.js";
-import { cancelOpenRequestFor, requestView } from "./franchise-document-request.service.js";
+import { cancelOpenRequestFor, emailApplicant, requestView } from "./franchise-document-request.service.js";
+import { env } from "../config/env.js";
 
 /**
  * Franchise applications (Phase 4: submission and the applicant's own view). Applicants are signed-in,
@@ -393,6 +394,8 @@ export async function myApplication(userId: string) {
     businessPlanText: app.businessPlanText,
     rejectionReason: app.status === "REJECTED" ? app.rejectionReason : null,
     canWithdraw: WITHDRAWABLE.includes(app.status),
+    /** Withdrawing after approval gives the approval (and any state reservation) up: the form asks to confirm. */
+    withdrawNeedsConfirmation: APPROVED_STAGE.includes(app.status),
     documents: app.documents,
     // Requests for more information (newest first); who asked or cancelled stays internal.
     documentRequests: app.documentRequests.map(requestView),
@@ -403,17 +406,30 @@ export async function myApplication(userId: string) {
 /** Statuses the applicant can withdraw from (after AGREEMENT_PENDING the fee may be paid — ETA handles it). */
 const WITHDRAWABLE: FranchiseApplicationStatus[] = ["APPLICATION_SUBMITTED", "UNDER_REVIEW", "INTERVIEW_DISCUSSION", "APPROVED", "PAYMENT_PENDING"];
 
+/** Approved (not yet active) statuses: withdrawing gives the approval up, so it needs an explicit confirmation. */
+const APPROVED_STAGE: FranchiseApplicationStatus[] = ["APPROVED", "PAYMENT_PENDING"];
+
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
 /**
  * The applicant withdraws their own open application. A temporary state reservation for it is released in
  * the same transaction, so a withdrawal never closes or keeps holding a state. Audited; ids only.
  */
 export async function withdrawApplication(userId: string, input: unknown) {
-  const r = z.object({ reason: z.string().trim().max(500).optional() }).strict().safeParse(input ?? {});
+  const r = z.object({ reason: z.string().trim().max(500).optional(), confirmApproved: z.boolean().optional() }).strict().safeParse(input ?? {});
   if (!r.success) throw new HttpError(400, "Invalid request", { code: "INVALID_REQUEST" });
   const now = new Date();
-  return prisma.$transaction(async (tx) => {
-    const app = await tx.franchiseApplication.findFirst({ where: { userId, status: { in: WITHDRAWABLE } }, orderBy: { submittedAt: "desc" }, select: { id: true, status: true, version: true, stateId: true, applicationNo: true } });
+  const done = await prisma.$transaction(async (tx) => {
+    const app = await tx.franchiseApplication.findFirst({
+      where: { userId, status: { in: WITHDRAWABLE } },
+      orderBy: { submittedAt: "desc" },
+      select: { id: true, status: true, version: true, stateId: true, applicationNo: true, applicantName: true, email: true, state: { select: { name: true } } },
+    });
     if (!app) throw new HttpError(409, "You have no open application to withdraw.", { code: "NOTHING_TO_WITHDRAW" });
+    // An approved application is only given up on purpose: the request must say so (the form asks first).
+    if (APPROVED_STAGE.includes(app.status) && r.data.confirmApproved !== true) {
+      throw new HttpError(409, "Your application is approved. Confirm that you want to give up the approval to withdraw it.", { code: "CONFIRMATION_REQUIRED" });
+    }
     await lockState(tx, app.stateId);
     const { count } = await tx.franchiseApplication.updateMany({ where: { id: app.id, status: app.status, version: app.version }, data: { status: "WITHDRAWN", version: { increment: 1 } } });
     if (count !== 1) throw new HttpError(409, "Your application changed — reload and try again.", { code: "STALE" });
@@ -421,8 +437,25 @@ export async function withdrawApplication(userId: string, input: unknown) {
     await cancelOpenRequestFor(tx, app.id, userId, "Application withdrawn by the applicant", now);
     await tx.franchiseApplicationStatusHistory.create({ data: { applicationId: app.id, fromStatus: app.status, toStatus: "WITHDRAWN", actorId: userId, actorType: "APPLICANT", applicantNote: "You withdrew this application", internalNote: r.data.reason || null } });
     await tx.auditLog.create({ data: { actorId: userId, action: "FRANCHISE_APPLICATION_WITHDRAWN", target: app.id, metadata: { applicationNo: app.applicationNo, fromStatus: app.status, reservationReleased: Boolean(released) } } });
-    return { id: app.id, status: "WITHDRAWN" as const };
+    return { app, released: Boolean(released) };
   });
+
+  // After the commit: a confirmation to the applicant; for an approved application, the admin inbox too.
+  const { app, released } = done;
+  const wasApproved = APPROVED_STAGE.includes(app.status);
+  const statusLink = `${env.siteUrl}/franchise/application`;
+  const applyLink = `${env.siteUrl}/franchise/apply`;
+  await emailApplicant(app.id, userId, app.email, "APPLICATION_WITHDRAWN", `Your franchise application ${app.applicationNo} has been withdrawn`,
+    `<p>Your franchise application <strong>${escapeHtml(app.applicationNo)}</strong> was withdrawn on ${escapeHtml(now.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium" }))}. Nothing more will happen with it.</p>` +
+      (wasApproved ? `<p>This application had been approved. The approval${released ? " and the state reservation" : ""} ended with the withdrawal.</p>` : "") +
+      `<p>You can apply again at any time: <a href="${escapeHtml(applyLink)}">${escapeHtml(applyLink)}</a></p>` +
+      `<p>Sign in to see your application: <a href="${escapeHtml(statusLink)}">${escapeHtml(statusLink)}</a></p>` +
+      `<p>If you didn't withdraw it, please contact us straight away.</p>`,
+  ).catch((e) => console.error("[FRANCHISE] withdrawal email record failed", { applicationId: app.id, error: e instanceof Error ? e.name : "Error" }));
+  if (wasApproved) {
+    notifyAdmins({ kind: "FRANCHISE_APPROVED_WITHDRAWN", applicationId: app.id, applicationNo: app.applicationNo, applicantName: app.applicantName, state: app.state.name, fromStatus: STATUS_LABEL[app.status], reservationReleased: released, withdrawnAt: now });
+  }
+  return { id: app.id, status: "WITHDRAWN" as const };
 }
 
 /** A short-lived signed link to one of the CALLER'S documents; anyone else's id is simply not found. */
