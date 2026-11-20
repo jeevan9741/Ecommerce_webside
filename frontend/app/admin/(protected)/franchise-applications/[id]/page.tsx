@@ -22,6 +22,8 @@ interface Detail {
   submittedAt: string;
   applicant: { name: string; email: string; mobile: string; address: string; pincode: string | null; emailVerified: boolean; accountCreatedAt: string };
   location: { state: string; district: string; districtCode: string | null };
+  /** From the PIN's first digits (advisory only): MISMATCH shows a flag. */
+  pincodeState: "MATCH" | "MISMATCH" | "UNKNOWN";
   answers: { education: string | null; businessExperience: string | null; officeAvailable: boolean | null; investmentCapacityInr: number | null; businessPlanText: string | null };
   /** Only on applications submitted while a refund acknowledgement was still collected. */
   refundPolicy: { version: number } | null;
@@ -85,7 +87,14 @@ export default function FranchiseApplicationDetailPage() {
               <Item label="Email" value={`${app.applicant.email}${app.applicant.emailVerified ? " (verified)" : " (not verified)"}`} />
               <Item label="Account created" value={formatDateTime(app.applicant.accountCreatedAt)} />
               <Item label="Address" value={app.applicant.address} wide />
-              <Item label="PIN code" value={app.applicant.pincode} />
+              <div>
+                <Item label="PIN code" value={app.applicant.pincode} />
+                {app.pincodeState === "MISMATCH" && (
+                  <p className="mt-1 inline-flex items-center gap-1 rounded-full border border-gold-500/40 px-2 py-0.5 text-[11px] text-gold-400" title={`The PIN code's first digits don't usually belong to ${app.location.state}. Check the address; this is only a hint.`}>
+                    <AlertTriangle className="h-3 w-3" aria-hidden="true" /> PIN may not match state
+                  </p>
+                )}
+              </div>
               <Item label="State (franchise territory)" value={app.location.state} />
               <Item label="Training centre district" value={`${app.location.district}${app.location.districtCode ? ` (LGD ${app.location.districtCode})` : ""}`} />
             </dl>

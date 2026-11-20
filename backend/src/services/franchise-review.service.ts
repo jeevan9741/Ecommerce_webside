@@ -9,6 +9,7 @@ import { STATUS_LABEL } from "./franchise-application.service.js";
 import { expireReservations, holdingAllocation, lockState, releaseReservationFor } from "./franchise-state.service.js";
 import { refuseOwnApplication } from "./franchise-admin-guard.js";
 import { REQUESTABLE_STATUSES, cancelOpenRequestFor, requestView } from "./franchise-document-request.service.js";
+import { pincodeStateCheck } from "../utils/pincode-state.js";
 
 /**
  * Admin review of franchise applications (Phase 5A): list and search, an audited detail view,
@@ -115,7 +116,8 @@ export async function listApplications(actorId: string, query: unknown) {
         status: true,
         submittedAt: true,
         version: true,
-        state: { select: { name: true } },
+        pincode: true,
+        state: { select: { name: true, code: true } },
         district: { select: { name: true } },
         documentRequests: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true, fulfilledAt: true } },
         history: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
@@ -137,6 +139,8 @@ export async function listApplications(actorId: string, query: unknown) {
       submittedAt: r.submittedAt,
       version: r.version,
       infoRequest: infoBadge(r.documentRequests[0], r.history[0]?.createdAt),
+      // Advisory only, worked out on the fly from the PIN's first digits (no stored flag).
+      pincodeMismatch: pincodeStateCheck(r.pincode, r.state.code) === "MISMATCH",
     })),
   };
 }
@@ -176,7 +180,7 @@ export async function applicationDetail(actorId: string, id: string) {
   const app = await prisma.franchiseApplication.findUnique({
     where: { id },
     include: {
-      state: { select: { name: true } },
+      state: { select: { name: true, code: true } },
       district: { select: { name: true, code: true } },
       user: { select: { id: true, emailVerified: true, createdAt: true } },
       documents: { orderBy: { createdAt: "asc" }, select: { id: true, kind: true, originalName: true, mimeType: true, sizeBytes: true, sha256: true, documentRequestId: true, createdAt: true } },
@@ -212,6 +216,8 @@ export async function applicationDetail(actorId: string, id: string) {
       accountCreatedAt: app.user.createdAt,
     },
     location: { stateId: app.stateId, state: app.state.name, districtId: app.districtId, district: app.district.name, districtCode: app.district.code },
+    /** Whether the PIN's first digits fit the state (MATCH / MISMATCH / UNKNOWN). Advisory only. */
+    pincodeState: pincodeStateCheck(app.pincode, app.state.code),
     answers: {
       education: app.education,
       businessExperience: app.businessExperience,

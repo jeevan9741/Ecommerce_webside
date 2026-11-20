@@ -501,6 +501,35 @@ describe("submission", () => {
     );
   });
 
+  test("a PIN code that doesn't fit the state never blocks submission; admins see an on-the-fly flag", async () => {
+    // Give the test state a real LGD code (Telangana = 36) for this check only; restored afterwards.
+    const original = (await prisma.indiaState.findUniqueOrThrow({ where: { id: loc.stateId } })).code;
+    await prisma.indiaState.update({ where: { id: loc.stateId }, data: { code: "36" } });
+    try {
+      const mismatch = await apply(await makeUser("pin-mismatch"), fields({ pincode: "695 001", districtId: loc.d2 })); // a Kerala PIN
+      assert.equal(mismatch.status, 201, JSON.stringify(mismatch.body));
+      const fits = await apply(await makeUser("pin-fits"), fields({ pincode: "500001", districtId: loc.d2 })); // Hyderabad
+      assert.equal(fits.status, 201, JSON.stringify(fits.body));
+      const detail = async (id: string) => (await call("GET", `/admin/franchise/applications/${id}`, people.admA)).body.application.pincodeState;
+      assert.equal(await detail(mismatch.body.id), "MISMATCH");
+      assert.equal(await detail(fits.body.id), "MATCH");
+      const list = (await call("GET", `/admin/franchise/applications?q=${encodeURIComponent(mismatch.body.applicationNo)}`, people.admA)).body.applications;
+      assert.equal(list[0].pincodeMismatch, true);
+      const listFits = (await call("GET", `/admin/franchise/applications?q=${encodeURIComponent(fits.body.applicationNo)}`, people.admA)).body.applications;
+      assert.equal(listFits[0].pincodeMismatch, false);
+    } finally {
+      await prisma.indiaState.update({ where: { id: loc.stateId }, data: { code: original } });
+    }
+  });
+
+  test("the PIN-to-state table is identical in the backend and the frontend", async () => {
+    const { readFileSync } = await import("node:fs");
+    const backend = readFileSync(new URL("../src/utils/pincode-state.ts", import.meta.url), "utf8");
+    const frontend = readFileSync(new URL("../../frontend/lib/pincode-state.ts", import.meta.url), "utf8");
+    const lf = (t: string) => t.split(String.fromCharCode(13)).join("");
+    assert.equal(lf(frontend), lf(backend));
+  });
+
   test("mobile and PIN code typed with spaces, dashes or +91 are accepted and stored normalised", async () => {
     const digits = uniqueMobile();
     const typed = `+91 ${digits.slice(0, 5)}-${digits.slice(5)}`;

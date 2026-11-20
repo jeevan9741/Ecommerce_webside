@@ -7,6 +7,7 @@ import { api, ApiError } from "@/lib/api";
 import { PolicyText } from "@/components/franchise/policy-text";
 import { DEMO_DISTRICTS_NOTICE } from "@/lib/franchise-landing";
 import { STATE_CLOSED_MESSAGE, STATE_RESERVED_MESSAGE, type FranchiseState } from "@/lib/franchise";
+import { pincodeStateCheck, pincodeStateWarning } from "@/lib/pincode-state";
 import {
   ACCEPT_ATTR,
   APPLICATION_STEPS,
@@ -46,6 +47,7 @@ export function FranchiseApplyForm({ email, defaultName, states, requirements, p
   const formRef = useRef<HTMLFormElement>(null);
   const [step, setStep] = useState(0);
   const [stateId, setStateId] = useState("");
+  const [pincode, setPincode] = useState("");
   const [files, setFiles] = useState<Record<string, File | null>>({});
   // Unticked by default; the server checks it again.
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
@@ -53,6 +55,8 @@ export function FranchiseApplyForm({ email, defaultName, states, requirements, p
   const [error, setError] = useState<string | null>(null);
   const chosen = useMemo(() => states.find((s) => s.id === stateId), [states, stateId]);
   const districts = chosen?.availability === "AVAILABLE" ? chosen.districts : [];
+  // Advisory only: a note when the PIN's first digits don't fit the chosen state. It never blocks submission.
+  const pinWarning = chosen && pincodeStateCheck(pincode, chosen.code) === "MISMATCH" ? pincodeStateWarning(chosen.name) : null;
   const docs = DOCUMENT_FIELDS.map((d) => ({ ...d, requirement: requirementFor(d.kind, requirements) })).filter((d) => d.requirement !== "NOT_REQUESTED");
   const last = APPLICATION_STEPS.length - 1;
 
@@ -240,7 +244,12 @@ export function FranchiseApplyForm({ email, defaultName, states, requirements, p
         </div>
         <div className="sm:max-w-xs">
           <label className="label-field" htmlFor="pincode">PIN code</label>
-          <input id="pincode" name="pincode" required inputMode="numeric" maxLength={10} autoComplete="postal-code" className="input-field" placeholder="e.g. 500001" title="A 6-digit PIN code" />
+          <input id="pincode" name="pincode" required inputMode="numeric" maxLength={10} autoComplete="postal-code" className="input-field" placeholder="e.g. 500001" title="A 6-digit PIN code" onChange={(e) => setPincode(e.target.value)} aria-describedby={pinWarning ? "pincode-state-note" : undefined} />
+          {pinWarning && (
+            <p id="pincode-state-note" role="status" className="mt-1 text-xs text-gold-400">
+              {pinWarning}
+            </p>
+          )}
         </div>
       </section>
 

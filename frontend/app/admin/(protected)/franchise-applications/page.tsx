@@ -20,6 +20,8 @@ interface Row {
   submittedAt: string;
   /** WAITING: an open request for more information; REPLIED: a reply not yet followed by a status change. */
   infoRequest: "WAITING" | "REPLIED" | null;
+  /** The PIN's first digits don't fit the state (advisory only). */
+  pincodeMismatch: boolean;
 }
 interface ListResponse {
   page: number;
@@ -180,6 +182,7 @@ export default function FranchiseApplicationsPage() {
                   <StatusBadge status={a.status} label={a.statusLabel} />
                   {a.infoRequest === "WAITING" && <span className="ml-2 rounded-full border border-gold-500/40 px-2 py-0.5 text-[11px] text-gold-400">Waiting for applicant</span>}
                   {a.infoRequest === "REPLIED" && <span className="ml-2 rounded-full border border-emerald/40 px-2 py-0.5 text-[11px] text-emerald">Reply received</span>}
+                  {a.pincodeMismatch && <span className="ml-2 rounded-full border border-gold-500/40 px-2 py-0.5 text-[11px] text-gold-400">PIN may not match state</span>}
                 </td>
                 <td className="px-4 py-3 text-parchment-muted">{formatDateTime(a.submittedAt)}</td>
               </tr>
